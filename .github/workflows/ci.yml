@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    name: Lint & types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-groups
+      - run: uv run ruff check --output-format=github .
+      - run: uv run ruff format --check .
+      - run: uv run mypy backend mcp_server scripts
+
+  test:
+    name: Tests (unit + integration + contract + security)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: clinica
+          POSTGRES_PASSWORD: clinica_ci
+          POSTGRES_DB: clinica_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U clinica -d clinica_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://clinica:clinica_ci@localhost:5432/clinica_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-groups
+      - name: Run test suite
+        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=95
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
+
+  e2e:
+    name: End-to-end over the real stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-groups
+      - name: Bring the stack up
+        # Exercises what the README promises: one command, everything running.
+        run: docker compose up -d --wait
+      - name: Walk the full client path (discovery → PKCE → tools → approval)
+        run: uv run python scripts/smoke.py
+      - name: The MCP Inspector can connect and list the catalogue
+        run: |
+          TOKEN=$(uv run python scripts/obtener_token.py --scope "read write clinical")
+          npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
+            --transport http --header "Authorization: Bearer $TOKEN" --method tools/list \
+            | tee /tmp/tools.json
+          test "$(jq '.tools | length' /tmp/tools.json)" -eq 14
+      - name: Show the logs when something failed
+        if: failure()
+        run: docker compose logs
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-groups
+      - name: Static analysis (bandit)
+        run: uv run bandit -q -r backend mcp_server
+      - name: Known vulnerabilities in dependencies
+        run: uv run pip-audit
+      - name: Fail if a secret-shaped literal reached the source
+        run: |
+          # Cheap guard: the repo must never contain a real credential.
+          ! grep -rInE '(SECRET|PASSWORD|TOKEN|API_KEY)\s*=\s*"(?!.*(dev|example|test|change-me|placeholder))[A-Za-z0-9/+=]{16,}"' \
+            --include="*.py" backend mcp_server || (echo "Possible hardcoded secret" && exit 1)
+      - name: Fail if a private key reached the source
+        run: |
+          # Anchored to column 0: that is where a real PEM header sits. A quoted
+          # literal inside a test is indented, so this does not trip on it.
+          ! grep -rIlE '^-----BEGIN [A-Z ]*PRIVATE KEY-----' . \
+              --exclude-dir=.git --exclude-dir=.venv --exclude-dir=node_modules \
+            || (echo "Private key material in the repository" && exit 1)

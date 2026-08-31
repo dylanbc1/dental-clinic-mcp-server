@@ -1,0 +1,160 @@
+# The whole stack in one command: `docker compose up`.
+#
+#   postgres  the database
+#   backend   the domain API      http://localhost:8000
+#   oauth     authorization server http://localhost:9000
+#   mcp       the MCP server       http://localhost:8080/mcp
+#
+# Profiles:
+#   keycloak   `docker compose --profile keycloak up` starts a real Keycloak IdP
+#              alongside, to demonstrate that the auth layer is pluggable: the
+#              resource server needs no code change, only OAUTH_ISSUER and
+#              OAUTH_JWKS_URL repointed. See docs/security.md.
+
+name: clinica-mcp
+
+x-python: &python
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment: &entorno-comun
+    APP_ENV: ${APP_ENV:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-clinica}:${POSTGRES_PASSWORD:-clinica_dev_only}@postgres:5432/${POSTGRES_DB:-clinica}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clinica}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clinica_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-clinica}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the dedicated `clinica_test` database on first boot.
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      # The backend must not start before Postgres actually accepts queries.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clinica} -d ${POSTGRES_DB:-clinica}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    <<: *python
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m backend.seed --if-empty &&
+             uvicorn backend.api:app --host 0.0.0.0 --port 8000"
+    environment:
+      <<: *entorno-comun
+      # Inside the container the service must listen on every interface, but
+      # that is a deployment decision, not a code default.
+      BACKEND_HOST: 0.0.0.0
+      SEED_VALUE: ${SEED_VALUE:-20260831}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Without this, `up --wait` returns while migrations and the seed are
+      # still running and the API is not yet accepting requests.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://localhost:8000/listo',
+          timeout=3).status == 200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  oauth:
+    <<: *python
+    command: python -m mcp_server.oauth.servidor
+    environment:
+      <<: *entorno-comun
+      # The issuer is the *public* identity: it lands in the `iss` claim and in
+      # the discovery document, so it must be what a client can actually reach.
+      OAUTH_HOST: 0.0.0.0
+      OAUTH_ISSUER: ${OAUTH_ISSUER:-http://localhost:9000}
+      OAUTH_AUDIENCE: ${OAUTH_AUDIENCE:-http://localhost:8080}
+      # Dev only. A real deployment mounts a persisted key; without one, every
+      # restart invalidates every outstanding token, which is correct for a
+      # key nobody persisted on purpose.
+      OAUTH_PRIVATE_KEY_PEM: ${OAUTH_PRIVATE_KEY_PEM:-}
+    ports:
+      - "${OAUTH_PORT:-9000}:9000"
+
+  mcp:
+    <<: *python
+    command: python -m mcp_server.server
+    environment:
+      <<: *entorno-comun
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8080
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:8080}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost,127.0.0.1,mcp}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:6274}
+      BACKEND_BASE_URL: http://backend:8000
+      OAUTH_ISSUER: ${OAUTH_ISSUER:-http://localhost:9000}
+      OAUTH_AUDIENCE: ${OAUTH_AUDIENCE:-http://localhost:8080}
+      # Public issuer vs internal fetch URL: `localhost:9000` is not resolvable
+      # from inside this container, but the `iss` claim must still say it.
+      OAUTH_JWKS_URL: http://oauth:9000/jwks.json
+      APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
+    ports:
+      - "${MCP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+      oauth:
+        condition: service_started
+
+  # --- optional: a real IdP instead of the in-repo one --------------------- #
+  keycloak:
+    profiles: ["keycloak"]
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm --http-port=9100
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./scripts/keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "9100:9100"
+
+  # A second MCP server, identical code, trusting Keycloak instead of the
+  # in-repo authorization server. Runs side by side with the one on 8080, which
+  # is what makes "the auth layer is pluggable" checkable rather than claimed.
+  mcp-keycloak:
+    <<: *python
+    profiles: ["keycloak"]
+    command: python -m mcp_server.server
+    environment:
+      <<: *entorno-comun
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8081
+      MCP_PUBLIC_URL: http://localhost:8081
+      MCP_ALLOWED_HOSTS: localhost,127.0.0.1,mcp-keycloak
+      MCP_ALLOWED_ORIGINS: http://localhost:8081,http://localhost:6274
+      BACKEND_BASE_URL: http://backend:8000
+      OAUTH_ISSUER: http://localhost:9100/realms/clinica
+      OAUTH_AUDIENCE: http://localhost:8081
+      OAUTH_JWKS_URL: http://keycloak:9100/realms/clinica/protocol/openid-connect/certs
+      APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
+    ports:
+      - "8081:8081"
+    depends_on:
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+volumes:
+  pgdata:

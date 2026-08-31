@@ -1,0 +1,111 @@
+[project]
+name = "clinica-mcp-server"
+version = "0.1.0"
+description = "Production-grade MCP server for a dental clinic: appointments, affiliation checks and accounts receivable."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    # --- MCP layer (M3+) ---
+    "mcp>=2.1,<3",
+    # --- Domain backend ---
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary,pool]>=3.2",
+    "alembic>=1.14",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    # --- Security (M5) ---
+    "pyjwt[crypto]>=2.10",
+    "cryptography>=44",
+    # --- Observability ---
+    "structlog>=24.4",
+    # --- Mock data ---
+    "faker>=33",
+    "httpx>=0.28",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.122",
+    "testcontainers[postgres]>=4.9",
+    "ruff>=0.8",
+    "mypy>=1.14",
+    "bandit>=1.8",
+    "pip-audit>=2.7",
+    "types-pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend", "mcp_server", "scripts"]
+
+# ---------------------------------------------------------------- tooling ---
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["backend", "mcp_server", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "S",             # bandit-style security
+    "C4", "SIM",     # comprehensions / simplify
+    "RUF",
+    "ANN",           # missing annotations
+    "TID",           # tidy imports
+]
+ignore = [
+    "ANN401",  # Any is sometimes the honest type
+    "B008",    # FastAPI/Depends idiom
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend", "mcp_server", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# S105/S106: OAuth protocol constants and literal test tokens, not credentials.
+"tests/**" = ["S101", "S105", "S106", "ANN", "RUF002"]        # asserts and loose typing are fine in tests
+"backend/migrations/**" = ["ANN", "E501", "I001"]
+"backend/seed.py" = ["S311"]        # Faker/random is not cryptographic here, on purpose
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+exclude = ["backend/migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["testcontainers.*", "faker.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: needs a live PostgreSQL (docker)",
+    "contract: exercises the MCP protocol surface",
+    "security: exercises an explicit security control",
+]
+
+[tool.coverage.run]
+source = ["backend", "mcp_server"]
+omit = ["backend/migrations/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
