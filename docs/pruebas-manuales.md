@@ -15,6 +15,12 @@ make up
 ```
 
 `make up` debe terminar en ~15 segundos con los cuatro servicios en `healthy`.
+
+> **Con qué cliente probar.** El MCP Inspector todavía no habla la spec
+> 2026-07-28, así que sirve para las lecturas y el catálogo pero **no puede
+> responder las confirmaciones**. Para las escrituras usa `make consola`, un
+> cliente interactivo donde tú respondes. Los bloques B5 y B6 usan `curl` para
+> que veas el protocolo crudo.
 La primera vez tarda más porque construye las imágenes.
 
 ---

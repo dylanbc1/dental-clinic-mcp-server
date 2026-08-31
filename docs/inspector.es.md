@@ -2,13 +2,22 @@
 
 > 🇬🇧 [Read it in English](./inspector.md)
 
-El Inspector es la forma más rápida de comprobar que las capas de seguridad son
-reales y no solo están descritas. Todo lo de abajo es el recorrido manual de lo
-que `scripts/smoke.py` automatiza.
+> **Antes de empezar, una limitación real.** El Inspector todavía no habla la
+> spec 2026-07-28: su SDK de JavaScript va por detrás del de Python, así que
+> negocia una versión anterior y **no puede responder un `input_required`**. Las
+> herramientas de lectura funcionan perfectamente; las de escritura te devolverán
+> `CLIENTE_SIN_CONFIRMACION` explicando exactamente eso.
+>
+> Para las de escritura usa `make consola`, un cliente interactivo donde tú
+> respondes las confirmaciones. Los pasos 4 y 5 de abajo son con la consola.
+
+El Inspector es la forma más rápida de ver el catálogo y las capas 1, 2, 4 y 5.
+Todo lo de abajo es el recorrido manual de lo que `scripts/smoke.py` automatiza.
 
 ```bash
 make up            # postgres + backend + authorization server + mcp
 make inspector     # abre el Inspector, ya con un token válido
+make consola       # cliente interactivo, para las tools con confirmación
 ```
 
 `make inspector` ejecuta primero el flujo completo de OAuth 2.1 + PKCE y le pasa
@@ -48,22 +57,25 @@ También se rechaza: los scopes no anidan.
 
 ### 4 · Una tool de escritura no cambia nada por sí sola (capa 3)
 
-Con `--scope "read write"`, llama `consultar_disponibilidad`, toma un `slot_id` y
-llama `agendar_cita`.
+```bash
+make consola
+› consultar_disponibilidad {"limite": 3}
+› agendar_cita {"paciente_id": 20, "slot_id": SLOT_ID}
+```
 
-El Inspector te muestra un **prompt de elicitación** en vez de un resultado: el
-servidor respondió `input_required` describiendo qué pasaría. No ha cambiado
-nada. Vuelve a llamar `consultar_disponibilidad`: el cupo sigue libre.
+La consola imprime la pregunta que devolvió el servidor en vez de un resultado:
+respondió `input_required` describiendo qué pasaría, y te dice cuántos bytes pesa
+el estado sellado. No ha cambiado nada. Vuelve a pedir disponibilidad y el cupo
+sigue libre.
 
 ### 5 · Solo tu respuesta ejecuta (capa 3)
 
-Responde el prompt con `confirmado: true`. El Inspector reenvía la misma llamada
-con tu respuesta y el `requestState` sellado, y ahora la cita existe.
+Responde `s`. La consola reenvía la misma llamada con tu respuesta y el
+`requestState` sellado, y ahora la cita existe.
 
-Responde `false` sobre un prompt nuevo y obtienes `OPERACION_NO_APROBADA` sin
-tocar nada. Declina el prompt directamente y la llamada aborta igual.
+Responde cualquier otra cosa y obtienes `OPERACION_NO_APROBADA` sin tocar nada.
 
-Lo interesante es lo que el Inspector nunca te muestra: la confirmación **no es
+Lo interesante es lo que ningún cliente te muestra: la confirmación **no es
 un parámetro de la tool**. Mira el esquema en el listado. No hay campo para
 ella, que es justamente por lo que un modelo no puede aprobar en tu nombre.
 

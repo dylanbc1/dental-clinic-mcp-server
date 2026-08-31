@@ -411,3 +411,49 @@ class TestAuditoria:
         with como(SUJETO, ESCRITURA):
             pregunta = await mcp.preguntar("agendar_cita", args)
         assert pregunta["requestState"] not in str(ctx.auditor.eventos)
+
+
+class TestUnClienteQueNoPuedeConfirmar:
+    """Not every client speaks 2026-07-28 yet, and one that does not deserves to
+    be told which half of this server it can still use."""
+
+    async def test_las_escrituras_se_rechazan_con_un_mensaje_util(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        args = {"paciente_id": escenario.ana_id, "slot_id": escenario.slots_general[0]}
+        with como(SUJETO, ESCRITURA), pytest.raises(ErrorDeHerramienta) as exc:
+            await mcp_sin_elicitacion.llamar("agendar_cita", args)
+
+        mensaje = exc.value.texto
+        assert "CLIENTE_SIN_CONFIRMACION" in mensaje
+        # Not a transport error the reader cannot act on.
+        assert "back-channel" not in mensaje
+        assert "elicitation" in mensaje
+        assert "lectura funcionan" in mensaje
+
+    async def test_las_lecturas_siguen_funcionando(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            pacientes = await mcp_sin_elicitacion.llamar(
+                "buscar_paciente", {"documento": escenario.ana_documento}
+            )
+        assert [p["id"] for p in pacientes] == [escenario.ana_id]
+
+    async def test_la_clinica_tambien_se_rechaza(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        with como(SUJETO, [*ESCRITURA, "clinical"]), pytest.raises(ErrorDeHerramienta) as exc:
+            await mcp_sin_elicitacion.llamar(
+                "registrar_motivo_consulta", {"cita_id": 1, "motivo": "dolor"}
+            )
+        assert "CLIENTE_SIN_CONFIRMACION" in exc.value.texto
+
+    async def test_el_rechazo_nombra_el_protocolo_negociado(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        """So the reader can tell an old client from a misconfigured one."""
+        args = {"paciente_id": escenario.ana_id, "slot_id": escenario.slots_general[0]}
+        with como(SUJETO, ESCRITURA), pytest.raises(ErrorDeHerramienta) as exc:
+            await mcp_sin_elicitacion.llamar("agendar_cita", args)
+        assert "protocolo_negociado" in exc.value.texto

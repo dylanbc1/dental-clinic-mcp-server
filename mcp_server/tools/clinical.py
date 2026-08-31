@@ -20,11 +20,15 @@ Three gates stack, and each is necessary because the others do not cover it:
 # naming a closure-local resolver cannot be resolved from module globals.
 from typing import Annotated, Any
 
-from mcp.server.mcpserver import Elicit, MCPServer, Resolve
+from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from pydantic import Field
 
 from mcp_server.auth import Scope
-from mcp_server.confirmacion import Confirmacion, redactar_propuesta
+from mcp_server.confirmacion import (
+    Confirmacion,
+    exigir_cliente_que_confirma,
+    redactar_propuesta,
+)
 from mcp_server.contexto import Contexto
 from mcp_server.tools.write import exigir_aprobacion
 
@@ -32,7 +36,10 @@ SCOPE = Scope.CLINICAL
 
 
 def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
-    async def _confirmar_motivo(cita_id: int, motivo: str) -> Elicit[Confirmacion]:
+    async def _confirmar_motivo(
+        contexto: Context, cita_id: int, motivo: str
+    ) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "motivo": motivo}
         identidad = ctx.autorizar_auditando("registrar_motivo_consulta", SCOPE, argumentos)
         async with ctx.auditar_fallo("registrar_motivo_consulta", SCOPE, argumentos, identidad):

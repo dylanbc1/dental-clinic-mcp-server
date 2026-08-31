@@ -12,7 +12,7 @@
   <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="cobertura 99%" src="https://img.shields.io/badge/cobertura-99%25-1f8b4c">
-  <img alt="809 pruebas" src="https://img.shields.io/badge/pruebas-809-1f8b4c">
+  <img alt="813 pruebas" src="https://img.shields.io/badge/pruebas-813-1f8b4c">
 </p>
 
 ```bash
@@ -180,9 +180,14 @@ make smoke                # recorre todo el camino del cliente e imprime cada pa
 ### Conectar el MCP Inspector
 
 ```bash
-make inspector            # abre el Inspector, ya autenticado
-make inspector-cli        # o lista el catálogo sin navegador
+make consola              # cliente interactivo: tú respondes las confirmaciones
+make inspector            # el Inspector, para lecturas y el catálogo
 ```
+
+`make consola` es el que quieres. El SDK de JavaScript del Inspector todavía no
+habla la spec 2026-07-28, así que no puede responder un `input_required`: las
+lecturas funcionan ahí, las escrituras devuelven `CLIENTE_SIN_CONFIRMACION`
+explicando por qué.
 
 `make token` imprime un access token obtenido con el flujo PKCE real, para curl
 o para pegarlo en cualquier cliente. Prueba a emitir un token solo-`read` y
@@ -231,7 +236,7 @@ zona), el MCP server real, el Authorization Server real.
 | `tests/security` | **La matriz completa 13 × 3 de scopes** sobre el cable, el estado sellado bajo ataque (alteración, reuso cruzado, principal equivocado, expiración, rotación de claves), PKCE obligatorio, audiencia del JWT y `alg=none`, guardas de Host/Origin, ausencia de estado, rate limiting |
 | `scripts/smoke.py` | El camino completo del cliente sobre HTTP real, ejecutado en CI |
 
-809 pruebas: 350 unitarias, 231 de integración, 82 de contrato, 146 de seguridad.
+813 pruebas: 350 unitarias, 231 de integración, 86 de contrato, 146 de seguridad.
 **¿Quieres comprobarlo tú mismo?** [`docs/pruebas-manuales.md`](./docs/pruebas-manuales.md)
 es un recorrido de 25 minutos con trece pruebas, cada una diciendo qué correr y
 qué deberías ver. [`docs/inspector.es.md`](./docs/inspector.es.md) cubre lo mismo

@@ -2,13 +2,21 @@
 
 > 🇪🇸 [Léelo en español](./inspector.es.md)
 
-The Inspector is the fastest way to see that the security layers are real rather
-than described. Everything below is a manual walkthrough of what
-`scripts/smoke.py` automates.
+> **A real limitation, first.** The Inspector does not speak the 2026-07-28 spec
+> yet: its JavaScript SDK trails the Python one, so it negotiates an older
+> version and **cannot answer an `input_required`**. Read tools work perfectly;
+> write tools return `CLIENTE_SIN_CONFIRMACION` saying exactly that.
+>
+> For the write tools use `make consola`, an interactive client where you answer
+> the confirmations yourself. Steps 4 and 5 below use it.
+
+The Inspector is the fastest way to see the catalogue and layers 1, 2, 4 and 5.
+Everything below is a manual walkthrough of what `scripts/smoke.py` automates.
 
 ```bash
 make up            # postgres + backend + authorization server + mcp
 make inspector     # opens the Inspector, already carrying a valid token
+make consola       # interactive client, for the tools that ask for confirmation
 ```
 
 `make inspector` runs the full OAuth 2.1 + PKCE flow first and passes the
@@ -48,24 +56,25 @@ refused: the scopes do not nest.
 
 ### 4 · A write tool changes nothing on its own (layer 3)
 
-With `--scope "read write"`, call `consultar_disponibilidad`, take a `slot_id`,
-then call `agendar_cita`.
+```bash
+make consola
+› consultar_disponibilidad {"limite": 3}
+› agendar_cita {"paciente_id": 20, "slot_id": SLOT_ID}
+```
 
-The Inspector shows you an **elicitation prompt** rather than a result: the
-server answered `input_required`, describing what would happen. Nothing has
-changed. Call `consultar_disponibilidad` again: the slot is still free.
+The console prints the question the server sent back instead of a result: the
+server answered `input_required`, describing what would happen, and it says how
+many bytes the sealed state is. Nothing has changed. Ask for availability again
+and the slot is still free.
 
 ### 5 · Only your answer executes (layer 3)
 
-Answer the prompt with `confirmado: true`. The Inspector resends the same call
-carrying your answer and the sealed `requestState`, and now the appointment
-exists.
+Answer `s`. The console resends the same call carrying your answer and the
+sealed `requestState`, and now the appointment exists.
 
-Answer `false` instead, on a fresh prompt, and you get `OPERACION_NO_APROBADA`
-with nothing touched. Decline the prompt outright and the call aborts the same
-way.
+Answer anything else and you get `OPERACION_NO_APROBADA` with nothing touched.
 
-The interesting part is what the Inspector never shows you: the confirmation is
+The interesting part is what neither client ever shows you: the confirmation is
 **not a parameter of the tool**. Look at the schema in the tools list. There is
 no field for it, which is precisely why a model cannot approve on your behalf.
 

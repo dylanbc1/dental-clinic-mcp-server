@@ -15,6 +15,11 @@ make up
 ```
 
 `make up` should finish in about 15 seconds with all four services `healthy`.
+
+> **Which client to use.** The MCP Inspector does not speak the 2026-07-28 spec
+> yet, so it covers reads and the catalogue but **cannot answer the
+> confirmations**. For writes use `make consola`, an interactive client where you
+> answer. Blocks B5 and B6 use `curl` so you see the raw protocol.
 The first run takes longer because it builds the images.
 
 ---

@@ -476,9 +476,12 @@ class ClienteMCP:
     testing.
     """
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
+    def __init__(self, http: httpx.AsyncClient, *, puede_confirmar: bool = True) -> None:
         self.http = http
         self.id = 0
+        #: A client that does not declare `elicitation` stands in for one on an
+        #: older spec, which cannot answer an `input_required`.
+        self.puede_confirmar = puede_confirmar
 
     async def _rpc(self, metodo: str, params: dict[str, Any]) -> Any:
         self.id += 1
@@ -491,7 +494,7 @@ class ClienteMCP:
                 "jsonrpc": "2.0",
                 "id": self.id,
                 "method": metodo,
-                "params": {**params, **SOBRE_MCP},
+                "params": {**params, **self._sobre()},
             },
             headers=cabeceras,
         )
@@ -504,6 +507,15 @@ class ClienteMCP:
         if "error" in datos:
             raise ErrorDeHerramienta(json.dumps(datos["error"], ensure_ascii=False))
         return datos["result"]
+
+    def _sobre(self) -> dict[str, Any]:
+        capacidades: dict[str, Any] = {"elicitation": {}} if self.puede_confirmar else {}
+        return {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": capacidades,
+            }
+        }
 
     @staticmethod
     def _desenvolver(resultado: dict[str, Any]) -> Any:
@@ -577,6 +589,18 @@ async def servidor_http(ctx: Contexto, ajustes: Settings) -> AsyncIterator[Clien
             transport=transporte, base_url="http://localhost:8080"
         ) as http:
             yield ClienteMCP(http)
+
+
+@pytest.fixture
+async def mcp_sin_elicitacion(ctx: Contexto, ajustes_mcp: Settings) -> AsyncIterator[ClienteMCP]:
+    """A client that cannot ask a person anything, like an older one."""
+    app = construir_app(ctx, config=ajustes_mcp, con_auth=False)
+    async with LifespanManager(app):
+        transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transporte, base_url="http://localhost:8080"
+        ) as http:
+            yield ClienteMCP(http, puede_confirmar=False)
 
 
 @pytest.fixture

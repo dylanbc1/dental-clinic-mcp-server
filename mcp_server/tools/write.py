@@ -22,11 +22,15 @@ it.
 # naming a closure-local resolver cannot be resolved from module globals.
 from typing import Annotated, Any
 
-from mcp.server.mcpserver import Elicit, MCPServer, Resolve
+from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from pydantic import Field
 
 from mcp_server.auth import Identidad, Scope
-from mcp_server.confirmacion import Confirmacion, redactar_propuesta
+from mcp_server.confirmacion import (
+    Confirmacion,
+    exigir_cliente_que_confirma,
+    redactar_propuesta,
+)
 from mcp_server.contexto import Contexto
 from mcp_server.errores import ErrorHerramienta
 
@@ -116,11 +120,13 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     # --- agendar_cita ---------------------------------------------------- #
 
     async def _confirmar_agendar(
+        contexto: Context,
         paciente_id: int,
         slot_id: int,
         especialidad_esperada: str | None = None,
         idempotency_key: str | None = None,
     ) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {
             "paciente_id": paciente_id,
             "slot_id": slot_id,
@@ -212,7 +218,8 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     # --- confirmar_cita -------------------------------------------------- #
 
-    async def _confirmar_confirmar(cita_id: int) -> Elicit[Confirmacion]:
+    async def _confirmar_confirmar(contexto: Context, cita_id: int) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id}
         identidad = ctx.autorizar_auditando("confirmar_cita", SCOPE, argumentos)
         async with ctx.auditar_fallo("confirmar_cita", SCOPE, argumentos, identidad):
@@ -249,7 +256,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     # --- cancelar_cita --------------------------------------------------- #
 
-    async def _confirmar_cancelar(cita_id: int, motivo: str) -> Elicit[Confirmacion]:
+    async def _confirmar_cancelar(
+        contexto: Context, cita_id: int, motivo: str
+    ) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "motivo": motivo}
         identidad = ctx.autorizar_auditando("cancelar_cita", SCOPE, argumentos)
         async with ctx.auditar_fallo("cancelar_cita", SCOPE, argumentos, identidad):
@@ -306,8 +316,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     # --- reprogramar_cita ------------------------------------------------ #
 
     async def _confirmar_reprogramar(
-        cita_id: int, nuevo_slot_id: int, motivo: str | None = None
+        contexto: Context, cita_id: int, nuevo_slot_id: int, motivo: str | None = None
     ) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "nuevo_slot_id": nuevo_slot_id, "motivo": motivo}
         identidad = ctx.autorizar_auditando("reprogramar_cita", SCOPE, argumentos)
         async with ctx.auditar_fallo("reprogramar_cita", SCOPE, argumentos, identidad):
@@ -361,7 +372,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     # --- registrar_asistencia -------------------------------------------- #
 
-    async def _confirmar_asistencia(cita_id: int, estado: str) -> Elicit[Confirmacion]:
+    async def _confirmar_asistencia(
+        contexto: Context, cita_id: int, estado: str
+    ) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "estado": estado}
         identidad = ctx.autorizar_auditando("registrar_asistencia", SCOPE, argumentos)
         async with ctx.auditar_fallo("registrar_asistencia", SCOPE, argumentos, identidad):
@@ -418,7 +432,8 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     # --- ofrecer_cupo_lista_espera --------------------------------------- #
 
-    async def _confirmar_ofrecer(slot_id: int) -> Elicit[Confirmacion]:
+    async def _confirmar_ofrecer(contexto: Context, slot_id: int) -> Elicit[Confirmacion]:
+        exigir_cliente_que_confirma(contexto)
         argumentos = {"slot_id": slot_id}
         identidad = ctx.autorizar_auditando("ofrecer_cupo_lista_espera", SCOPE, argumentos)
         return preguntar(

@@ -27,7 +27,38 @@ Three properties come from the shape rather than from code we wrote:
 
 from __future__ import annotations
 
+from mcp.server.mcpserver import Context
 from pydantic import BaseModel, Field
+
+from mcp_server.errores import ErrorHerramienta
+
+
+def exigir_cliente_que_confirma(contexto: Context) -> None:
+    """Refuse clearly when the client cannot ask a person anything.
+
+    Without this the call dies deep in the transport with "no back-channel for
+    server-initiated requests", which tells the user nothing they can act on.
+    A client that cannot elicit is not a broken client, it is an older one, and
+    it deserves to be told which half of this server it can still use.
+    """
+    capacidades = contexto.client_capabilities
+    if capacidades is not None and capacidades.elicitation is not None:
+        return
+    raise ErrorHerramienta(
+        "CLIENTE_SIN_CONFIRMACION",
+        "Tu cliente MCP no puede pedirle una confirmación a una persona, y este "
+        "servidor no ejecuta escrituras sin ella.",
+        sugerencia=(
+            "Las herramientas de lectura funcionan con normalidad. Para las de "
+            "escritura necesitas un cliente sobre la spec 2026-07-28 que declare la "
+            "capacidad 'elicitation'. Si estás explorando, usa "
+            "`uv run python scripts/consola.py`."
+        ),
+        detalles={
+            "protocolo_negociado": contexto.protocol_version,
+            "capacidad_requerida": "elicitation",
+        },
+    )
 
 
 class Confirmacion(BaseModel):

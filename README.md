@@ -12,7 +12,7 @@
   <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="coverage 99%" src="https://img.shields.io/badge/coverage-99%25-1f8b4c">
-  <img alt="809 tests" src="https://img.shields.io/badge/tests-809-1f8b4c">
+  <img alt="813 tests" src="https://img.shields.io/badge/tests-813-1f8b4c">
 </p>
 
 ```bash
@@ -179,9 +179,13 @@ make smoke                # walks the whole client path and prints each step
 ### Connect the MCP Inspector
 
 ```bash
-make inspector            # opens the Inspector, already authenticated
-make inspector-cli        # or list the catalogue without a browser
+make consola              # interactive client: you answer the confirmations
+make inspector            # the Inspector, for reads and the catalogue
 ```
+
+`make consola` is the one to reach for. The Inspector's JavaScript SDK does not
+speak the 2026-07-28 spec yet, so it cannot answer an `input_required`: read
+tools work there, write tools return `CLIENTE_SIN_CONFIRMACION` explaining why.
 
 `make token` prints an access token obtained through the real PKCE flow, for
 curl or for pasting into any client. Try issuing a `read`-only token and calling
@@ -228,7 +232,7 @@ exist), the real MCP server, the real authorization server.
 | `tests/security` | **The full 13 × 3 scope matrix** over the wire, the sealed request state under attack (tampering, cross-operation reuse, wrong principal, expiry, key rotation), PKCE enforcement, JWT audience and `alg=none`, Host/Origin guards, statelessness, rate limiting |
 | `scripts/smoke.py` | The whole client path over real HTTP, run in CI |
 
-809 tests: 350 unit, 231 integration, 82 contract, 146 security.
+813 tests: 350 unit, 231 integration, 86 contract, 146 security.
 **Want to check it yourself?** [`docs/manual-testing.md`](./docs/manual-testing.md)
 is a 25-minute walkthrough of thirteen checks, each saying what to run and what
 you should see. [`docs/inspector.md`](./docs/inspector.md) covers the same ground

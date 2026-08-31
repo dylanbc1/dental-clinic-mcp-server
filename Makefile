@@ -45,7 +45,10 @@ token: ## Print an access token obtained through the real PKCE flow
 smoke: ## End-to-end check against the running stack
 	uv run python scripts/smoke.py
 
-inspector: ## Open the MCP Inspector against the running server, already authenticated
+consola: ## Interactive client: you answer the confirmations yourself
+	uv run python scripts/consola.py
+
+inspector: ## Open the MCP Inspector (read tools only, see docs/inspector.md)
 	@TOKEN=$$(uv run python scripts/obtener_token.py --scope "read write clinical"); \
 		npx -y @modelcontextprotocol/inspector \
 			--transport http \
@@ -87,5 +90,5 @@ audit: ## Dependency and static security audit
 
 check: lint test audit ## Everything CI runs
 
-.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke inspector \
+.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke consola inspector \
 	inspector-cli lint fmt test test-fast test-unit test-security test-contract audit check
