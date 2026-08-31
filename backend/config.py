@@ -59,6 +59,12 @@ class Settings(BaseSettings):
 
     # Protects the database from an agent stuck in a retry loop, a far more
     # common failure than a hostile client.
+    #: Stateless transport. Nothing here needs a session: identity comes from
+    #: the token and a pending approval travels in the confirmation token, so a
+    #: session would only be state to lose. Configurable because a future
+    #: feature could need resumability.
+    mcp_stateless: bool = True
+
     #: Master switch for OAuth. Defaults to on so a missing setting fails
     #: closed; turn it off only for local work without an authorization server.
     mcp_auth_enabled: bool = True

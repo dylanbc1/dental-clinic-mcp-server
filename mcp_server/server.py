@@ -189,6 +189,13 @@ def construir_app(
     servidor = crear_servidor(ctx, config=ajustes, con_auth=con_auth)
     app = servidor.streamable_http_app(
         streamable_http_path="/mcp",
+        # Stateless on purpose. A stateful application does not require a
+        # stateful transport, and this one carries everything it needs in the
+        # request: the OAuth token identifies the caller, and the approval token
+        # carries the pending operation. Keeping a session would mean building
+        # infrastructure to preserve a conversation the application never asked
+        # for, and it pins every client to one replica.
+        stateless_http=ajustes.mcp_stateless,
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=ajustes.mcp_allowed_hosts,

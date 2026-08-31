@@ -381,3 +381,58 @@ class TestMetadataDelRecursoProtegido:
         respuesta = cliente.post("/mcp", json=INICIALIZAR, headers=CABECERAS_MCP)
         cabecera = respuesta.headers["www-authenticate"]
         assert "/.well-known/oauth-protected-resource" in cabecera
+
+
+class TestTransporteSinEstado:
+    """Stateful application, stateless transport.
+
+    Nothing here needs a session. Identity comes from the OAuth token and a
+    pending approval travels inside its own signed token, so the transport has
+    no conversation to preserve. Keeping one would mean building infrastructure
+    for state the application never asked for, and pinning every client to the
+    replica that happens to hold it.
+    """
+
+    def test_no_emite_identificador_de_sesion(self, cliente_sin_auth: TestClient) -> None:
+        respuesta = cliente_sin_auth.post("/mcp", json=INICIALIZAR, headers=CABECERAS_MCP)
+        assert respuesta.status_code == 200
+        assert "mcp-session-id" not in {k.lower() for k in respuesta.headers}
+
+    def test_una_llamada_en_frio_funciona_sin_initialize_previo(
+        self, cliente_sin_auth: TestClient
+    ) -> None:
+        """The property that lets any replica serve any request."""
+        respuesta = cliente_sin_auth.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 7, "method": "tools/list"},
+            headers=CABECERAS_MCP,
+        )
+        assert respuesta.status_code == 200
+        assert "buscar_paciente" in respuesta.text
+
+    def test_no_exige_arrastrar_una_sesion_entre_llamadas(
+        self, cliente_sin_auth: TestClient
+    ) -> None:
+        """A stateful transport answers the second call with 400 unless it
+        carries the session it issued on the first."""
+        cliente_sin_auth.post("/mcp", json=INICIALIZAR, headers=CABECERAS_MCP)
+        segunda = cliente_sin_auth.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 8, "method": "tools/list"},
+            headers=CABECERAS_MCP,
+        )
+        assert segunda.status_code == 200
+
+    def test_la_configuracion_lo_deja_explicito(self, ajustes: Settings) -> None:
+        assert ajustes.mcp_stateless is True
+
+    def test_se_puede_volver_con_sesion_si_algo_lo_necesitara(
+        self, ctx_sin_backend: Contexto, ajustes: Settings
+    ) -> None:
+        """Configurable rather than hard-coded: a future feature needing
+        resumability should not require a rewrite."""
+        con_sesion = ajustes.model_copy(update={"mcp_stateless": False})
+        app = construir_app(ctx_sin_backend, config=con_sesion, con_auth=False)
+        with TestClient(app, base_url=PUBLICA) as c:
+            respuesta = c.post("/mcp", json=INICIALIZAR, headers=CABECERAS_MCP)
+        assert "mcp-session-id" in {k.lower() for k in respuesta.headers}

@@ -39,6 +39,8 @@ class SesionMCP:
 
     def _rpc(self, metodo: str, params: dict[str, Any] | None = None) -> Any:
         self.id += 1
+        # The session header is echoed back if the server issues one. Against a
+        # stateless server it never does, and every call stands alone.
         cabeceras = {"Mcp-Session-Id": self.sesion} if self.sesion else {}
         respuesta = self.cliente.post(
             self.url,
@@ -118,10 +120,11 @@ def main() -> int:
     token = obtener_token(args.issuer, "read write", "recepcion@clinica.local")
     print(f"  access_token: {token[:40]}… ({len(token)} bytes)")
 
-    paso("4 · Sesión MCP")
+    paso("4 · Sesión MCP (Streamable HTTP, sin estado)")
     sesion = SesionMCP(args.mcp, token)
     info = sesion.initialize()
     print(f"  servidor: {info['serverInfo']['name']} v{info['serverInfo']['version']}")
+    print(f"  Mcp-Session-Id: {sesion.sesion or 'ninguno, el transporte no guarda estado'}")
 
     tools = sesion._rpc("tools/list")["tools"]
     print(f"  tools: {len(tools)} · {', '.join(t['name'] for t in tools[:4])}…")
