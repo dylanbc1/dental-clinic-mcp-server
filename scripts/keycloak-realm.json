@@ -1,0 +1,146 @@
+{
+  "realm": "clinica",
+  "enabled": true,
+  "displayName": "Clínica Odontológica",
+  "clientScopes": [
+    {
+      "name": "read",
+      "description": "Consultas sin efectos secundarios",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      }
+    },
+    {
+      "name": "write",
+      "description": "Modificar la agenda y la cartera (con aprobación humana)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      }
+    },
+    {
+      "name": "clinical",
+      "description": "Registrar datos clínicos (Res. 2654/2019)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "clinica-demo",
+      "name": "Cliente MCP de demostración",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:6274/oauth/callback",
+        "http://localhost:8080/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:6274",
+        "http://localhost:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": [
+        "read"
+      ],
+      "optionalClientScopes": [
+        "write",
+        "clinical"
+      ],
+      "protocolMappers": [
+        {
+          "name": "audiencia-mcp",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "http://localhost:8081",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "clinica-service",
+      "name": "Cuenta de servicio para verificar el cambio de IdP",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-only-secret-not-a-credential",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "read"
+      ],
+      "optionalClientScopes": [
+        "write",
+        "clinical"
+      ],
+      "attributes": {
+        "access.token.lifespan": "900"
+      },
+      "protocolMappers": [
+        {
+          "name": "audiencia-mcp",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "http://localhost:8081",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "recepcion",
+      "enabled": true,
+      "email": "recepcion@clinica.local",
+      "firstName": "Recepción",
+      "lastName": "Clínica",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "recepcion",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "odontologa",
+      "enabled": true,
+      "email": "odontologa@clinica.local",
+      "firstName": "Marcela",
+      "lastName": "Ospina",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "odontologa",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "displayNameHtml": "<em>Prueba de que la capa de auth es intercambiable: los mismos tres scopes, emitidos por un IdP real. El resource server no cambia una línea.</em>",
+  "sslRequired": "none"
+}
