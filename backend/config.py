@@ -71,9 +71,15 @@ class Settings(BaseSettings):
     mcp_rate_limite: int = 120
     mcp_rate_ventana_segundos: float = 60.0
 
-    # --- human-in-the-loop (M4) -------------------------------------------
-    approval_signing_key: str = "dev-only-approval-key-change-me"
-    approval_ttl_seconds: int = 300
+    # --- human-in-the-loop: MRTR request state ----------------------------
+    #: Key ring that seals the request state carrying a paused operation.
+    #: `keys[0]` seals, every key unseals, which is what makes rotation
+    #: zero-downtime: ship [old, new], then [new, old], then [new] after one TTL.
+    request_state_keys: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["dev-only-request-state-key-change-me-32b"]
+    )
+    #: How long a pending confirmation stays redeemable.
+    request_state_ttl_seconds: float = 300.0
 
     # --- OAuth 2.1 (M5) ----------------------------------------------------
     #: Bind address of the authorization server. Loopback by default, for the
@@ -92,7 +98,9 @@ class Settings(BaseSettings):
     def jwks_url(self) -> str:
         return self.oauth_jwks_url or f"{self.oauth_issuer.rstrip('/')}/jwks.json"
 
-    @field_validator("mcp_allowed_origins", "mcp_allowed_hosts", mode="before")
+    @field_validator(
+        "mcp_allowed_origins", "mcp_allowed_hosts", "request_state_keys", mode="before"
+    )
     @classmethod
     def _split_csv(cls, value: object) -> object:
         """Accept both a JSON list and the more ergonomic `a,b,c` env form."""

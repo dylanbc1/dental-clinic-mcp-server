@@ -49,16 +49,25 @@ refused: the scopes do not nest.
 ### 4 · A write tool changes nothing on its own (layer 3)
 
 With `--scope "read write"`, call `consultar_disponibilidad`, take a `slot_id`,
-then call `agendar_cita`. Read the response: it is a **proposal**, with the list
-of effects and a `token_confirmacion`. Call `consultar_disponibilidad` again: the slot is still free.
-Nothing happened.
+then call `agendar_cita`.
 
-### 5 · Only the confirmation executes (layer 3)
+The Inspector shows you an **elicitation prompt** rather than a result: the
+server answered `input_required`, describing what would happen. Nothing has
+changed. Call `consultar_disponibilidad` again: the slot is still free.
 
-Call `confirmar_operacion` with that token. Now the appointment exists. Call it
-a second time with the same token: `APROBACION_YA_USADA`. Wait five minutes and
-try a fresh proposal's token: `APROBACION_EXPIRADA`. Change one character of a
-token: `APROBACION_INVALIDA`.
+### 5 · Only your answer executes (layer 3)
+
+Answer the prompt with `confirmado: true`. The Inspector resends the same call
+carrying your answer and the sealed `requestState`, and now the appointment
+exists.
+
+Answer `false` instead, on a fresh prompt, and you get `OPERACION_NO_APROBADA`
+with nothing touched. Decline the prompt outright and the call aborts the same
+way.
+
+The interesting part is what the Inspector never shows you: the confirmation is
+**not a parameter of the tool**. Look at the schema in the tools list. There is
+no field for it, which is precisely why a model cannot approve on your behalf.
 
 ### 6 · Errors tell you what to do (layer 4)
 
@@ -86,7 +95,8 @@ the one that must still stop it.
 
 ## Connecting Claude Desktop or Cursor
 
-Any MCP client supporting Streamable HTTP and OAuth can connect to
+Any MCP client on the 2026-07-28 spec supporting Streamable HTTP and OAuth can
+connect to
 `http://localhost:8080/mcp`; the client performs the discovery and PKCE flow
 itself. For a client without OAuth support, run the stack with
 `MCP_AUTH_ENABLED=false`, but note that this disables layers 1 and 2 entirely,

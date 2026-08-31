@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from backend.config import Settings
-from mcp_server.aprobacion import GestorDeAprobaciones
 from mcp_server.cliente import ClienteBackend
 from mcp_server.contexto import Contexto
 from mcp_server.server import (
@@ -32,9 +31,7 @@ def ajustes() -> Settings:
 
 class TestContexto:
     def test_crear_contexto_usa_los_ajustes(self, ajustes: Settings) -> None:
-        ctx = crear_contexto(ajustes)
-        assert ctx.aprobaciones.ttl == ajustes.approval_ttl_seconds
-        assert ctx.cliente._base_url == ajustes.backend_base_url
+        assert crear_contexto(ajustes).cliente._base_url == ajustes.backend_base_url
 
     def test_la_auth_esta_activa_por_defecto(self) -> None:
         """Fail closed. Deriving this from the environment name would mean a
@@ -87,24 +84,50 @@ class TestAuth:
         assert verificador.audience == ajustes.oauth_audience
 
 
+class TestEstadoDeLaPeticion:
+    """The sealed state that carries a paused operation between rounds."""
+
+    def test_hay_un_anillo_de_claves_por_defecto(self) -> None:
+        ajustes = Settings(_env_file=None)  # type: ignore[call-arg]
+        assert ajustes.request_state_keys
+        assert all(len(k) >= 32 for k in ajustes.request_state_keys)
+
+    def test_la_clave_por_defecto_se_anuncia_como_de_desarrollo(self) -> None:
+        """A default that looks like a real secret is a default someone ships."""
+        ajustes = Settings(_env_file=None)  # type: ignore[call-arg]
+        assert "dev-only" in ajustes.request_state_keys[0]
+        assert "change-me" in ajustes.request_state_keys[0]
+
+    def test_el_anillo_acepta_varias_claves_para_rotar(self) -> None:
+        ajustes = Settings(  # type: ignore[call-arg]
+            _env_file=None, request_state_keys="a" * 32 + "," + "b" * 32
+        )
+        assert len(ajustes.request_state_keys) == 2
+
+    def test_la_vigencia_es_corta_por_defecto(self) -> None:
+        """An approval granted this morning must not authorise an action tonight."""
+        ajustes = Settings(_env_file=None)  # type: ignore[call-arg]
+        assert 0 < ajustes.request_state_ttl_seconds <= 900
+
+
 class TestServidor:
     def test_los_scopes_soportados_son_los_tres(self) -> None:
         assert SCOPES_SOPORTADOS == ["read", "write", "clinical"]
 
     def test_se_puede_construir_con_auth(self, ajustes: Settings) -> None:
-        ctx = Contexto(
-            cliente=ClienteBackend("http://x"),
-            aprobaciones=GestorDeAprobaciones("clave"),
+        servidor = crear_servidor(
+            Contexto(cliente=ClienteBackend("http://x")), config=ajustes, con_auth=True
         )
-        servidor = crear_servidor(ctx, config=ajustes, con_auth=True)
         assert servidor.name == "clinica-odontologica"
         assert servidor.version == "0.1.0"
 
     def test_las_instrucciones_nombran_las_dos_reglas(self, ajustes: Settings) -> None:
-        ctx = Contexto(
-            cliente=ClienteBackend("http://x"),
-            aprobaciones=GestorDeAprobaciones("clave"),
-        )
-        instrucciones = crear_servidor(ctx, config=ajustes).instructions or ""
-        assert "no ejecutan nada" in instrucciones.lower()
-        assert "consentimiento" in instrucciones.lower()
+        instrucciones = (
+            crear_servidor(
+                Contexto(cliente=ClienteBackend("http://x")), config=ajustes
+            ).instructions
+            or ""
+        ).lower()
+        assert "confirmación" in instrucciones
+        assert "reintenta la misma llamada" in instrucciones
+        assert "consentimiento" in instrucciones

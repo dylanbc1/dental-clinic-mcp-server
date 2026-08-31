@@ -1,12 +1,15 @@
 """Assembly of the MCP server.
 
-Fourteen tools, three resources, one prompt. Fourteen is a deliberate ceiling:
+Thirteen tools, three resources, one prompt. Thirteen is a deliberate ceiling:
 model accuracy degrades past roughly 25-30 tools, so a smaller, precisely
 described catalogue beats a larger one: the ten good tools get picked
 correctly, the thirty mediocre ones do not.
 
-Transport is Streamable HTTP. SSE is deprecated for production and is not
-offered here.
+Transport is Streamable HTTP, stateless, on the 2026-07-28 spec. Human approval
+rides Multi Round-Trip Requests: a tool that needs a person's answer returns
+`input_required`, and the client retries the same call carrying the answer and a
+sealed `requestState`. A stateful application does not require a stateful
+transport, and this one keeps no session at all.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import MCPServer, RequestStateSecurity
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
@@ -25,13 +28,12 @@ from starlette.responses import JSONResponse
 
 from backend.config import Settings, get_settings
 from mcp_server import recursos
-from mcp_server.aprobacion import GestorDeAprobaciones
 from mcp_server.auditoria import Auditor, configurar_logging
 from mcp_server.auth import Scope, VerificadorJWT
 from mcp_server.cliente import ClienteBackend
 from mcp_server.contexto import Contexto
 from mcp_server.limites import LimitadorDePeticiones
-from mcp_server.tools import clinical, confirmacion, read, write
+from mcp_server.tools import clinical, read, write
 
 REPOSITORIO = "https://github.com/dylanbc1/dental-clinic-mcp-server"
 
@@ -44,9 +46,10 @@ recepción: agenda, validación de afiliación y cartera.
 
 Dos reglas gobiernan todo lo demás:
 
-1. Las herramientas de lectura responden directo. Las de escritura NO ejecutan nada:
-   devuelven una propuesta con un token que una persona debe aprobar, y solo entonces
-   confirmar_operacion la ejecuta.
+1. Las herramientas de lectura responden directo. Las de escritura no ejecutan al
+   primer intento: devuelven una solicitud de confirmación describiendo qué va a
+   pasar. Tu cliente le muestra eso a una persona y reintenta la misma llamada con
+   la respuesta. Hasta entonces no se ha modificado ningún dato.
 2. Agendar es administrativo; registrar el motivo de consulta es dato clínico y exige
    el permiso 'clinical' más consentimiento informado del paciente.
 
@@ -63,9 +66,6 @@ def crear_contexto(
     config = ajustes or get_settings()
     return Contexto(
         cliente=cliente or ClienteBackend(config.backend_base_url),
-        aprobaciones=GestorDeAprobaciones(
-            config.approval_signing_key, ttl_segundos=config.approval_ttl_seconds
-        ),
         auditor=Auditor(),
         # One switch drives both the HTTP middleware and the per-tool identity
         # check, and it defaults to on. Deriving it from the environment name
@@ -114,6 +114,15 @@ def crear_servidor(
         auth=auth_settings,
         token_verifier=verificador,
         website_url=REPOSITORIO,
+        # Seals the paused operation a client carries back with the human's
+        # answer. AES-256-GCM, bound to the request, the audience and the
+        # authenticated principal, so an approval cannot be moved onto another
+        # operation or another user. `keys[0]` seals, every key unseals, which
+        # is what makes rotation zero-downtime.
+        request_state_security=RequestStateSecurity(
+            keys=list(ajustes.request_state_keys),
+            ttl=ajustes.request_state_ttl_seconds,
+        ),
     )
 
     if auth_settings is not None:
@@ -122,7 +131,6 @@ def crear_servidor(
     read.registrar(servidor, ctx)
     write.registrar(servidor, ctx)
     clinical.registrar(servidor, ctx)
-    confirmacion.registrar(servidor, ctx)
     recursos.registrar(servidor, ctx)
     return servidor
 

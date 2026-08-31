@@ -17,7 +17,7 @@ import sys
 import httpx
 
 from scripts.obtener_token import obtener_token
-from scripts.smoke import CABECERAS, SesionMCP
+from scripts.smoke import CABECERAS, ClienteMCP
 
 KEYCLOAK = "http://localhost:9100/realms/clinica"
 MCP_KEYCLOAK = "http://localhost:8081/mcp"
@@ -46,8 +46,8 @@ def paso(titulo: str) -> None:
 def rechazado(url: str, token: str) -> bool:
     respuesta = httpx.post(
         url,
-        json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
-        headers={**CABECERAS, "Authorization": f"Bearer {token}"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={**CABECERAS, "Authorization": f"Bearer {token}", "mcp-method": "tools/list"},
         timeout=15,
     )
     return respuesta.status_code == 401
@@ -59,12 +59,10 @@ def main() -> int:
     print(f"  token de Keycloak: {kc[:40]}… ({len(kc)} bytes)")
 
     paso("2 · El mismo código, confiando en Keycloak, lo acepta")
-    sesion = SesionMCP(MCP_KEYCLOAK, kc)
-    info = sesion.initialize()
-    tools = sesion._rpc("tools/list")["tools"]
-    print(f"  servidor: {info['serverInfo']['name']} · {len(tools)} tools")
-    cupos = sesion.llamar("consultar_disponibilidad", {"limite": 1})
-    cupo = (cupos or {}).get("result", cupos)[0]
+    cliente = ClienteMCP(MCP_KEYCLOAK, kc)
+    tools = cliente._rpc("tools/list", {})["tools"]
+    print(f"  tools visibles: {len(tools)}")
+    cupo = cliente.llamar("consultar_disponibilidad", {"limite": 1})[0]
     print(f"  lectura real: cupo libre {cupo['inicio_local']}")
 
     paso("3 · Los dos emisores no son intercambiables por accidente")

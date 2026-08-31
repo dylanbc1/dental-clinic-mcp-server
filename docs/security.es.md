@@ -130,10 +130,11 @@ Dos sutilezas que las pruebas fijan:
 
 - **La denegación ocurre antes de cualquier consulta.** Un rechazo no debe
   depender del dato ni filtrar si el registro existe.
-- **`confirmar_operacion` no tiene scope propio.** Verifica el scope de la acción
-  nombrada *dentro del token*. Una herramienta que exigiera `write` dejaría que
-  un token `write` ejecutara una propuesta clínica en silencio, así que el scope
-  se revisa en el momento del efecto, no en el de la intención. Un token emitido
+- **El scope se revisa en las dos rondas.** MRTR parte una mutación en dos
+  llamadas y el resolver corre en cada una. Un token que tenía `clinical` cuando
+  se hizo la pregunta, y lo perdió antes de que llegara la respuesta, no ejecuta.
+  La autoridad se verifica en el momento del efecto, no solo en el de la
+  intención. Un token emitido
   cuando el llamador tenía `clinical` no ejecuta si ese scope ya fue revocado.
 
 ### Una propuesta sobre la que nadie puede actuar
@@ -153,35 +154,58 @@ Los rechazos durante esa validación se auditan como todo lo demás. Un log que
 solo registra propuestas exitosas no puede decirte que un agente pasó una hora
 proponiendo algo imposible.
 
-### Capa 3, human-in-the-loop
+### Capa 3, human-in-the-loop sobre MRTR
 
-Toda herramienta de escritura y la clínica son de dos fases:
+Toda tool de escritura y la clínica se detienen a preguntarle a una persona. La
+spec 2026-07-28 lo expresa sin conexión persistente, con Multi Round-Trip
+Requests:
 
-1. La herramienta **propone**: resumen en lenguaje llano, lista explícita de
-   efectos, advertencias y un token de confirmación firmado. Nada ha cambiado.
-2. Una persona lo lee y aprueba, lo que llama `confirmar_operacion` con ese
-   token. Solo entonces corre la mutación.
+```
+cliente ──tools/call cancelar_cita {cita_id: 412, motivo: "…"}──▶
+        ◀── input_required
+            inputRequests: "Cancelar la cita 412 de Ana Gómez del 3 sep 09:00.
+                            Esto va a pasar: … ¿Confirmas?"
+            requestState:  v1.ZZs-yBzkr3f…   (sellado)
 
-El token es lo que hace seguro exponer la fase 2 como una herramienta que el
-modelo puede llamar:
+            una persona lo lee y responde
+
+cliente ──tools/call cancelar_cita {mismos args, inputResponses, requestState}──▶
+        ◀── complete
+```
+
+Una tool, dos llamadas, sin sesión. La operación pausada vive en manos del
+cliente, sellada, y por eso cualquier réplica puede atender cualquiera de las
+dos rondas.
+
+**La confirmación no es un parámetro que el modelo pueda llenar.** La resuelve
+el cliente, así que ni siquiera aparece en el esquema de entrada de la tool. Un
+modelo no puede aprobar en nombre del usuario porque no hay campo donde
+escribirlo.
+
+**Lo que protege la segunda ronda** es `requestState`, sellado por el SDK con
+AES-256-GCM:
 
 | Propiedad | Ataque que derrota |
 |---|---|
-| Firmado con HMAC-SHA256 | Falsificar una propuesta, o editar los argumentos de una ya aprobada |
-| De un solo uso | Reusar una confirmación para cancelar dos veces la misma cita |
-| Vigencia de 5 minutos | Que una aprobación de la mañana autorice una acción de la noche |
-| Atado al sujeto | Canjear la aprobación de otra persona |
-| Lleva el nombre de la acción | Canjear una aprobación de `cancelar_cita` para ejecutar `agendar_cita` |
+| Cifrado, no solo firmado | Leer la operación, el id del paciente o el llamador dentro de un estado que el cliente tiene en la mano |
+| Atado a la petición | Canjear una aprobación de una operación contra otra distinta, o con otros argumentos |
+| Atado al principal | Canjear la aprobación de otra persona |
+| Con vigencia | Que una aprobación de la mañana autorice una acción de la noche |
+| Anillo de claves: `keys[0]` sella, todas abren | Rotar sin downtime y sin una ventana donde las aprobaciones vigentes se rompan |
 
-El orden de validación importa y está probado: primero la firma, después la
-expiración. Decirle a un atacante que su token falsificado «expiró» le confirma
-que su payload se parseó. Un canje que falla por *sujeto equivocado* tampoco
-gasta el nonce: eso sería una denegación de servicio contra quien sí puede
-aprobar.
+**El resolver corre en las dos rondas.** La autorización, el scope y todas las
+comprobaciones de dominio se reaplican cuando el cliente reintenta, así que un
+token que perdió un scope en el medio no ejecuta, y una cita que otra persona
+canceló en el medio se rechaza. Una confirmación autoriza una acción; no congela
+el mundo que vio, y no vuelve legal una operación ilegal.
 
-La aprobación autoriza una acción; no vuelve legal una ilegal. Una propuesta
-confirmada para marcar como `atendida` una cita sin confirmar sigue fallando en
-la máquina de estados.
+**Un rechazo nunca llega a la persona.** Un llamador sin permiso, o una operación
+que no puede funcionar, se corta antes de que alguien tenga que aprobarla.
+Pedirle a alguien que apruebe algo que va a fallar lo entrena a aprobar sin leer,
+que es como esta capa se desactiva en silencio.
+
+Nada de esto necesita estado en el servidor, y por eso desapareció el registro
+en proceso de aprobaciones gastadas junto con la limitación que arrastraba.
 
 ### Capa 4, errores estructurados
 
@@ -279,18 +303,18 @@ CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
 | Amenaza | Vector | Control | Riesgo residual |
 |---|---|---|---|
 | **S**uplantación | Token falsificado o reusado | RS256 + JWKS, `iss`, `aud`, `exp`; `alg` fijado | Compromiso de la llave del AS. Se mitiga rotando `OAUTH_PRIVATE_KEY_PEM`; la llave efímera de desarrollo se invalida al reiniciar, por diseño |
-| **S**uplantación | Canjear la aprobación de otro | Token atado al `sub`, firmado con HMAC | Compromiso de la clave de firma ⇒ rotar `APPROVAL_SIGNING_KEY`; los tokens viven 5 minutos |
-| **T**ampering | Editar argumentos de una propuesta aprobada | HMAC sobre todo el payload, con versión | Ninguno conocido |
+| **S**uplantación | Canjear la aprobación de otro | `requestState` sellado y atado al principal autenticado | Compromiso del anillo ⇒ rotar `REQUEST_STATE_KEYS`; los estados viven 5 minutos |
+| **T**ampering | Editar los argumentos de una operación aprobada | AES-256-GCM sobre todo el estado, atado a la petición | Ninguno conocido |
 | **T**ampering | Doble reserva por carrera | Índice único parcial + bloqueo optimista | Ninguno a nivel de base de datos |
 | **R**epudio | «Yo nunca cancelé esa cita» | `cita_historial` append-only, actor del token, misma transacción | El backend confía en el header `X-Actor`, aceptable porque no es alcanzable desde fuera de la red de compose; un despliegue público exige mTLS o un header firmado |
 | **I**nformación | Dato clínico llegando a quien no debe | Scope `clinical` + consentimiento + nunca lo devuelven las tools de lectura | Quien legítimamente tiene `clinical` ve el dato, para eso es |
 | **I**nformación | Fuga de datos del paciente por logs | Redacción de campos clínicos e identificadores | El propio pipeline de logs debe estar protegido |
 | **I**nformación | Stack traces o fragmentos SQL en errores | Envoltura opaca única para fallos inesperados | Ninguno conocido |
 | **D**enegación | Agente en bucle de reintentos | Rate limit deslizante; errores redactados para cortar bucles | Contador en proceso: con varias réplicas el límite efectivo se multiplica (ver abajo) |
-| **D**enegación | Quemar un token de aprobación legítimo | El fallo por sujeto no gasta el nonce | Ninguno conocido |
+| **D**enegación | Quemar una aprobación legítima | No se gasta nada en el servidor; un canje fallido deja el estado utilizable por su dueño | Ninguno conocido |
 | **E**levación | Token sobredimensionado (la forma SaaStr) | Scopes por herramienta que no anidan; scope revisado al ejecutar | Un operador aún puede conceder `clinical` a algo que no lo necesita, problema de política, no de código |
 | **E**levación | Acceso desde el navegador a un servidor local | Validación de Host/Origin, lista blanca explícita | Ninguno conocido |
-| **E**levación | Agente mutando datos unilateralmente | Aprobación en dos fases en toda escritura | Una persona que aprueba sin leer. Se mitiga redactando propuestas para leerse en voz alta, no con código |
+| **E**levación | Agente mutando datos unilateralmente | MRTR: la confirmación la resuelve el cliente y no es un campo que el modelo pueda llenar | Una persona que aprueba sin leer. Se mitiga redactando la pregunta para leerse en voz alta, y no preguntando nunca por algo que fallaría |
 
 ## Límites conocidos, dichos sin rodeos
 
@@ -300,9 +324,11 @@ Son fronteras deliberadas de un proyecto de portafolio, no descuidos:
    consentimiento. Demuestra que el protocolo se entiende; no es donde deben
    vivir tus identidades de producción. `--profile keycloak` es la respuesta para
    un despliegue real.
-2. **El registro de nonces y el rate limiter están en proceso.** Correcto para
-   una réplica; con más de una, ambos van a Redis. Las dos interfaces son lo
-   bastante estrechas para intercambiarse sin tocar una herramienta.
+2. **El rate limiter está en proceso.** Correcto para una réplica; con más de
+   una el límite efectivo se multiplica y va a Redis. La interfaz es lo bastante
+   estrecha para intercambiarla sin tocar una herramienta. Las aprobaciones
+   pendientes ya no tienen este problema: viajan selladas en el `requestState`
+   del cliente, así que no hay nada que compartir entre réplicas.
 3. **El backend confía en `X-Actor`.** No es alcanzable desde fuera de la red de
    compose y el MCP server es su único cliente. Un despliegue público necesita
    mTLS o un header firmado en ese salto.
@@ -317,6 +343,9 @@ Son fronteras deliberadas de un proyecto de portafolio, no descuidos:
 - `alembic.ini` lleva un `sqlalchemy.url` vacío; el valor real se inyecta desde
   `Settings` en tiempo de ejecución, así que hay un solo lugar donde configurarlo
   y ningún archivo versionado que pueda filtrarlo.
+- `REQUEST_STATE_KEYS` trae un placeholder que se identifica como `dev-only` y
+  `change-me`. Un valor por defecto que parece un secreto real es un valor que
+  alguien termina desplegando.
 - `mcp_auth_enabled` viene en **on** por defecto. Derivarlo del nombre del
   entorno significaría que un error de tipeo en `APP_ENV` desactiva la
   autenticación en silencio.

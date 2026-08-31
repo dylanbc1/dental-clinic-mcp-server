@@ -54,11 +54,12 @@ before a single row is touched.
    with a `WWW-Authenticate` header pointing at the protected-resource metadata.
 3. **Layer 2** checks the token's scopes against the scope the tool declares.
    A `read` token calling `agendar_cita` is refused here.
-4. **Layer 3**, for any `write` or `clinical` tool, returns a *proposal* instead
-   of acting: a signed, single-use, TTL-bound token describing exactly what would
-   happen. Only `confirmar_operacion` with that token mutates anything, and it
-   re-checks the scope of the action named *inside* the token, so authority is
-   verified at the moment of effect rather than the moment of intent.
+4. **Layer 3**, for any `write` or `clinical` tool, returns `input_required`
+   instead of acting: the question a person must answer, plus a sealed
+   `requestState`. The client obtains the answer and retries the same call
+   carrying both. The resolver runs again on that second round, so authority and
+   the domain rules are re-checked at the moment of effect rather than only at
+   the moment of intent.
 5. The tool calls the backend REST API.
 6. **Layer 4** converts every failure into `{codigo, mensaje, sugerencia, detalles}`.
 7. **Layer 5** writes the audit row, in the same transaction as the change.
@@ -151,10 +152,10 @@ backend/            domain source of truth, knows nothing about MCP
   api.py            internal REST API
   migrations/       alembic
 mcp_server/
-  tools/            read.py · write.py · clinical.py · confirmacion.py
+  tools/            read.py · write.py · clinical.py
   contexto.py       everything the tools need, injected rather than global
   auth.py           token verification and scopes            (layers 1-2)
-  aprobacion.py     signed human-approval tokens             (layer 3)
+  confirmacion.py   the question a person answers            (layer 3)
   errores.py        structured failures for the model        (layer 4)
   auditoria.py      audit log · limites.py  rate limiting    (layer 5)
   cliente.py        HTTP client to the backend

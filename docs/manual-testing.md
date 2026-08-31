@@ -149,69 +149,67 @@ npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
 decision that most looks like an oversight and is not: scheduling and diagnosing
 are different kinds of authority, not different amounts of the same one.
 
-### B5 · Layer 3 · A write does not write
+### B5 · Layer 3 · The first call does not write
+
+Write tools pause to ask a person. The Inspector renders that question and sends
+your answer back on its own; to see it raw, use `curl`:
 
 ```bash
-MCP="npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp --transport http"
+TOKEN_RW=$(uv run python scripts/obtener_token.py --scope "read write")
 
-# A real patient and a real slot. The ids depend on database state, so do not
-# invent them: ask for them.
-$MCP --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name buscar_paciente --tool-arg nombre=a --tool-arg limite=1
+# With no session to remember the handshake, every call carries its own protocol
+# version and capabilities. That is the visible cost of a stateless transport.
+META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{"elicitation":{}}}'
 
-$MCP --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name consultar_disponibilidad --tool-arg limite=1
-
-# Book with the ids you saw
-$MCP --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name agendar_cita \
-  --tool-arg paciente_id=PACIENTE_ID --tool-arg slot_id=SLOT_ID
+curl -s -X POST localhost:8080/mcp \
+  -H "Authorization: Bearer $TOKEN_RW" -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'mcp-method: tools/call' -H 'mcp-name: agendar_cita' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"agendar_cita\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
 ```
 
-**Expect:** `"requiere_confirmacion": true`, an `esto_va_a_pasar` list, and a
-`token_confirmacion`. **Nothing was booked.** Ask for availability again: the slot
-is still free.
-
-Look at the `resumen`: it names the time and the professional, not the
-`slot_id`. Read aloud to a receptionist, "slot 412" means nothing.
-
-Confirm it in the database:
+**Expect:** `"resultType": "input_required"`, an `inputRequests` carrying the
+question in plain language (it names the hour and the professional, not the
+`slot_id`), and a `requestState` of about 470 bytes starting with `v1.`.
+**Nothing was booked.**
 
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select estado from agenda_slot where id = SLOT_ID;"
 ```
-→ `libre`
+-> `libre`
 
-### B6 · Layer 3 · The confirmation token survives tampering
+Look at the `requestState`: **you cannot read anything in it.** It is encrypted
+rather than merely signed, so it tells whoever holds it nothing about the
+operation or the patient.
 
-```bash
-# 1. Actually execute
-npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
-  --transport http --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name confirmar_operacion \
-  --tool-arg token_confirmacion="THE_TOKEN"
-```
-→ `"ejecutada": true`. The appointment now exists.
+### B6 · Layer 3 · The second call executes, and only that one
+
+Resend **the same call**, adding the person's answer and the state. `CLAVE` is
+the single key of the `inputRequests` object you got back:
 
 ```bash
-# 2. Replay it
+  ...,\"params\":{\"name\":\"agendar_cita\",\"arguments\":{ ...the same... },
+     \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmado\":true}}},
+     \"requestState\":\"v1....\",$META}
 ```
-→ `APROBACION_YA_USADA`
 
-```bash
-# 3. Change one character of the token and retry
-```
-→ `APROBACION_INVALIDA`
+**Expect:** `"resultType": "complete"` and the appointment created. Now attack
+the state:
 
-```bash
-# 4. Wait 5 minutes with a fresh unconfirmed proposal, then confirm it
-```
-→ `APROBACION_EXPIRADA`
+| What you do | What must happen |
+|---|---|
+| Change one character of the `requestState` | Refused |
+| Use the state from `confirmar_cita` to run `cancelar_cita` | Refused: it is bound to the request |
+| Change `paciente_id` on the second round | Refused: the arguments are part of what was approved |
+| Obtain the state as one subject, redeem it as another | Refused: it is bound to the principal |
+| Answer `"confirmado": false` | `OPERACION_NO_APROBADA`, nothing touched |
 
-**Why the order matters:** try step 3 with a token that is *also* expired. It must
-say `APROBACION_INVALIDA`, not `APROBACION_EXPIRADA`. Telling an attacker their
-forged token "expired" confirms the payload parsed.
+**The one that matters most:** ask for the confirmation, cancel the appointment
+from somewhere else (`psql` or the Inspector), and *then* answer yes. It must be
+refused. The resolver runs again on the second round, so **approval does not
+freeze the world it saw**.
 
 ### B7 · Layer 4 · Errors tell you what to do
 
@@ -310,8 +308,8 @@ docker compose exec -T postgres psql -U clinica -d clinica -t -c \
 ```
 
 Book with that `paciente_id`. **Expect:** the proposal carries a warning
-`"...en mora... No impide agendar"` and a valid `token_confirmacion`. The
-appointment goes through. Clinics do not refuse care over an unpaid copayment.
+`"...en mora... No impide agendar"` and still asks for confirmation. The
+appointment goes through once approved. Clinics do not refuse care over an unpaid copayment.
 
 ### C2 · A lapsed affiliation changes the tariff, not the access
 
@@ -329,13 +327,13 @@ with the EPS.
 On an appointment in `agendada`, propose and confirm `registrar_asistencia` with
 `estado=atendida`, skipping `confirmada` and `en_espera`.
 
-**Expect:** `TRANSICION_INVALIDA` at **proposal** time, listing which transitions
+**Expect:** `TRANSICION_INVALIDA` **before you are asked anything**, listing which transitions
 would be valid. Ask `consultar_cita` first: the `transiciones_validas` field says
 exactly what can happen next, which is the same information the model uses to
 pick its next tool.
 
-The check also runs at execution, and that is where it really counts: if someone
-cancels the appointment between your proposal and your confirmation, the domain
+The check runs again on the second round, and that is where it really counts: if
+someone cancels the appointment between the question and your answer, the domain
 refuses anyway. **Human approval does not make an illegal operation legal.**
 
 ### C4 · Double-booking is impossible

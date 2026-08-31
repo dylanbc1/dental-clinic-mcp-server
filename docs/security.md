@@ -129,10 +129,11 @@ Two subtleties the tests pin down:
 
 - **Denial happens before any lookup.** A refusal must not depend on the data,
   and must not leak whether the record exists.
-- **`confirmar_operacion` has no scope of its own.** It checks the scope of the
-  action named *inside the token*. A tool requiring `write` would silently let a
-  `write` token execute a clinical proposal, so the scope is re-checked at the
-  moment of effect rather than the moment of intent. A token minted while the caller
+- **The scope is checked on both rounds.** MRTR splits a mutation across two
+  calls, and the resolver runs on each of them. A token that held `clinical`
+  when the question was asked, and lost it before the answer came back, cannot
+  execute. Authority is verified at the moment of effect, not only at the moment
+  of intent. A token minted while the caller
   held `clinical` will not execute if that scope has since been revoked.
 
 ### A proposal a human cannot act on
@@ -152,32 +153,55 @@ Refusals during that validation are audited like everything else. A log that
 records only successful proposals cannot tell you an agent spent an hour
 proposing something impossible.
 
-### Layer 3, human-in-the-loop
+### Layer 3, human-in-the-loop over MRTR
 
-Every write and clinical tool is two-phase:
+Every write and clinical tool pauses for a person. The 2026-07-28 spec expresses
+that without a persistent connection, through Multi Round-Trip Requests:
 
-1. The tool **proposes**: a plain-language summary, an explicit list of effects,
-   any warnings, and a signed confirmation token. Nothing has changed.
-2. A human reads it and approves, which calls `confirmar_operacion` with that
-   token. Only then does the mutation run.
+```
+client ──tools/call cancelar_cita {cita_id: 412, motivo: "…"}──▶
+       ◀── input_required
+           inputRequests: "Cancelar la cita 412 de Ana Gómez del 3 sep 09:00.
+                           Esto va a pasar: … ¿Confirmas?"
+           requestState:  v1.ZZs-yBzkr3f…   (sealed)
 
-The token is what makes phase 2 safe to expose as a tool the model can call:
+           a person reads it and answers
+
+client ──tools/call cancelar_cita {same args, inputResponses, requestState}──▶
+       ◀── complete
+```
+
+One tool, two calls, no session. The paused operation lives in the client's
+hands, sealed, which is why any replica can serve either round.
+
+**The confirmation is not a parameter the model can fill.** It is resolved by
+the client, so it never appears in the tool's input schema. A model cannot
+approve on the user's behalf, because there is no field for it to write into.
+
+**What protects the second round** is `requestState`, sealed by the SDK with
+AES-256-GCM:
 
 | Property | Attack it defeats |
 |---|---|
-| HMAC-SHA256 signed | Forging a proposal, or editing the arguments of one that was approved |
-| Single-use | Replaying a confirmation to cancel the same appointment twice |
-| 5-minute TTL | An approval granted this morning authorising an action tonight |
-| Bound to the subject | Redeeming someone else's approval |
-| Carries the action name | Redeeming a `cancelar_cita` approval to run `agendar_cita` |
+| Encrypted, not merely signed | Reading the operation, the patient id or the caller out of a state the client is holding |
+| Bound to the request | Redeeming an approval for one operation against a different one, or with different arguments |
+| Bound to the principal | Redeeming someone else's approval |
+| Time-limited | An approval granted this morning authorising an action tonight |
+| Key ring, `keys[0]` seals and all keys unseal | Rotation without downtime, and without a window where outstanding approvals break |
 
-Order of validation matters and is tested: signature first, then expiry. Telling
-an attacker their forged token "expired" would confirm that it parsed. A
-redemption that fails on the *wrong subject* does not burn the nonce either: that would be a denial of service against the legitimate approver.
+**The resolver runs on both rounds.** Authorisation, scope, and every domain
+check are re-applied when the client retries, so a token that lost a scope in
+between cannot execute, and an appointment cancelled by someone else in between
+is refused. A confirmation authorises an action; it does not freeze the world it
+saw, and it does not make an illegal operation legal.
 
-Approval authorises an action; it does not make an illegal one legal. A
-confirmed proposal to mark an unconfirmed appointment as `atendida` still fails
-the state machine.
+**A refusal never reaches the person.** An unauthorised caller, or an operation
+that cannot succeed, is turned away before anyone is asked to approve it. Asking
+someone to approve something that will fail trains them to approve without
+reading, which quietly disables the whole layer.
+
+Nothing about this needs server-side state, which is why the earlier design's
+in-process store of spent approvals is gone along with the limitation it carried.
 
 ### Layer 4, structured errors
 
@@ -270,18 +294,18 @@ CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
 | Threat | Vector | Control | Residual risk |
 |---|---|---|---|
 | **S**poofing | Forged or replayed access token | RS256 + JWKS, `iss`, `aud`, `exp`; `alg` pinned | AS key compromise. Mitigate by rotating `OAUTH_PRIVATE_KEY_PEM`; the ephemeral dev key invalidates on restart by design |
-| **S**poofing | Redeeming another user's approval | Token bound to `sub`, HMAC-signed | Signing key compromise ⇒ rotate `APPROVAL_SIGNING_KEY`; tokens live 5 minutes |
-| **T**ampering | Editing the arguments of an approved proposal | HMAC over the whole payload, version-tagged | None known |
+| **S**poofing | Redeeming another user's approval | `requestState` sealed and bound to the authenticated principal | Key-ring compromise ⇒ rotate `REQUEST_STATE_KEYS`; states live 5 minutes |
+| **T**ampering | Editing the arguments of an approved operation | AES-256-GCM over the whole state, bound to the request | None known |
 | **T**ampering | Double-booking through a race | Partial unique index + optimistic locking | None at the database level |
 | **R**epudiation | "I never cancelled that appointment" | `cita_historial` append-only, actor from the token, same transaction | The backend trusts the `X-Actor` header, acceptable because it is not reachable from outside the compose network; a public deployment must put mTLS or a signed header there |
 | **I**nformation disclosure | Clinical data reaching an unauthorised caller | `clinical` scope + recorded consent + never returned by read tools | A caller legitimately holding `clinical` sees the data, that is the point |
 | **I**nformation disclosure | Patient data leaking through logs | Redaction of clinical and identifying fields | Log pipeline itself must be protected |
 | **I**nformation disclosure | Stack traces or SQL fragments in errors | Single opaque envelope for unexpected failures | None known |
 | **D**enial of service | Agent stuck in a retry loop | Sliding-window rate limit; errors worded to stop loops | In-process counter: behind multiple replicas the effective limit multiplies (see below) |
-| **D**enial of service | Burning a legitimate approval token | Failed subject check does not spend the nonce | None known |
+| **D**enial of service | Burning a legitimate approval | Nothing is spent server-side; a failed redemption leaves the state usable by its owner | None known |
 | **E**levation of privilege | Over-broad token (the SaaStr shape) | Non-nesting per-tool scopes; scope re-checked at execution | An operator can still grant `clinical` to something that does not need it, a policy problem, not a code one |
 | **E**levation of privilege | Browser-driven access to a local server | Host/Origin validation, explicit allow-list | None known |
-| **E**levation of privilege | Agent mutating data unilaterally | Two-phase approval on every write | A human who approves without reading. Mitigated by writing proposals to be read aloud, not by code |
+| **E**levation of privilege | Agent mutating data unilaterally | MRTR: the confirmation is resolved by the client and is not a field the model can fill | A human who approves without reading. Mitigated by writing the question to be read aloud, and by never asking about an operation that would fail |
 
 ## Known limits, stated plainly
 
@@ -291,9 +315,11 @@ These are deliberate boundaries of a portfolio project, not oversights:
    consent step. It demonstrates that the protocol is understood; it is not
    where your production identities should live. `--profile keycloak` is the
    answer for a real deployment.
-2. **The approval nonce store and the rate limiter are in-process.** Correct for
-   a single replica; behind more than one, both belong in Redis. Both interfaces
-   are narrow enough to swap without touching a tool.
+2. **The rate limiter is in-process.** Correct for a single replica; behind more
+   than one the effective limit multiplies, and it belongs in Redis. The
+   interface is narrow enough to swap without touching a tool. Pending approvals
+   no longer have this problem: they ride sealed in the client's `requestState`,
+   so there is nothing for replicas to share.
 3. **The backend trusts `X-Actor`.** It is not reachable from outside the compose
    network, and the MCP server is the only client. A public deployment needs
    mTLS or a signed header on that hop.
@@ -308,6 +334,9 @@ These are deliberate boundaries of a portfolio project, not oversights:
 - `alembic.ini` ships an empty `sqlalchemy.url`; the real value is injected from
   `Settings` at runtime, so there is one place to configure it and no tracked
   file that can leak it.
+- `REQUEST_STATE_KEYS` ships an obviously-local placeholder that names itself
+  `dev-only` and `change-me`. A default that looks like a real secret is a
+  default someone ships.
 - `mcp_auth_enabled` defaults to **on**. Deriving it from the environment name
   would mean a typo in `APP_ENV` silently disabling authentication.
 - Bind addresses default to loopback in code; `0.0.0.0` is a deployment decision

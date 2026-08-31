@@ -149,33 +149,29 @@ npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
 diseño que más parece un descuido y no lo es: agendar y diagnosticar son tipos
 distintos de autoridad, no cantidades distintas de la misma.
 
-### B5 · Capa 3 · Una escritura no escribe
+### B5 · Capa 3 · La primera llamada no escribe
+
+Las tools de escritura se detienen a preguntarle a una persona. El Inspector
+renderiza esa pregunta y reenvía tu respuesta solo; para verlo crudo, `curl`:
 
 ```bash
-MCP="npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp --transport http"
+TOKEN_RW=$(uv run python scripts/obtener_token.py --scope "read write")
 
-# Un paciente y un cupo reales. Los ids dependen del estado de la base, así que
-# no los inventes: pídelos.
-$MCP --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name buscar_paciente --tool-arg nombre=a --tool-arg limite=1
+# Sin sesión que recuerde el handshake, cada llamada lleva su propia versión de
+# protocolo y sus capacidades. Es el costo visible del transporte sin estado.
+META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{"elicitation":{}}}'
 
-$MCP --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name consultar_disponibilidad --tool-arg limite=1
-
-# Agenda con los ids que viste
-$MCP --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name agendar_cita \
-  --tool-arg paciente_id=PACIENTE_ID --tool-arg slot_id=SLOT_ID
+curl -s -X POST localhost:8080/mcp \
+  -H "Authorization: Bearer $TOKEN_RW" -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'mcp-method: tools/call' -H 'mcp-name: agendar_cita' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"agendar_cita\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
 ```
 
-**Esperas:** `"requiere_confirmacion": true`, una lista `esto_va_a_pasar`, y un
-`token_confirmacion`. **Nada se agendó.** Vuelve a pedir disponibilidad: el cupo
-sigue libre.
-
-Fíjate en el `resumen`: nombra la hora y el profesional, no el `slot_id`. A una
-recepcionista leyéndolo en voz alta, "cupo 412" no le dice nada.
-
-Verifícalo en la base:
+**Esperas:** `"resultType": "input_required"`, un `inputRequests` con la pregunta
+en lenguaje llano (nombra la hora y el profesional, no el `slot_id`) y un
+`requestState` de unos 470 bytes que empieza por `v1.`. **No se agendó nada.**
 
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
@@ -183,35 +179,34 @@ docker compose exec -T postgres psql -U clinica -d clinica -t -c \
 ```
 → `libre`
 
-### B6 · Capa 3 · El token de confirmación aguanta manipulación
+Mira el `requestState`: **no puedes leer nada en él.** Está cifrado, no solo
+firmado, así que no revela la operación ni el paciente a quien lo tenga.
+
+### B6 · Capa 3 · La segunda llamada ejecuta, y solo esa
+
+Reenvía **la misma llamada** añadiendo la respuesta de la persona y el estado.
+`CLAVE` es la única clave del objeto `inputRequests` que te devolvieron:
 
 ```bash
-# 1. Ejecuta de verdad
-npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
-  --transport http --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name confirmar_operacion \
-  --tool-arg token_confirmacion="EL_TOKEN"
+  ...,\"params\":{\"name\":\"agendar_cita\",\"arguments\":{ ...los mismos... },
+     \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmado\":true}}},
+     \"requestState\":\"v1....\",$META}
 ```
-→ `"ejecutada": true`. Ahora la cita existe.
 
-```bash
-# 2. Reúsalo
-```
-→ `APROBACION_YA_USADA`
+**Esperas:** `"resultType": "complete"` y la cita creada. Ahora ataca el estado:
 
-```bash
-# 3. Cámbiale un carácter al token y reintenta
-```
-→ `APROBACION_INVALIDA`
+| Qué haces | Qué debe pasar |
+|---|---|
+| Cambias un carácter del `requestState` | Rechazado |
+| Usas el estado de `confirmar_cita` para ejecutar `cancelar_cita` | Rechazado: está atado a la petición |
+| Cambias `paciente_id` en la segunda ronda | Rechazado: los argumentos son parte de lo aprobado |
+| Pides el estado con un sujeto y lo canjeas con otro | Rechazado: está atado al principal |
+| Respondes `"confirmado": false` | `OPERACION_NO_APROBADA`, sin tocar nada |
 
-```bash
-# 4. Espera 5 minutos con una propuesta nueva sin confirmar y confírmala
-```
-→ `APROBACION_EXPIRADA`
-
-**Por qué importa el orden:** prueba el 3 con un token también vencido. Debe decir
-`APROBACION_INVALIDA`, no `APROBACION_EXPIRADA`. Decirle a un atacante que su
-token falsificado "expiró" le confirma que su payload se parseó.
+**Lo más importante:** pide la confirmación, cancela la cita desde otro lado
+(`psql` o el Inspector), y **después** responde que sí. Debe rechazarse. El
+resolver vuelve a correr en la segunda ronda, así que **la aprobación no congela
+el mundo que vio**.
 
 ### B7 · Capa 4 · Los errores te dicen qué hacer
 
@@ -310,8 +305,8 @@ docker compose exec -T postgres psql -U clinica -d clinica -t -c \
 ```
 
 Agenda con ese `paciente_id`. **Esperas:** la propuesta sale con una advertencia
-`"...en mora... No impide agendar"` y un `token_confirmacion` válido. La cita se
-agenda. Las clínicas no niegan atención por un copago sin pagar.
+`"...en mora... No impide agendar"` y aun así pide confirmación. La cita se
+agenda una vez aprobada. Las clínicas no niegan atención por un copago sin pagar.
 
 ### C2 · La afiliación vencida cambia la tarifa, no el acceso
 
@@ -329,13 +324,13 @@ ante la EPS.
 Sobre una cita en estado `agendada`, propón y confirma `registrar_asistencia` con
 `estado=atendida` (saltándose `confirmada` y `en_espera`).
 
-**Esperas:** `TRANSICION_INVALIDA` al **proponer**, listando las transiciones que
+**Esperas:** `TRANSICION_INVALIDA` **antes de preguntarte nada**, listando las transiciones que
 sí serían válidas. Consulta la cita primero con `consultar_cita`: el campo
 `transiciones_validas` te dice exactamente qué puede pasar después, que es la
 misma información que el modelo usa para elegir la siguiente herramienta.
 
-La comprobación también existe al ejecutar, y ahí es donde importa de verdad: si
-alguien cancela la cita entre tu propuesta y tu confirmación, el dominio la
+La comprobación se repite en la segunda ronda, y ahí es donde importa de verdad:
+si alguien cancela la cita entre la pregunta y tu respuesta, el dominio la
 rechaza igual. **La aprobación humana no vuelve legal una operación ilegal.**
 
 ### C4 · Doble reserva imposible

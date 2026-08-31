@@ -32,8 +32,9 @@ TOOLS_ESCRITURA = {
     "ofrecer_cupo_lista_espera",
 }
 TOOLS_CLINICAS = {"registrar_motivo_consulta"}
-TOOLS_CONFIRMACION = {"confirmar_operacion"}
-TODAS = TOOLS_LECTURA | TOOLS_ESCRITURA | TOOLS_CLINICAS | TOOLS_CONFIRMACION
+#: Tools that pause for a human's answer over MRTR.
+TOOLS_CON_CONFIRMACION = TOOLS_ESCRITURA | TOOLS_CLINICAS
+TODAS = TOOLS_LECTURA | TOOLS_ESCRITURA | TOOLS_CLINICAS
 
 
 class TestCatalogo:
@@ -41,10 +42,10 @@ class TestCatalogo:
         assert {t.name for t in await servidor.list_tools()} == TODAS
 
     async def test_no_supera_el_limite_de_15_tools(self, servidor: MCPServer[Any]) -> None:
-        """Model accuracy degrades past ~25-30 tools. Fourteen precise ones beat
+        """Model accuracy degrades past ~25-30 tools. Thirteen precise ones beat
         thirty mediocre ones, and the ceiling is a design constraint, not luck."""
         tools = await servidor.list_tools()
-        assert len(tools) == 14
+        assert len(tools) == 13
         assert len(tools) <= 15
 
     async def test_toda_tool_tiene_titulo_y_descripcion(self, servidor: MCPServer[Any]) -> None:
@@ -61,16 +62,35 @@ class TestCatalogo:
             assert esquema["type"] == "object"
             assert "properties" in esquema
 
-    async def test_las_tools_de_escritura_se_anuncian_como_propuestas(
-        self, servidor: MCPServer[Any]
-    ) -> None:
+    async def test_las_tools_con_gate_lo_anuncian(self, servidor: MCPServer[Any]) -> None:
         """A model that thinks it already booked the appointment will tell the
         patient it did. The description has to prevent that."""
         por_nombre = {t.name: t for t in await servidor.list_tools()}
-        for nombre in TOOLS_ESCRITURA | TOOLS_CLINICAS:
-            descripcion = por_nombre[nombre].description or ""
-            assert "PROPONE" in descripcion, f"{nombre} no se anuncia como propuesta"
-            assert "confirmar_operacion" in descripcion or "aprobación humana" in descripcion
+        for nombre in TOOLS_CON_CONFIRMACION:
+            descripcion = (por_nombre[nombre].description or "").lower()
+            assert "confirmación" in descripcion, f"{nombre} no anuncia el gate"
+
+    async def test_el_parametro_de_confirmacion_no_se_expone_al_modelo(
+        self, servidor: MCPServer[Any]
+    ) -> None:
+        """The confirmation is filled by the client over MRTR, not by the model.
+
+        If it appeared in the schema the model could supply it itself, which
+        would turn human approval into a field the agent fills in.
+        """
+        for tool in await servidor.list_tools():
+            propiedades = tool.input_schema.get("properties", {})
+            assert "confirmacion" not in propiedades, tool.name
+
+    async def test_ninguna_tool_pide_un_token_de_confirmacion(
+        self, servidor: MCPServer[Any]
+    ) -> None:
+        """The paused operation rides `requestState`, sealed by the SDK. No tool
+        should be asking the model to carry an approval by hand."""
+        nombres = {t.name for t in await servidor.list_tools()}
+        assert "confirmar_operacion" not in nombres
+        for tool in await servidor.list_tools():
+            assert "token_confirmacion" not in tool.input_schema.get("properties", {})
 
     async def test_la_tool_clinica_advierte_de_la_regulacion(
         self, servidor: MCPServer[Any]
@@ -81,12 +101,12 @@ class TestCatalogo:
         assert "consentimiento" in descripcion.lower()
         assert "nunca interpretes" in descripcion.lower()
 
-    async def test_las_tools_de_lectura_no_se_anuncian_como_propuestas(
+    async def test_las_tools_de_lectura_no_anuncian_confirmacion(
         self, servidor: MCPServer[Any]
     ) -> None:
         por_nombre = {t.name: t for t in await servidor.list_tools()}
         for nombre in TOOLS_LECTURA:
-            assert "PROPONE" not in (por_nombre[nombre].description or "")
+            assert "confirmación" not in (por_nombre[nombre].description or "").lower()
 
     async def test_la_regla_de_no_bloqueo_por_mora_esta_en_la_descripcion(
         self, servidor: MCPServer[Any]
@@ -102,7 +122,7 @@ class TestCatalogo:
         por_nombre = {t.name: t for t in await servidor.list_tools()}
         assert "motivo" in por_nombre["cancelar_cita"].input_schema["required"]
         assert "cita_id" in por_nombre["cancelar_cita"].input_schema["required"]
-        assert "token_confirmacion" in por_nombre["confirmar_operacion"].input_schema["required"]
+        assert "confirmacion" not in por_nombre["cancelar_cita"].input_schema["required"]
 
     async def test_ningun_parametro_opcional_es_obligatorio(self, servidor: MCPServer[Any]) -> None:
         por_nombre = {t.name: t for t in await servidor.list_tools()}
@@ -112,6 +132,7 @@ class TestCatalogo:
     async def test_las_instrucciones_del_servidor_explican_el_gate(
         self, servidor: MCPServer[Any]
     ) -> None:
-        instrucciones = servidor.instructions or ""
-        assert "confirmar_operacion" in instrucciones
+        instrucciones = (servidor.instructions or "").lower()
+        assert "confirmación" in instrucciones
+        assert "reintenta la misma llamada" in instrucciones
         assert "clinical" in instrucciones

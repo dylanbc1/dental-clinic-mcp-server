@@ -27,7 +27,6 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from backend.config import Settings
-from mcp_server.aprobacion import GestorDeAprobaciones
 from mcp_server.auditoria import Auditor
 from mcp_server.cliente import ClienteBackend
 from mcp_server.contexto import Contexto
@@ -57,7 +56,6 @@ def ctx_sin_backend() -> Contexto:
     """The transport guards run before any tool, so the backend is never reached."""
     return Contexto(
         cliente=ClienteBackend("http://backend-inexistente"),
-        aprobaciones=GestorDeAprobaciones("clave-de-pruebas"),
         auditor=Auditor(),
         exigir_auth=True,
     )

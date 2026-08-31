@@ -19,8 +19,9 @@ class TestValoresPorDefecto:
 
     def test_ningun_secreto_real_viene_por_defecto(self) -> None:
         """Defaults must be obviously-local placeholders, never usable creds."""
-        ajustes = Settings(_env_file=None)  # type: ignore[call-arg]
-        assert "dev" in ajustes.approval_signing_key or "change-me" in ajustes.approval_signing_key
+        clave = Settings(_env_file=None).request_state_keys[0]  # type: ignore[call-arg]
+        assert "dev-only" in clave
+        assert "change-me" in clave
 
     def test_get_settings_esta_cacheado(self) -> None:
         assert get_settings() is get_settings()

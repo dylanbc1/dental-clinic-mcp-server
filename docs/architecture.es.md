@@ -54,12 +54,12 @@ de tocar una sola fila.
    con cabecera `WWW-Authenticate` apuntando al metadata del recurso protegido.
 3. **Capa 2** compara los scopes del token con el que declara la tool. Un token
    `read` invocando `agendar_cita` se rechaza aquí.
-4. **Capa 3**, para toda tool `write` o `clinical`, devuelve una *propuesta* en
-   lugar de actuar: un token firmado, de un solo uso y con expiración que
-   describe exactamente qué pasaría. Solo `confirmar_operacion` con ese token
-   muta algo, y revisa de nuevo el scope de la acción nombrada *dentro* del
-   token, así que la autoridad se verifica en el momento del efecto y no en el
-   de la intención.
+4. **Capa 3**, para toda tool `write` o `clinical`, devuelve `input_required` en
+   lugar de actuar: la pregunta que una persona debe responder, más un
+   `requestState` sellado. El cliente obtiene la respuesta y reintenta la misma
+   llamada con ambos. El resolver vuelve a correr en esa segunda ronda, así que
+   la autoridad y las reglas del dominio se revisan en el momento del efecto y no
+   solo en el de la intención.
 5. La tool llama a la API REST del backend.
 6. **Capa 4** convierte todo fallo en `{codigo, mensaje, sugerencia, detalles}`.
 7. **Capa 5** escribe la fila de auditoría, en la misma transacción que el cambio.
@@ -153,10 +153,10 @@ backend/            fuente de verdad del dominio, no sabe nada de MCP
   api.py            API REST interna
   migrations/       alembic
 mcp_server/
-  tools/            read.py · write.py · clinical.py · confirmacion.py
+  tools/            read.py · write.py · clinical.py
   contexto.py       todo lo que necesitan las tools, inyectado en vez de global
   auth.py           verificación de token y scopes            (capas 1-2)
-  aprobacion.py     tokens firmados de aprobación humana      (capa 3)
+  confirmacion.py   la pregunta que responde una persona      (capa 3)
   errores.py        fallos estructurados para el modelo       (capa 4)
   auditoria.py      log de auditoría · limites.py  rate limit (capa 5)
   cliente.py        cliente HTTP hacia el backend

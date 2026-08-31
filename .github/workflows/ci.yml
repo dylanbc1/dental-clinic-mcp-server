@@ -73,7 +73,7 @@ jobs:
           npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
             --transport http --header "Authorization: Bearer $TOKEN" --method tools/list \
             | tee /tmp/tools.json
-          test "$(jq '.tools | length' /tmp/tools.json)" -eq 14
+          test "$(jq '.tools | length' /tmp/tools.json)" -eq 13
       - name: Show the logs when something failed
         if: failure()
         run: docker compose logs

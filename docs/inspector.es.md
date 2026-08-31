@@ -49,15 +49,23 @@ También se rechaza: los scopes no anidan.
 ### 4 · Una tool de escritura no cambia nada por sí sola (capa 3)
 
 Con `--scope "read write"`, llama `consultar_disponibilidad`, toma un `slot_id` y
-llama `agendar_cita`. Lee la respuesta: es una **propuesta**, con la lista de
-efectos y un `token_confirmacion`. Vuelve a llamar `consultar_disponibilidad`: el cupo sigue libre. No pasó nada.
+llama `agendar_cita`.
 
-### 5 · Solo la confirmación ejecuta (capa 3)
+El Inspector te muestra un **prompt de elicitación** en vez de un resultado: el
+servidor respondió `input_required` describiendo qué pasaría. No ha cambiado
+nada. Vuelve a llamar `consultar_disponibilidad`: el cupo sigue libre.
 
-Llama `confirmar_operacion` con ese token. Ahora la cita existe. Llámala otra vez
-con el mismo token: `APROBACION_YA_USADA`. Espera cinco minutos y prueba el token
-de una propuesta nueva: `APROBACION_EXPIRADA`. Cambia un carácter de un token:
-`APROBACION_INVALIDA`.
+### 5 · Solo tu respuesta ejecuta (capa 3)
+
+Responde el prompt con `confirmado: true`. El Inspector reenvía la misma llamada
+con tu respuesta y el `requestState` sellado, y ahora la cita existe.
+
+Responde `false` sobre un prompt nuevo y obtienes `OPERACION_NO_APROBADA` sin
+tocar nada. Declina el prompt directamente y la llamada aborta igual.
+
+Lo interesante es lo que el Inspector nunca te muestra: la confirmación **no es
+un parámetro de la tool**. Mira el esquema en el listado. No hay campo para
+ella, que es justamente por lo que un modelo no puede aprobar en tu nombre.
 
 ### 6 · Los errores te dicen qué hacer (capa 4)
 
@@ -85,7 +93,8 @@ que debe seguir deteniéndolo.
 
 ## Conectar Claude Desktop o Cursor
 
-Cualquier cliente MCP con soporte de Streamable HTTP y OAuth puede conectarse a
+Cualquier cliente MCP sobre la spec 2026-07-28 con Streamable HTTP y OAuth puede
+conectarse a
 `http://localhost:8080/mcp`; el cliente realiza por su cuenta el descubrimiento y
 el flujo PKCE. Para un cliente sin soporte de OAuth, levanta el stack con
 `MCP_AUTH_ENABLED=false`, pero ten en cuenta que eso desactiva por completo las

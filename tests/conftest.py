@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator, Callable, Iterator
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -37,6 +37,7 @@ import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from asgi_lifespan import LifespanManager
 from mcp.server.auth.middleware.auth_context import auth_context_var
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
@@ -47,15 +48,15 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.api import app as backend_app
+from backend.config import Settings
 from backend.database import get_session
 from backend.domain.tiempo import UTC, a_local, slots_del_dia
 from backend.enums import ConceptoCargo, Especialidad, EstadoCargo, Regimen, TipoDocumento
 from backend.models import AgendaSlot, Base, Cargo, Clinica, Paciente, Profesional
-from mcp_server.aprobacion import GestorDeAprobaciones
 from mcp_server.auditoria import Auditor
 from mcp_server.cliente import ClienteBackend
 from mcp_server.contexto import Contexto
-from mcp_server.server import crear_servidor
+from mcp_server.server import construir_app, crear_servidor
 
 FECHA_BASE_TESTS = date(2026, 8, 31)
 
@@ -267,6 +268,7 @@ class Escenario:
     orto_id: int
     #: Contributory regime, active affiliation, consent on file.
     ana_id: int
+    ana_documento: str
     #: Subsidised regime, affiliation lapsed → private tariff.
     bruno_id: int
     #: Private patient, no consent recorded → clinical tool must refuse.
@@ -378,6 +380,7 @@ def escenario(sesiones: Callable[[], Session]) -> Escenario:
         general_id=general.id,
         orto_id=orto.id,
         ana_id=ana.id,
+        ana_documento=ana.documento,
         bruno_id=bruno.id,
         carla_id=carla.id,
         deudor_id=deudor.id,
@@ -393,15 +396,41 @@ def escenario(sesiones: Callable[[], Session]) -> Escenario:
 # --------------------------------------------------------------------------- #
 
 
-CLAVE_APROBACION = "clave-de-pruebas-no-secreta"
 SUJETO = "recepcion@clinica.test"
 
-pytestmark = pytest.mark.integration
+#: Key ring for the sealed request state. Test-only, 32 bytes as the codec wants.
+CLAVES_ESTADO = ["clave-de-pruebas-para-request-state-32"]
+
+#: What a 2026-07-28 client must send on every call once there is no session to
+#: remember the handshake. This is the visible cost of a stateless transport.
+SOBRE_MCP: dict[str, Any] = {
+    "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {"elicitation": {}},
+    }
+}
+CABECERAS_BASE = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+    "MCP-Protocol-Version": "2026-07-28",
+}
 
 
 @pytest.fixture
 def sesion_backend(sesiones: Callable[[], Session]) -> Session:
     return sesiones()
+
+
+@pytest.fixture
+def ajustes_mcp() -> Settings:
+    return Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        app_env="test",
+        mcp_public_url="http://localhost:8080",
+        oauth_issuer="http://localhost:9000",
+        oauth_audience="http://localhost:8080",
+        request_state_keys=CLAVES_ESTADO,
+    )
 
 
 @pytest.fixture
@@ -421,20 +450,147 @@ async def cliente_backend(sesion_backend: Session) -> AsyncIterator[ClienteBacke
 
 @pytest.fixture
 def ctx(cliente_backend: ClienteBackend) -> Contexto:
-    return Contexto(
-        cliente=cliente_backend,
-        aprobaciones=GestorDeAprobaciones(CLAVE_APROBACION, ttl_segundos=300),
-        auditor=Auditor(),
-        exigir_auth=True,
-    )
+    return Contexto(cliente=cliente_backend, auditor=Auditor(), exigir_auth=True)
 
 
 @pytest.fixture
-def servidor(ctx: Contexto) -> MCPServer[Any]:
-    # `con_auth=False` builds the server without the HTTP auth middleware; the
-    # identity is injected directly below, which is what lets a test choose the
-    # exact scope set it wants to prove something about.
-    return crear_servidor(ctx, con_auth=False)
+def servidor(ctx: Contexto, ajustes_mcp: Settings) -> MCPServer[Any]:
+    """The real server, for assertions about its catalogue."""
+    return crear_servidor(ctx, config=ajustes_mcp, con_auth=False)
+
+
+class ErrorDeHerramienta(Exception):
+    """A tool answered `isError`. Carries the text the model would read."""
+
+    def __init__(self, texto: str) -> None:
+        super().__init__(texto)
+        self.texto = texto
+
+
+class ClienteMCP:
+    """A minimal 2026-07-28 client, enough to drive the server over the wire.
+
+    The contract suite talks to the server this way rather than calling its
+    methods, because MRTR only exists on the wire: a tool that needs a human's
+    answer returns `input_required`, and the round trip is the thing worth
+    testing.
+    """
+
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self.http = http
+        self.id = 0
+
+    async def _rpc(self, metodo: str, params: dict[str, Any]) -> Any:
+        self.id += 1
+        cabeceras = {**CABECERAS_BASE, "mcp-method": metodo}
+        if "name" in params:
+            cabeceras["mcp-name"] = str(params["name"])
+        respuesta = await self.http.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": self.id,
+                "method": metodo,
+                "params": {**params, **SOBRE_MCP},
+            },
+            headers=cabeceras,
+        )
+        cuerpo = respuesta.text
+        for linea in cuerpo.splitlines():
+            if linea.startswith("data:"):
+                cuerpo = linea[5:].strip()
+                break
+        datos = json.loads(cuerpo)
+        if "error" in datos:
+            raise ErrorDeHerramienta(json.dumps(datos["error"], ensure_ascii=False))
+        return datos["result"]
+
+    @staticmethod
+    def _desenvolver(resultado: dict[str, Any]) -> Any:
+        if resultado.get("isError"):
+            textos = [c.get("text", "") for c in resultado.get("content", [])]
+            raise ErrorDeHerramienta("\n".join(t for t in textos if t))
+        contenido = resultado.get("structuredContent")
+        if isinstance(contenido, dict) and set(contenido) == {"result"}:
+            return contenido["result"]
+        if contenido is not None:
+            return contenido
+        return [c.get("text") for c in resultado.get("content", [])]
+
+    async def llamar(self, nombre: str, argumentos: dict[str, Any]) -> Any:
+        """Call a tool that needs no human answer."""
+        return self._desenvolver(
+            await self._rpc("tools/call", {"name": nombre, "arguments": argumentos})
+        )
+
+    async def preguntar(self, nombre: str, argumentos: dict[str, Any]) -> dict[str, Any]:
+        """Call a tool expecting `input_required`, and return what it asks."""
+        resultado = await self._rpc("tools/call", {"name": nombre, "arguments": argumentos})
+        if resultado.get("resultType") != "input_required":
+            self._desenvolver(resultado)  # raises if it was an error
+            raise AssertionError(f"{nombre} no pidió confirmación: {resultado}")
+        return resultado
+
+    async def responder(
+        self,
+        nombre: str,
+        argumentos: dict[str, Any],
+        pregunta: dict[str, Any],
+        *,
+        confirmado: bool = True,
+        accion: str = "accept",
+    ) -> Any:
+        """Retry the same call carrying the human's answer."""
+        clave = next(iter(pregunta["inputRequests"]))
+        respuesta: dict[str, Any] = {"action": accion}
+        if accion == "accept":
+            respuesta["content"] = {"confirmado": confirmado}
+        return self._desenvolver(
+            await self._rpc(
+                "tools/call",
+                {
+                    "name": nombre,
+                    "arguments": argumentos,
+                    "inputResponses": {clave: respuesta},
+                    "requestState": pregunta["requestState"],
+                },
+            )
+        )
+
+    async def aprobar(self, nombre: str, argumentos: dict[str, Any]) -> Any:
+        """The whole round trip: ask, approve, execute."""
+        pregunta = await self.preguntar(nombre, argumentos)
+        return await self.responder(nombre, argumentos, pregunta)
+
+    def mensaje_de(self, pregunta: dict[str, Any]) -> str:
+        clave = next(iter(pregunta["inputRequests"]))
+        return str(pregunta["inputRequests"][clave]["params"]["message"])
+
+
+@asynccontextmanager
+async def servidor_http(ctx: Contexto, ajustes: Settings) -> AsyncIterator[ClienteMCP]:
+    """A running server over HTTP, for tests that need custom settings."""
+    app = construir_app(ctx, config=ajustes, con_auth=False)
+    async with LifespanManager(app):
+        transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transporte, base_url="http://localhost:8080"
+        ) as http:
+            yield ClienteMCP(http)
+
+
+@pytest.fixture
+async def mcp(ctx: Contexto, ajustes_mcp: Settings) -> AsyncIterator[ClienteMCP]:
+    """The server over HTTP, with the lifespan running."""
+    app = construir_app(ctx, config=ajustes_mcp, con_auth=False)
+    async with LifespanManager(app):
+        transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transporte, base_url="http://localhost:8080"
+        ) as http:
+            # No handshake: stateless means every call stands alone, carrying
+            # its own protocol version and capabilities in `_meta`.
+            yield ClienteMCP(http)
 
 
 @contextmanager
@@ -454,50 +610,30 @@ def como(sujeto: str, scopes: list[str]) -> Iterator[None]:
         auth_context_var.reset(reset)
 
 
-@pytest.fixture
-def como_recepcion() -> Callable[[], Any]:
-    """The everyday identity: read + write, no clinical."""
-    return lambda: como(SUJETO, ["read", "write"])
-
-
-@pytest.fixture
-def todos_los_scopes() -> Callable[[], Any]:
-    return lambda: como(SUJETO, ["read", "write", "clinical"])
-
-
-async def llamar(servidor: MCPServer[Any], nombre: str, argumentos: dict[str, Any]) -> Any:
-    """Call a tool and return its payload.
-
-    In-process, `MCPServer.call_tool` *raises* `ToolError` for an anticipated
-    failure rather than returning `is_error=True`. Over the wire the SDK turns
-    that same exception into the error result the model sees, so tests assert on
-    the raised error via `error_de` below.
-    """
-    return datos(await servidor.call_tool(nombre, argumentos))
-
-
-async def error_de(servidor: MCPServer[Any], nombre: str, argumentos: dict[str, Any]) -> str:
-    """Call a tool expecting failure and return the message the model would read."""
-    with pytest.raises(ToolError) as capturado:
-        await servidor.call_tool(nombre, argumentos)
-    return str(capturado.value)
-
-
 def texto(resultado: CallToolResult) -> str:
     """Flatten a tool result to the text the model would actually read."""
-    partes: list[str] = []
-    for bloque in resultado.content:
-        partes.append(getattr(bloque, "text", ""))
+    partes = [getattr(bloque, "text", "") for bloque in resultado.content]
     return "\n".join(p for p in partes if p)
 
 
 def datos(resultado: CallToolResult) -> Any:
-    """The structured payload of a successful call."""
+    """The structured payload of a successful in-process call."""
     assert not resultado.is_error, texto(resultado)
     if resultado.structured_content is not None:
         contenido = resultado.structured_content
-        # The SDK wraps a non-object return value under "result".
         if isinstance(contenido, dict) and set(contenido) == {"result"}:
             return contenido["result"]
         return contenido
     return json.loads(texto(resultado))
+
+
+async def llamar(servidor: MCPServer[Any], nombre: str, argumentos: dict[str, Any]) -> Any:
+    """Call a read tool in-process and return its payload."""
+    return datos(await servidor.call_tool(nombre, argumentos))
+
+
+async def error_de(servidor: MCPServer[Any], nombre: str, argumentos: dict[str, Any]) -> str:
+    """Call a read tool expecting failure; return the message the model reads."""
+    with pytest.raises(ToolError) as capturado:
+        await servidor.call_tool(nombre, argumentos)
+    return str(capturado.value)

@@ -9,9 +9,10 @@
 <p align="left">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="MCP SDK v2" src="https://img.shields.io/badge/MCP%20SDK-v2-7c5cff">
+  <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="cobertura 99%" src="https://img.shields.io/badge/cobertura-99%25-1f8b4c">
-  <img alt="813 pruebas" src="https://img.shields.io/badge/pruebas-813-1f8b4c">
+  <img alt="809 pruebas" src="https://img.shields.io/badge/pruebas-809-1f8b4c">
 </p>
 
 ```bash
@@ -63,7 +64,7 @@ flowchart LR
     C["Cliente MCP<br/>Claude · Cursor · Inspector"]
     subgraph mcp["MCP server · Streamable HTTP"]
       direction TB
-      A1["1· OAuth 2.1 + PKCE"] --> A2["2· Verificación de scope"] --> A3["3· Aprobación humana"] --> T["14 tools · 3 resources · 1 prompt"]
+      A1["1· OAuth 2.1 + PKCE"] --> A2["2· Verificación de scope"] --> A3["3· Aprobación humana<br/>(MRTR)"] --> T["13 tools · 3 resources · 1 prompt"]
       T --> A4["4· Errores estructurados"]
       T --> A5["5· Auditoría + guardas de transporte"]
     end
@@ -79,7 +80,7 @@ flowchart LR
 | Capa | Stack | Responsabilidad |
 |---|---|---|
 | Backend de dominio | FastAPI + PostgreSQL 16 + SQLAlchemy 2.x | Fuente de verdad. No sabe nada de MCP. |
-| MCP server | MCP Python SDK v2, Streamable HTTP | Traduce el dominio a tools/resources/prompts. **Aquí viven todos los controles de seguridad.** |
+| MCP server | MCP Python SDK v2, Streamable HTTP (sin estado) | Traduce el dominio a tools/resources/prompts. **Aquí viven todos los controles de seguridad.** |
 | Authorization Server | OAuth 2.1 propio (o Keycloak) | Emite tokens. Intercambiable sin tocar el resource server. |
 
 Separar el backend del MCP server es en sí el punto: en producción el MCP server
@@ -90,7 +91,7 @@ Razonamiento completo y diagramas: [`docs/architecture.es.md`](./docs/architectu
 
 ## El catálogo de herramientas
 
-Catorce, no treinta. La precisión del modelo cae pasadas 25–30 tools, así que un
+Trece, no treinta. La precisión del modelo cae pasadas 25-30 tools, así que un
 catálogo pequeño y descrito con precisión es el diseño, no una limitación.
 
 | Scope | Herramientas |
@@ -98,31 +99,34 @@ catálogo pequeño y descrito con precisión es el diseño, no una limitación.
 | `read` | `buscar_paciente` · `consultar_disponibilidad` · `consultar_cita` · `listar_citas_paciente` · `consultar_cartera` · `validar_afiliacion` |
 | `write` | `agendar_cita` · `confirmar_cita` · `cancelar_cita` · `reprogramar_cita` · `registrar_asistencia` · `ofrecer_cupo_lista_espera` |
 | `clinical` | `registrar_motivo_consulta` |
-|, | `confirmar_operacion` (ejecuta una propuesta aprobada) |
 
 Resources: `clinica://info`, `politicas://cartera`, `agenda://hoy`.
 Prompt: `recepcionista_odontologia`.
 
-**Toda herramienta de escritura y la clínica devuelven una propuesta, no un
-resultado.** Llamar `cancelar_cita` no cambia nada: devuelve un resumen en
-lenguaje llano de lo que *pasaría* más un token firmado. Solo
-`confirmar_operacion`, con ese token, muta algo:
+**Toda herramienta de escritura y la clínica se detienen a preguntarle a una
+persona**, con Multi Round-Trip Requests. Llamar `cancelar_cita` no cambia nada:
+vuelve preguntando.
 
 ```jsonc
+// ronda 1  →  tools/call cancelar_cita {cita_id: 412, motivo: "…"}
 {
-  "requiere_confirmacion": true,
-  "resumen": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00.",
-  "esto_va_a_pasar": [
-    "La cita pasará de 'confirmada' a 'cancelada'.",
-    "El cupo quedará libre en la agenda.",
-    "Si hay lista de espera para esa especialidad, se informará al siguiente."
-  ],
-  "advertencias": ["El paciente registra $180.000 COP en mora. No impide agendar."],
-  "token_confirmacion": "eyJhY2Npb24iOi…",
-  "vigencia_segundos": 300,
-  "siguiente_paso": "Muestra este resumen a la persona responsable. …"
+  "resultType": "input_required",
+  "inputRequests": {
+    "…": { "method": "elicitation/create", "params": {
+      "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00.\n\nEsto va a pasar:\n  · La cita pasará de 'confirmada' a 'cancelada'.\n  · El cupo quedará libre en la agenda.\n  · Si hay lista de espera, se informará al siguiente.\n\n¿Confirmas la operación?",
+      "requestedSchema": { "properties": { "confirmado": { "type": "boolean" } } }
+    }}
+  },
+  "requestState": "v1.ZZs-yBzkr3f…"          // sellado, AES-256-GCM
 }
+
+// ronda 2  →  la misma llamada + inputResponses + requestState  →  "resultType": "complete"
 ```
+
+Una tool, dos llamadas, sin sesión. La confirmación la resuelve el cliente, así
+que nunca aparece en el esquema de entrada: **el modelo no tiene dónde aprobar en
+nombre del usuario.** El resolver vuelve a correr en la segunda ronda, así que el
+scope y las reglas del dominio se reaplican en el momento del efecto.
 
 ## Seguridad
 
@@ -133,7 +137,7 @@ Detalle completo y modelo de amenazas: [`docs/security.es.md`](./docs/security.e
 |---|---|---|
 | 1 | **OAuth 2.1 + PKCE**, cero API keys | Acceso anónimo; un código de autorización robado |
 | 2 | **Scopes por herramienta** `read`/`write`/`clinical`, sin anidar | El confused deputy; la forma SaaStr de tokens sobredimensionados |
-| 3 | **Human-in-the-loop**: propuestas firmadas, de un solo uso y con expiración | Que un agente mute datos por su cuenta |
+| 3 | **Human-in-the-loop** sobre MRTR, con `requestState` sellado | Que un agente mute datos por su cuenta |
 | 4 | **Errores estructurados** con siguiente paso accionable | Bucles de reintento a ciegas; stack traces filtrados |
 | 5 | **Auditoría + guardas de transporte** | Cambios sin autor; DNS rebinding; agentes desbocados |
 
@@ -147,6 +151,10 @@ concurrentes los encuentran en la primera hora:
   misma cita y no un duplicado.
 - **Guardar en UTC, presentar en America/Bogota**. Los datetime naive se
   rechazan en vez de adivinarse.
+- **Transporte sin estado.** Una aplicación stateful no exige un transporte
+  stateful: la identidad va en el token y la operación pausada va sellada en el
+  `requestState` del cliente, así que cualquier réplica atiende cualquier
+  petición y no hay sesión que perder.
 
 Los scopes deliberadamente **no anidan**. Un token `write` no puede leer el
 motivo de consulta y un token `clinical` no puede cancelar una cita, porque
@@ -220,10 +228,10 @@ zona), el MCP server real, el Authorization Server real.
 | `tests/unit` | Máquina de estados (7×7 exhaustiva + property-based), afiliación, cartera, orden de la lista de espera, manejo de tiempo, contrato de errores |
 | `tests/integration` | Constraints del esquema, reversibilidad de migraciones, determinismo del seed, **dos conexiones vivas compitiendo por un cupo** |
 | `tests/contract` | La superficie MCP: catálogo, esquemas, descripciones, resources, prompt, y cada tool ejecutada de punta a punta |
-| `tests/security` | **La matriz completa 13 × 3 de scopes**, replay/expiración/alteración de aprobaciones, PKCE obligatorio, audiencia del JWT y `alg=none`, guardas de Host/Origin, rate limiting |
+| `tests/security` | **La matriz completa 13 × 3 de scopes** sobre el cable, el estado sellado bajo ataque (alteración, reuso cruzado, principal equivocado, expiración, rotación de claves), PKCE obligatorio, audiencia del JWT y `alg=none`, guardas de Host/Origin, ausencia de estado, rate limiting |
 | `scripts/smoke.py` | El camino completo del cliente sobre HTTP real, ejecutado en CI |
 
-813 pruebas: 346 unitarias, 231 de integración, 86 de contrato, 150 de seguridad.
+809 pruebas: 350 unitarias, 231 de integración, 82 de contrato, 146 de seguridad.
 **¿Quieres comprobarlo tú mismo?** [`docs/pruebas-manuales.md`](./docs/pruebas-manuales.md)
 es un recorrido de 25 minutos con trece pruebas, cada una diciendo qué correr y
 qué deberías ver. [`docs/inspector.es.md`](./docs/inspector.es.md) cubre lo mismo
@@ -241,9 +249,9 @@ backend/            fuente de verdad del dominio, no sabe nada de MCP
   models.py         esquema SQLAlchemy 2.x · api.py  API REST interna
   seed.py           datos sintéticos deterministas (Faker, semilla fija)
 mcp_server/
-  tools/            read.py · write.py · clinical.py · confirmacion.py
+  tools/            read.py · write.py · clinical.py
   auth.py           verificación OAuth y scopes         (capas 1-2)
-  aprobacion.py     tokens firmados de aprobación       (capa 3)
+  confirmacion.py   la pregunta que responde una persona (capa 3)
   errores.py        fallos estructurados y accionables  (capa 4)
   auditoria.py      log de auditoría · limites.py rate  (capa 5)
   oauth/            el Authorization Server propio

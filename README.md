@@ -9,9 +9,10 @@
 <p align="left">
   <img alt="Python 3.12" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="MCP SDK v2" src="https://img.shields.io/badge/MCP%20SDK-v2-7c5cff">
+  <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="coverage 99%" src="https://img.shields.io/badge/coverage-99%25-1f8b4c">
-  <img alt="813 tests" src="https://img.shields.io/badge/tests-813-1f8b4c">
+  <img alt="809 tests" src="https://img.shields.io/badge/tests-809-1f8b4c">
 </p>
 
 ```bash
@@ -63,7 +64,7 @@ flowchart LR
     C["MCP client<br/>Claude · Cursor · Inspector"]
     subgraph mcp["MCP server · Streamable HTTP"]
       direction TB
-      A1["1· OAuth 2.1 + PKCE"] --> A2["2· Scope check"] --> A3["3· Human approval"] --> T["14 tools · 3 resources · 1 prompt"]
+      A1["1· OAuth 2.1 + PKCE"] --> A2["2· Scope check"] --> A3["3· Human approval<br/>(MRTR)"] --> T["13 tools · 3 resources · 1 prompt"]
       T --> A4["4· Structured errors"]
       T --> A5["5· Audit + transport guards"]
     end
@@ -79,7 +80,7 @@ flowchart LR
 | Layer | Stack | Responsibility |
 |---|---|---|
 | Domain backend | FastAPI + PostgreSQL 16 + SQLAlchemy 2.x | Source of truth. Knows nothing about MCP. |
-| MCP server | MCP Python SDK v2, Streamable HTTP | Translates the domain into tools/resources/prompts. **Every security control lives here.** |
+| MCP server | MCP Python SDK v2, Streamable HTTP (stateless) | Translates the domain into tools/resources/prompts. **Every security control lives here.** |
 | Authorization server | In-repo OAuth 2.1 (or Keycloak) | Issues tokens. Swappable without touching the resource server. |
 
 Separating the backend from the MCP server is itself the point: in production an
@@ -98,31 +99,33 @@ a smaller, precisely described catalogue is the design, not a limitation.
 | `read` | `buscar_paciente` · `consultar_disponibilidad` · `consultar_cita` · `listar_citas_paciente` · `consultar_cartera` · `validar_afiliacion` |
 | `write` | `agendar_cita` · `confirmar_cita` · `cancelar_cita` · `reprogramar_cita` · `registrar_asistencia` · `ofrecer_cupo_lista_espera` |
 | `clinical` | `registrar_motivo_consulta` |
-|, | `confirmar_operacion` (executes an approved proposal) |
 
 Resources: `clinica://info`, `politicas://cartera`, `agenda://hoy`.
 Prompt: `recepcionista_odontologia`.
 
-**Every write and clinical tool returns a proposal, not a result.** Calling
-`cancelar_cita` changes nothing; it hands back a plain-language summary of what
-*would* happen plus a signed token. Only `confirmar_operacion`, with that token,
-mutates anything:
+**Every write and clinical tool pauses for a person**, over Multi Round-Trip
+Requests. Calling `cancelar_cita` changes nothing; it comes back asking:
 
 ```jsonc
+// round 1  →  tools/call cancelar_cita {cita_id: 412, motivo: "…"}
 {
-  "requiere_confirmacion": true,
-  "resumen": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00.",
-  "esto_va_a_pasar": [
-    "La cita pasará de 'confirmada' a 'cancelada'.",
-    "El cupo quedará libre en la agenda.",
-    "Si hay lista de espera para esa especialidad, se informará al siguiente."
-  ],
-  "advertencias": ["El paciente registra $180.000 COP en mora. No impide agendar."],
-  "token_confirmacion": "eyJhY2Npb24iOi…",
-  "vigencia_segundos": 300,
-  "siguiente_paso": "Muestra este resumen a la persona responsable. …"
+  "resultType": "input_required",
+  "inputRequests": {
+    "…": { "method": "elicitation/create", "params": {
+      "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00.\n\nEsto va a pasar:\n  · La cita pasará de 'confirmada' a 'cancelada'.\n  · El cupo quedará libre en la agenda.\n  · Si hay lista de espera, se informará al siguiente.\n\n¿Confirmas la operación?",
+      "requestedSchema": { "properties": { "confirmado": { "type": "boolean" } } }
+    }}
+  },
+  "requestState": "v1.ZZs-yBzkr3f…"          // sealed, AES-256-GCM
 }
+
+// round 2  →  same call + inputResponses + requestState  →  "resultType": "complete"
 ```
+
+One tool, two calls, no session. The confirmation is resolved by the client, so
+it never appears in the tool's input schema: **the model has no field to approve
+on the user's behalf.** The resolver re-runs on the second round, so scope and
+domain checks are re-applied at the moment of effect.
 
 ## Security
 
@@ -133,7 +136,7 @@ write-up and threat model: [`docs/security.md`](./docs/security.md).
 |---|---|---|
 | 1 | **OAuth 2.1 + PKCE**, no API keys anywhere | Anonymous access; a stolen authorization code |
 | 2 | **Per-tool scopes** `read`/`write`/`clinical`, non-nesting | The confused deputy; the SaaStr shape of over-broad tokens |
-| 3 | **Human-in-the-loop**: signed, single-use, TTL-bound proposals | An agent mutating data on its own judgement |
+| 3 | **Human-in-the-loop** over MRTR, with a sealed `requestState` | An agent mutating data on its own judgement |
 | 4 | **Structured errors** with an actionable next step | Blind retry loops; leaked stack traces |
 | 5 | **Audit trail + transport guards** | Unattributable changes; DNS rebinding; runaway agents |
 
@@ -147,6 +150,10 @@ in the first hour:
   back, not a duplicate.
 - **Store UTC, present America/Bogota**. Naive datetimes are rejected rather
   than guessed.
+- **Stateless transport.** A stateful application does not require a stateful
+  transport: identity is in the token and a paused operation is in the client's
+  sealed `requestState`, so any replica serves any request and there is no
+  session to lose.
 
 The scopes deliberately **do not nest**. A `write` token cannot read the reason
 for consultation and a `clinical` token cannot cancel an appointment, because
@@ -218,10 +225,10 @@ exist), the real MCP server, the real authorization server.
 | `tests/unit` | State machine (exhaustive 7×7 + property-based), affiliation, receivables, waiting-list ordering, time handling, error contracts |
 | `tests/integration` | Schema constraints, migration reversibility, seed determinism, **two live connections racing for one slot** |
 | `tests/contract` | The MCP surface: catalogue, tool schemas, descriptions, resources, prompt, and every tool executed end to end |
-| `tests/security` | **The full 13 × 3 scope matrix**, approval replay/expiry/tampering, PKCE enforcement, JWT audience and `alg=none`, Host/Origin guards, rate limiting |
+| `tests/security` | **The full 13 × 3 scope matrix** over the wire, the sealed request state under attack (tampering, cross-operation reuse, wrong principal, expiry, key rotation), PKCE enforcement, JWT audience and `alg=none`, Host/Origin guards, statelessness, rate limiting |
 | `scripts/smoke.py` | The whole client path over real HTTP, run in CI |
 
-813 tests: 346 unit, 231 integration, 86 contract, 150 security.
+809 tests: 350 unit, 231 integration, 82 contract, 146 security.
 **Want to check it yourself?** [`docs/manual-testing.md`](./docs/manual-testing.md)
 is a 25-minute walkthrough of thirteen checks, each saying what to run and what
 you should see. [`docs/inspector.md`](./docs/inspector.md) covers the same ground
@@ -239,9 +246,9 @@ backend/            domain source of truth, knows nothing about MCP
   models.py         SQLAlchemy 2.x schema · api.py  internal REST API
   seed.py           deterministic synthetic data (Faker, fixed seed)
 mcp_server/
-  tools/            read.py · write.py · clinical.py · confirmacion.py
+  tools/            read.py · write.py · clinical.py
   auth.py           OAuth verification and scopes      (layers 1-2)
-  aprobacion.py     signed human-approval tokens       (layer 3)
+  confirmacion.py   the question a person answers      (layer 3)
   errores.py        structured, actionable failures    (layer 4)
   auditoria.py      audit log · limites.py rate limit  (layer 5)
   oauth/            the in-repo authorization server
