@@ -8,7 +8,8 @@ y **qué deberías ver**. Si algo no coincide, esa capa está rota.
 Tiempo total: unos 25 minutos. Necesitas Docker corriendo y `uv` instalado.
 
 ```bash
-cd clinica-mcp-server
+git clone https://github.com/dylanbc1/dental-clinic-mcp-server
+cd dental-clinic-mcp-server
 cp .env.example .env
 make up
 ```

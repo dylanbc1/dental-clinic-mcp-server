@@ -1,5 +1,5 @@
 [project]
-name = "clinica-mcp-server"
+name = "dental-clinic-mcp-server"
 version = "0.1.0"
 description = "Production-grade MCP server for a dental clinic: appointments, affiliation checks and accounts receivable."
 readme = "README.md"

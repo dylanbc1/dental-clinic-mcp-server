@@ -326,7 +326,7 @@ class AuthorizationServer:
 
     async def _inicio(self, _: Request) -> HTMLResponse:
         return HTMLResponse(
-            "<h1>Authorization Server · clinica-mcp</h1>"
+            "<h1>Authorization Server · dental-clinic-mcp</h1>"
             "<p>Servidor de autorización de desarrollo. Metadata en "
             "<code>/.well-known/oauth-authorization-server</code>.</p>"
         )

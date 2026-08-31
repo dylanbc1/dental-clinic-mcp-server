@@ -1,4 +1,4 @@
-# clinica-mcp-server
+# dental-clinic-mcp-server
 
 > Un MCP server de grado producción para una clínica odontológica: citas,
 > validación de afiliación y cartera, con los controles de seguridad que el 92%

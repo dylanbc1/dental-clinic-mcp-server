@@ -8,7 +8,8 @@ and **what you should see**. If something does not match, that layer is broken.
 About 25 minutes total. You need Docker running and `uv` installed.
 
 ```bash
-cd clinica-mcp-server
+git clone https://github.com/dylanbc1/dental-clinic-mcp-server
+cd dental-clinic-mcp-server
 cp .env.example .env
 make up
 ```

@@ -1,4 +1,4 @@
-# clinica-mcp-server
+# dental-clinic-mcp-server
 
 > A production-grade MCP server for a dental clinic: appointments, affiliation
 > checks and accounts receivable, with the security controls that 92% of the

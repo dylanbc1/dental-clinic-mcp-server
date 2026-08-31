@@ -106,7 +106,7 @@ def crear_servidor(
         instructions=INSTRUCCIONES,
         auth=auth_settings,
         token_verifier=verificador,
-        website_url="https://github.com/",
+        website_url="https://github.com/dylanbc1/dental-clinic-mcp-server",
     )
 
     read.registrar(servidor, ctx)
