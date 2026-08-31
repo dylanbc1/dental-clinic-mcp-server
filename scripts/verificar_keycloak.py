@@ -54,30 +54,30 @@ def rechazado(url: str, token: str) -> bool:
 
 
 def main() -> int:
-    paso("1 · Keycloak emite un token con nuestros scopes")
+    paso("1 · Keycloak issues a token carrying our scopes")
     kc = token_de_keycloak("read")
-    print(f"  token de Keycloak: {kc[:40]}… ({len(kc)} bytes)")
+    print(f"  Keycloak token: {kc[:40]}… ({len(kc)} bytes)")
 
-    paso("2 · El mismo código, confiando en Keycloak, lo acepta")
+    paso("2 · The same code, trusting Keycloak, accepts it")
     cliente = ClienteMCP(MCP_KEYCLOAK, kc)
     tools = cliente._rpc("tools/list", {})["tools"]
-    print(f"  tools visibles: {len(tools)}")
+    print(f"  tools visible: {len(tools)}")
     cupo = cliente.llamar("consultar_disponibilidad", {"limite": 1})[0]
-    print(f"  lectura real: cupo libre {cupo['inicio_local']}")
+    print(f"  a real read: free slot {cupo['inicio_local']}")
 
-    paso("3 · Los dos emisores no son intercambiables por accidente")
+    paso("3 · The two issuers are not interchangeable by accident")
     if not rechazado(MCP_PROPIO, kc):
-        raise SystemExit("FALLO: el server propio aceptó un token de Keycloak")
-    print("  token de Keycloak → servidor del AS propio: 401 ✓")
+        raise SystemExit("FAILURE: the in-repo server accepted a Keycloak token")
+    print("  Keycloak token → in-repo AS server: 401 ✓")
 
     propio = obtener_token("http://localhost:9000", "read", "recepcion@clinica.local")
     if not rechazado(MCP_KEYCLOAK, propio):
-        raise SystemExit("FALLO: el server de Keycloak aceptó un token del AS propio")
-    print("  token del AS propio → servidor de Keycloak: 401 ✓")
+        raise SystemExit("FAILURE: the Keycloak server accepted an in-repo AS token")
+    print("  in-repo AS token → Keycloak server: 401 ✓")
 
     print(
-        "\n\033[32m✓ La capa de auth es intercambiable: mismo código, otro IdP, "
-        "y la validación de emisor/audiencia sigue separándolos.\033[0m"
+        "\n\033[32m✓ The auth layer is swappable: same code, a different IdP, and "
+        "issuer/audience validation still keeps them apart.\033[0m"
     )
     return 0
 

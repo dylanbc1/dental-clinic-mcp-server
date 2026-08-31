@@ -100,15 +100,16 @@ class Consola:
         clave = next(iter(pregunta["inputRequests"]))
         mensaje = pregunta["inputRequests"][clave]["params"]["message"]
 
-        print(f"\n{AZUL}{NEGRITA}  ── El servidor pide confirmación ──{FIN}")
+        print(f"\n{AZUL}{NEGRITA}  ── The server is asking for confirmation ──{FIN}")
         for linea in mensaje.splitlines():
             print(f"{AZUL}  │{FIN} {linea}")
         estado = pregunta["requestState"]
-        print(f"{GRIS}  │ requestState: {len(estado)} bytes, sellado y opaco{FIN}")
-        print(f"{GRIS}  │ nada se ha modificado todavía{FIN}")
+        print(f"{GRIS}  │ requestState: {len(estado)} bytes, sealed and opaque{FIN}")
+        print(f"{GRIS}  │ nothing has changed yet{FIN}")
 
-        respuesta = input(f"{NEGRITA}  ¿Confirmas? [s/N] {FIN}").strip().lower()
-        acepta = respuesta in {"s", "si", "sí", "y", "yes"}
+        respuesta = input(f"{NEGRITA}  Confirm? [y/N] {FIN}").strip().lower()
+        # Both languages accepted: the person at the keyboard may type either.
+        acepta = respuesta in {"y", "yes", "s", "si", "sí"}
 
         resultado = self.rpc(
             "tools/call",
@@ -142,20 +143,20 @@ class Consola:
         for linea in texto.splitlines()[:40]:
             print(f"{VERDE}  {linea}{FIN}")
         if len(texto.splitlines()) > 40:
-            print(f"{GRIS}  … ({len(texto.splitlines())} líneas){FIN}")
+            print(f"{GRIS}  … ({len(texto.splitlines())} lines){FIN}")
 
 
 AYUDA = f"""
-{NEGRITA}Comandos{FIN}
-  {AZUL}tools{FIN}                        lista las herramientas
-  {AZUL}<n>{FIN} o {AZUL}<nombre>{FIN} {GRIS}{{json}}{FIN}       llama una herramienta
-  {AZUL}ayuda{FIN}                        esta ayuda
-  {AZUL}salir{FIN}
+{NEGRITA}Commands{FIN}
+  {AZUL}tools{FIN}                        list the tools
+  {AZUL}<n>{FIN} or {AZUL}<name>{FIN} {GRIS}{{json}}{FIN}       call a tool
+  {AZUL}help{FIN}                         this help
+  {AZUL}quit{FIN}
 
-{NEGRITA}Para empezar{FIN}
+{NEGRITA}To get started{FIN}
   {GRIS}buscar_paciente {{"nombre": "a", "limite": 3}}{FIN}
   {GRIS}consultar_disponibilidad {{"limite": 3}}{FIN}
-  {GRIS}agendar_cita {{"paciente_id": 20, "slot_id": 719}}{FIN}   ← este te va a preguntar
+  {GRIS}agendar_cita {{"paciente_id": 20, "slot_id": 719}}{FIN}   ← this one will ask you
 """
 
 
@@ -167,18 +168,18 @@ def main() -> int:
     parser.add_argument("--sujeto", default="recepcion@clinica.local")
     args = parser.parse_args()
 
-    print(f"{NEGRITA}Obteniendo un token por OAuth 2.1 + PKCE…{FIN}")
+    print(f"{NEGRITA}Getting a token over OAuth 2.1 + PKCE…{FIN}")
     token = obtener_token(args.issuer, args.scope, args.sujeto)
-    print(f"  scopes: {AZUL}{args.scope}{FIN}   sujeto: {AZUL}{args.sujeto}{FIN}")
+    print(f"  scopes: {AZUL}{args.scope}{FIN}   subject: {AZUL}{args.sujeto}{FIN}")
 
     consola = Consola(args.mcp, token)
     listado = consola.rpc("tools/list", {})
     if "_rpc" in listado or "_transporte" in listado:
-        print(f"{ROJO}No pude conectar: {listado}{FIN}")
+        print(f"{ROJO}Could not connect: {listado}{FIN}")
         return 1
     tools = listado["tools"]
     nombres = [t["name"] for t in tools]
-    print(f"  conectado · {len(tools)} herramientas · sin sesión (transporte sin estado)")
+    print(f"  connected · {len(tools)} tools · no session (stateless transport)")
     print(AYUDA)
 
     while True:
@@ -189,9 +190,9 @@ def main() -> int:
             return 0
         if not entrada:
             continue
-        if entrada in {"salir", "exit", "quit"}:
+        if entrada in {"quit", "exit", "salir"}:
             return 0
-        if entrada in {"ayuda", "help", "?"}:
+        if entrada in {"help", "ayuda", "?"}:
             print(AYUDA)
             continue
         if entrada == "tools":
@@ -204,12 +205,12 @@ def main() -> int:
         if nombre.isdigit() and 1 <= int(nombre) <= len(tools):
             nombre = nombres[int(nombre) - 1]
         if nombre not in nombres:
-            print(f"{ROJO}  no existe la herramienta '{nombre}'. Escribe 'tools'.{FIN}")
+            print(f"{ROJO}  no such tool '{nombre}'. Type 'tools'.{FIN}")
             continue
         try:
             argumentos = json.loads(partes[1]) if len(partes) > 1 else {}
         except json.JSONDecodeError as exc:
-            print(f"{ROJO}  los argumentos deben ser JSON: {exc}{FIN}")
+            print(f"{ROJO}  arguments must be JSON: {exc}{FIN}")
             continue
 
         consola.llamar(nombre, argumentos)

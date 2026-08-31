@@ -89,7 +89,7 @@ def usuario_actor(
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
-    logger.info("backend arriba en entorno %s", settings.app_env)
+    logger.info("backend up in %s environment", settings.app_env)
     yield
     get_engine().dispose()
 
@@ -157,7 +157,7 @@ async def manejar_validacion(_: Request, exc: ValidationError) -> JSONResponse:
 async def manejar_error_inesperado(_: Request, exc: Exception) -> JSONResponse:
     """Unexpected failures are logged in full and answered with one opaque,
     still-structured error. A stack trace never reaches the caller."""
-    logger.exception("error no controlado", exc_info=exc)
+    logger.exception("unhandled error", exc_info=exc)
     return JSONResponse(
         status_code=500,
         content={
@@ -187,7 +187,7 @@ async def listo() -> JSONResponse:
         with get_engine().connect() as conexion:
             conexion.execute(text("select 1"))
     except Exception as exc:  # readiness must never raise, whatever the cause
-        logger.warning("readiness falló: %s", exc)
+        logger.warning("readiness check failed: %s", exc)
         return JSONResponse(
             status_code=503,
             content={

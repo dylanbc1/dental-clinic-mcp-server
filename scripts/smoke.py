@@ -63,9 +63,7 @@ class ClienteMCP:
         if respuesta.status_code >= 400:
             # A malformed or tampered requestState is refused at the protocol
             # layer, before any tool runs, so it arrives as a plain HTTP error.
-            raise SystemExit(
-                f"{metodo} rechazado ({respuesta.status_code}): {respuesta.text[:160]}"
-            )
+            raise SystemExit(f"{metodo} refused ({respuesta.status_code}): {respuesta.text[:160]}")
         cuerpo = respuesta.text
         # Streamable HTTP answers as SSE; pull the single data frame out.
         for linea in cuerpo.splitlines():
@@ -74,14 +72,14 @@ class ClienteMCP:
                 break
         datos = json.loads(cuerpo)
         if "error" in datos:
-            raise SystemExit(f"{metodo} falló: {datos['error']}")
+            raise SystemExit(f"{metodo} failed: {datos['error']}")
         return datos["result"]
 
     @staticmethod
     def _payload(resultado: dict[str, Any]) -> Any:
         if resultado.get("isError"):
             texto = "\n".join(c.get("text", "") for c in resultado.get("content", []))
-            raise SystemExit(f"la herramienta devolvió error:\n{texto}")
+            raise SystemExit(f"the tool returned an error:\n{texto}")
         contenido = resultado.get("structuredContent") or {}
         return contenido.get("result", contenido)
 
@@ -94,7 +92,7 @@ class ClienteMCP:
         )
         if resultado.get("resultType") != "input_required":
             self._payload(resultado)
-            raise SystemExit(f"{nombre} no pidió confirmación")
+            raise SystemExit(f"{nombre} did not ask for confirmation")
         return resultado
 
     def responder(
@@ -129,7 +127,7 @@ def main() -> int:
     parser.add_argument("--issuer", default="http://localhost:9000")
     args = parser.parse_args()
 
-    paso("1 · El servidor exige autenticación")
+    paso("1 · The server requires authentication")
     anonima = httpx.post(
         args.mcp,
         json={"jsonrpc": "2.0", "id": 0, "method": "tools/list"},
@@ -137,10 +135,10 @@ def main() -> int:
         timeout=10,
     )
     if anonima.status_code != 401:
-        raise SystemExit(f"esperaba 401 sin token, llegó {anonima.status_code}")
+        raise SystemExit(f"expected 401 with no token, got {anonima.status_code}")
     print(f"  401 · WWW-Authenticate: {anonima.headers.get('www-authenticate', '')[:80]}…")
 
-    paso("2 · Descubrimiento del recurso protegido")
+    paso("2 · Protected-resource discovery")
     metadata = httpx.get(
         args.mcp.replace("/mcp", "/.well-known/oauth-protected-resource"), timeout=10
     ).json()
@@ -151,15 +149,15 @@ def main() -> int:
     token = obtener_token(args.issuer, "read write", "recepcion@clinica.local")
     print(f"  access_token: {token[:40]}… ({len(token)} bytes)")
 
-    paso("4 · Streamable HTTP sin estado")
+    paso("4 · Streamable HTTP, stateless")
     cliente = ClienteMCP(args.mcp, token)
     tools = cliente._rpc("tools/list", {})["tools"]
-    print("  ninguna llamada a initialize, ninguna sesión que arrastrar")
+    print("  no initialize call, no session to carry around")
     print(f"  tools: {len(tools)} · {', '.join(t['name'] for t in tools[:4])}…")
 
-    paso("5 · Lectura")
+    paso("5 · Reading")
     paciente = cliente.llamar("buscar_paciente", {"nombre": "a", "limite": 1})[0]
-    print(f"  paciente: {paciente['nombre']} · régimen {paciente['regimen']}")
+    print(f"  patient: {paciente['nombre']} · régimen {paciente['regimen']}")
 
     # Pick a slot at an hour the patient is not already booked for. A patient
     # cannot be in two chairs at once, and the domain says so, so the client
@@ -171,39 +169,39 @@ def main() -> int:
     libres = cliente.llamar("consultar_disponibilidad", {"limite": 25})
     cupo = next((s for s in libres if s["inicio_local"] not in ocupadas), None)
     if cupo is None:
-        raise SystemExit("sin cupos libres a una hora que el paciente tenga disponible")
-    print(f"  cupo libre: {cupo['inicio_local']} con {cupo['profesional']}")
+        raise SystemExit("no free slot at an hour the patient has available")
+    print(f"  free slot: {cupo['inicio_local']} with {cupo['profesional']}")
 
-    paso("6 · Escritura, ronda 1: el servidor pregunta y NO ejecuta")
+    paso("6 · Write, round 1: the server asks and does NOT execute")
     argumentos = {"paciente_id": paciente["id"], "slot_id": cupo["slot_id"]}
     pregunta = cliente.preguntar("agendar_cita", argumentos)
     for linea in cliente.mensaje(pregunta).splitlines():
         print(f"    {linea}")
-    print(f"  requestState: {len(pregunta['requestState'])} bytes, sellado")
+    print(f"  requestState: {len(pregunta['requestState'])} bytes, sealed")
 
-    paso("7 · Ronda 2: la persona aprueba y ahora sí ejecuta")
+    paso("7 · Round 2: the person approves, and now it executes")
     hecho = cliente.responder("agendar_cita", argumentos, pregunta, si=True)
     cita = hecho["cita"]
-    print(f"  cita {cita['id']} · estado {cita['estado']} · {cita['inicio_local']}")
+    print(f"  appointment {cita['id']} · state {cita['estado']} · {cita['inicio_local']}")
 
-    paso("8 · El estado sellado no se puede reusar ni alterar")
+    paso("8 · The sealed state cannot be reused or tampered with")
     alterado = {**pregunta, "requestState": pregunta["requestState"][:-4] + "AAAA"}
     try:
         cliente.responder("agendar_cita", argumentos, alterado, si=True)
     except SystemExit:
-        print("  estado alterado: rechazado ✓")
+        print("  tampered state: refused ✓")
     else:
-        raise SystemExit("FALLO: se aceptó un requestState alterado")
+        raise SystemExit("FAILURE: a tampered requestState was accepted")
 
-    paso("9 · Un token sin 'clinical' no toca datos clínicos")
+    paso("9 · A token without 'clinical' cannot touch clinical data")
     try:
         cliente.preguntar("registrar_motivo_consulta", {"cita_id": cita["id"], "motivo": "dolor"})
     except SystemExit as esperado:
         print(f"  {str(esperado).splitlines()[1][:88]}")
     else:
-        raise SystemExit("FALLO: se permitió una escritura clínica sin scope")
+        raise SystemExit("FAILURE: a clinical write was allowed without the scope")
 
-    print("\n\033[32m✓ Todo el flujo funciona sobre el stack real.\033[0m")
+    print("\n\033[32m✓ The whole flow works against the real stack.\033[0m")
     return 0
 
 

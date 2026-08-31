@@ -74,7 +74,7 @@ class TestEjecucion:
     ) -> None:
         assert main(self.ARGUMENTOS) == 0
         salida = capsys.readouterr().out
-        assert "Seed listo" in salida
+        assert "Seed done" in salida
         assert "paciente" in salida
         assert cli().scalar(select(func.count()).select_from(Paciente)) == 8
 
@@ -86,7 +86,7 @@ class TestEjecucion:
         documentos_antes = sorted(sesion.scalars(select(Paciente.documento)))
 
         assert main([*self.ARGUMENTOS, "--if-empty"]) == 0
-        assert "omitido" in capsys.readouterr().out
+        assert "skipped" in capsys.readouterr().out
         assert sorted(sesion.scalars(select(Paciente.documento))) == documentos_antes
 
     def test_if_empty_si_siembra_una_base_vacia(

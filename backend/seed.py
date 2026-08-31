@@ -517,11 +517,11 @@ def main(argv: list[str] | None = None) -> int:
 
     with session_scope() as session:
         if args.if_empty and not base_vacia(session):
-            print("Seed omitido: la base ya tiene datos.")
+            print("Seed skipped: the database already holds data.")
             return 0
         conteos = sembrar(session, params)
 
-    print(f"Seed listo (semilla={params.seed}, fecha base={params.fecha_base}):")
+    print(f"Seed done (seed={params.seed}, base date={params.fecha_base}):")
     for tabla, cantidad in conteos.items():
         print(f"  {tabla:<14} {cantidad:>6}")
     return 0

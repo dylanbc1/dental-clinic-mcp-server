@@ -57,11 +57,11 @@ def obtener_token(issuer: str, scope: str, sujeto: str) -> str:
             },
         )
         if autorizacion.status_code != 302:
-            raise SystemExit(f"/authorize falló: {autorizacion.status_code} {autorizacion.text}")
+            raise SystemExit(f"/authorize failed: {autorizacion.status_code} {autorizacion.text}")
 
         consulta = parse_qs(urlparse(autorizacion.headers["location"]).query)
         if "error" in consulta:
-            raise SystemExit(f"/authorize rechazó la solicitud: {consulta}")
+            raise SystemExit(f"/authorize refused the request: {consulta}")
 
         token = cliente.post(
             metadata["token_endpoint"],
@@ -73,7 +73,7 @@ def obtener_token(issuer: str, scope: str, sujeto: str) -> str:
             },
         )
         if token.status_code != 200:
-            raise SystemExit(f"/token falló: {token.status_code} {token.text}")
+            raise SystemExit(f"/token failed: {token.status_code} {token.text}")
         return str(token.json()["access_token"])
 
 
