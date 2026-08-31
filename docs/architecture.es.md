@@ -1,0 +1,172 @@
+# Arquitectura
+
+> 🇬🇧 [Read it in English](./architecture.md)
+
+## Las tres capas
+
+```mermaid
+flowchart LR
+    subgraph client["Cliente MCP (no se construye aquí)"]
+        C["Claude Desktop · Cursor · MCP Inspector"]
+    end
+
+    subgraph mcp["MCP server · FastMCP · Streamable HTTP"]
+        direction TB
+        A1["1· OAuth 2.1 + PKCE<br/>identidad"]
+        A2["2· Verificación de scope<br/>read / write / clinical"]
+        A3["3· Human-in-the-loop<br/>propuesta firmada"]
+        T["tools · resources · prompts"]
+        A4["4· Errores estructurados"]
+        A5["5· Auditoría + guardas de transporte"]
+        A1 --> A2 --> A3 --> T --> A4
+        T --> A5
+    end
+
+    subgraph backend["Backend de dominio · FastAPI"]
+        API["API REST interna"]
+        DOM["Lógica de dominio<br/>máquina de estados · cartera · afiliación · lista de espera"]
+        DB[("PostgreSQL 16")]
+        API --> DOM --> DB
+    end
+
+    C -- "Streamable HTTP" --> A1
+    T -- "HTTP, servidor a servidor" --> API
+
+    style mcp fill:#f6f2ff,stroke:#7c5cff
+    style backend fill:#f0f7ff,stroke:#3b82f6
+```
+
+El LLM nunca llega a PostgreSQL. Toda petición atraviesa las cinco capas antes
+de tocar una sola fila.
+
+### Por qué el backend y el MCP server están separados
+
+| Razón | Qué gana |
+|---|---|
+| Realismo | En producción el MCP server casi nunca *es* el sistema: envuelve uno que ya existe. Modelar esa separación es la forma honesta. |
+| Seguridad | Los controles tienen exactamente un lugar donde vivir. No hay ruta del modelo a la base que los evite. |
+| Reutilización | El mismo backend puede alimentar la demo web (v1.1) o un módulo de voz sin reescribir una línea de dominio. |
+
+## Flujo de una petición
+
+1. El cliente invoca una tool por Streamable HTTP (SSE está deprecado para producción).
+2. **Capa 1** valida el access token de OAuth 2.1. Ausente o inválido ⇒ `401`
+   con cabecera `WWW-Authenticate` apuntando al metadata del recurso protegido.
+3. **Capa 2** compara los scopes del token con el que declara la tool. Un token
+   `read` invocando `agendar_cita` se rechaza aquí.
+4. **Capa 3**, para toda tool `write` o `clinical`, devuelve una *propuesta* en
+   lugar de actuar: un token firmado, de un solo uso y con expiración que
+   describe exactamente qué pasaría. Solo `confirmar_operacion` con ese token
+   muta algo, y revisa de nuevo el scope de la acción nombrada *dentro* del
+   token, así que la autoridad se verifica en el momento del efecto y no en el
+   de la intención.
+5. La tool llama a la API REST del backend.
+6. **Capa 4** convierte todo fallo en `{codigo, mensaje, sugerencia, detalles}`.
+7. **Capa 5** escribe la fila de auditoría, en la misma transacción que el cambio.
+
+## Modelo de dominio
+
+```mermaid
+erDiagram
+    CLINICA ||--o{ PROFESIONAL : emplea
+    PROFESIONAL ||--o{ AGENDA_SLOT : ofrece
+    AGENDA_SLOT ||--o| CITA : "ocupada por"
+    PACIENTE ||--o{ CITA : agenda
+    CITA ||--o{ CITA_HISTORIAL : audita
+    CITA ||--o{ CARGO : genera
+    PACIENTE ||--o{ CARGO : adeuda
+    PACIENTE ||--o{ LISTA_ESPERA : espera
+```
+
+### La máquina de estados de la cita
+
+```mermaid
+stateDiagram-v2
+    [*] --> agendada
+    agendada --> confirmada
+    agendada --> cancelada : exige motivo
+    agendada --> reprogramada
+    agendada --> no_asistio
+    confirmada --> en_espera
+    confirmada --> cancelada : exige motivo
+    confirmada --> reprogramada
+    confirmada --> no_asistio
+    en_espera --> atendida
+    en_espera --> cancelada : exige motivo
+    atendida --> [*]
+    cancelada --> [*]
+    reprogramada --> [*]
+    no_asistio --> [*]
+```
+
+Tres reglas viajan sobre este diagrama, todas implementadas en
+`backend/domain/estados.py` y probadas exhaustivamente:
+
+- `cancelada` **exige motivo**. Cancelar sin razón destruye la capacidad de la
+  clínica de auditar su propia tasa de inasistencia.
+- `cancelada`, `reprogramada` y `no_asistio` **liberan el cupo**; solo
+  `cancelada` dispara la lista de espera, porque una reprogramación mueve al
+  mismo paciente y un no-show ocurre cuando el cupo ya transcurrió.
+- `atendida` y `no_asistio` **generan un cargo** en cartera.
+
+## Decisiones que vale la pena discutir
+
+### Guardar en UTC, presentar en America/Bogota
+
+Todo timestamp persistido es UTC con zona; `backend/domain/tiempo.py` es el
+único lugar que convierte. Los datetime naive se rechazan en vez de asumirse:
+adivinar una zona es como una agenda se corre cinco horas sin que nadie note.
+
+### La doble reserva la impide la base de datos, no un `if`
+
+Dos agentes leen «cupo libre» antes de que alguno escriba. Una validación en
+aplicación no puede ganar esa carrera. Un índice único parcial sobre
+`cita.slot_id`, restringido a los estados que realmente ocupan el cupo, hace que
+la segunda reserva falle con un conflicto limpio. El bloqueo optimista sobre
+`agenda_slot.version_id` cubre las ediciones concurrentes del cupo mismo.
+
+```sql
+CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
+  WHERE estado IN ('agendada','confirmada','en_espera','atendida');
+```
+
+### Claves de idempotencia al agendar
+
+Un agente que reintenta una llamada que expiró debe recibir la misma cita, no
+una segunda. `cita.idempotency_key` es única; el reintento choca contra la
+restricción en vez de crear un duplicado.
+
+### Migraciones, no `create_all`
+
+La suite construye su esquema con `alembic upgrade head`, así que un cambio de
+modelo sin migración rompe CI. `tests/integration/test_migraciones.py` además
+verifica que el esquema migrado sigue coincidiendo con los modelos y que la
+migración es reversible.
+
+## Estructura del repositorio
+
+```
+backend/            fuente de verdad del dominio, no sabe nada de MCP
+  domain/           lógica pura: estados, cartera, afiliacion, lista_espera, tiempo, errores
+  models.py         esquema SQLAlchemy 2.x
+  seed.py           datos sintéticos deterministas (Faker, semilla fija)
+  api.py            API REST interna
+  migrations/       alembic
+mcp_server/
+  tools/            read.py · write.py · clinical.py · confirmacion.py
+  contexto.py       todo lo que necesitan las tools, inyectado en vez de global
+  auth.py           verificación de token y scopes            (capas 1-2)
+  aprobacion.py     tokens firmados de aprobación humana      (capa 3)
+  errores.py        fallos estructurados para el modelo       (capa 4)
+  auditoria.py      log de auditoría · limites.py  rate limit (capa 5)
+  cliente.py        cliente HTTP hacia el backend
+  recursos.py       resources y el prompt de recepcionista
+  oauth/            el Authorization Server propio
+tests/
+  unit/             dominio puro, sin base de datos ni docker
+  integration/      PostgreSQL real: esquema, concurrencia, seed, migraciones
+  contract/         superficie del protocolo MCP, cada tool de punta a punta
+  security/         matriz de scopes, aprobaciones, OAuth, guardas de transporte
+scripts/            obtener_token.py (flujo PKCE) · smoke.py (punta a punta)
+docs/
+```
