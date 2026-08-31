@@ -89,6 +89,20 @@ services:
       OAUTH_PRIVATE_KEY_PEM: ${OAUTH_PRIVATE_KEY_PEM:-}
     ports:
       - "${OAUTH_PORT:-9000}:9000"
+    healthcheck:
+      # Without this, `up --wait` returns as soon as the container is running,
+      # which is before uvicorn has bound the port.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://localhost:9000/.well-known/oauth-authorization-server',
+          timeout=3).status == 200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
 
   mcp:
     <<: *python
@@ -109,11 +123,25 @@ services:
       APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
     ports:
       - "${MCP_PORT:-8080}:8080"
+    healthcheck:
+      # The protected-resource document is the one endpoint that answers without
+      # a token, which makes it the right readiness probe.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://localhost:8080/.well-known/oauth-protected-resource',
+          timeout=3).status == 200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
     depends_on:
       backend:
         condition: service_healthy
       oauth:
-        condition: service_started
+        condition: service_healthy
 
   # --- optional: a real IdP instead of the in-repo one --------------------- #
   keycloak:
@@ -150,6 +178,18 @@ services:
       APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
     ports:
       - "8081:8081"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://localhost:8081/.well-known/oauth-protected-resource',
+          timeout=3).status == 200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
     depends_on:
       backend:
         condition: service_healthy
