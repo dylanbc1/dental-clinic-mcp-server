@@ -329,6 +329,47 @@ def disponibilidad(
 
 
 @app.get(
+    "/disponibilidad/{slot_id}",
+    tags=["lectura"],
+    response_model=SlotLibre,
+    responses=RESPUESTAS_ERROR,
+)
+def slot_reservable(
+    session: SesionDep,
+    slot_id: int,
+    paciente_id: int | None = None,
+    especialidad_esperada: Especialidad | None = None,
+    excluir_cita_id: int | None = None,
+) -> SlotLibre:
+    """This slot, if it can still be booked.
+
+    Runs exactly the validation the booking path runs, so a caller can find out
+    before committing to anything and gets the same structured error if it
+    cannot. Passing `paciente_id` also checks that the patient has no other
+    appointment at that hour, which is the other reason a booking fails.
+    `excluir_cita_id` skips one appointment in that check, which is what a
+    reschedule needs: the visit being moved must not conflict with itself.
+    """
+    slot = servicios.validar_reserva(
+        session,
+        slot_id,
+        paciente_id=paciente_id,
+        especialidad_esperada=especialidad_esperada,
+        excluir_cita_id=excluir_cita_id,
+    )
+    return SlotLibre.desde(
+        servicios.SlotDisponible(
+            slot_id=slot.id,
+            profesional_id=slot.profesional_id,
+            profesional=slot.profesional.nombre,
+            especialidad=slot.profesional.especialidad,
+            inicio=slot.inicio,
+            fin=slot.fin,
+        )
+    )
+
+
+@app.get(
     "/citas/{cita_id}", tags=["lectura"], response_model=CitaDetalle, responses=RESPUESTAS_ERROR
 )
 def detalle_cita(session: SesionDep, cita_id: int) -> CitaDetalle:

@@ -135,6 +135,23 @@ Two subtleties the tests pin down:
   moment of effect rather than the moment of intent. A token minted while the caller
   held `clinical` will not execute if that scope has since been revoked.
 
+### A proposal a human cannot act on
+
+Before proposing, a write tool checks what it can: that the slot is still free
+and in the future, that its specialty matches, that the patient has no other
+appointment at that hour, and that the state transition is legal. All of it via
+the same backend validation the booking path runs, so both refuse for exactly
+the same reasons.
+
+The alternative is asking someone to approve an operation that will fail on
+confirmation, which trains people to approve without reading. The checks are
+repeated at execution because the state can change in between, and that second
+one is the authoritative one.
+
+Refusals during that validation are audited like everything else. A log that
+records only successful proposals cannot tell you an agent spent an hour
+proposing something impossible.
+
 ### Layer 3, human-in-the-loop
 
 Every write and clinical tool is two-phase:

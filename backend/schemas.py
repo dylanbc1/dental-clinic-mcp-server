@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.domain.afiliacion import ResultadoAfiliacion
 from backend.domain.cartera import ResumenCartera
+from backend.domain.estados import transiciones_posibles
 from backend.domain.servicios import SlotDisponible
 from backend.domain.tiempo import a_local
 from backend.enums import (
@@ -135,6 +136,10 @@ class CitaDetalle(Modelo):
     #: `clinical` scope with consent on file.
     motivo: str | None = None
     cita_origen_id: int | None = None
+    #: What this appointment can legally become next. Returned so the model can
+    #: pick the right tool, and so a write tool can refuse to propose a
+    #: transition that would fail on confirmation.
+    transiciones_validas: list[EstadoCita] = Field(default_factory=list)
     historial: list[HistorialItem] = Field(default_factory=list)
 
     @classmethod
@@ -155,6 +160,7 @@ class CitaDetalle(Modelo):
             motivo_cancelacion=cita.motivo_cancelacion,
             motivo=cita.motivo,
             cita_origen_id=cita.cita_origen_id,
+            transiciones_validas=sorted(transiciones_posibles(cita.estado)),
             historial=(
                 [HistorialItem.model_validate(h) for h in cita.historial]
                 if incluir_historial

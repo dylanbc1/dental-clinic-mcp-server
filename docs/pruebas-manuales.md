@@ -14,7 +14,8 @@ cp .env.example .env
 make up
 ```
 
-`make up` debe terminar en ~10 segundos con los cuatro servicios en `healthy`.
+`make up` debe terminar en ~15 segundos con los cuatro servicios en `healthy`.
+La primera vez tarda más porque construye las imágenes.
 
 ---
 
@@ -27,7 +28,7 @@ make down && docker compose down -v      # borra todo
 time make up
 ```
 
-**Esperas:** cuatro contenedores `healthy` en menos de 20 segundos. `make up`
+**Esperas:** cuatro contenedores `healthy` en menos de 30 segundos. `make up`
 migra, siembra y levanta la API antes de devolver el control, así que si el
 comando terminó, el sistema responde.
 
@@ -151,21 +152,28 @@ distintos de autoridad, no cantidades distintas de la misma.
 ### B5 · Capa 3 · Una escritura no escribe
 
 ```bash
-# Toma un cupo libre
-npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
-  --transport http --header "Authorization: Bearer $TOKEN_RW" \
+MCP="npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp --transport http"
+
+# Un paciente y un cupo reales. Los ids dependen del estado de la base, así que
+# no los inventes: pídelos.
+$MCP --header "Authorization: Bearer $TOKEN_RW" \
+  --method tools/call --tool-name buscar_paciente --tool-arg nombre=a --tool-arg limite=1
+
+$MCP --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name consultar_disponibilidad --tool-arg limite=1
 
-# Agenda (cambia SLOT_ID y PACIENTE_ID por los que veas)
-npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
-  --transport http --header "Authorization: Bearer $TOKEN_RW" \
+# Agenda con los ids que viste
+$MCP --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name agendar_cita \
-  --tool-arg paciente_id=1 --tool-arg slot_id=SLOT_ID
+  --tool-arg paciente_id=PACIENTE_ID --tool-arg slot_id=SLOT_ID
 ```
 
 **Esperas:** `"requiere_confirmacion": true`, una lista `esto_va_a_pasar`, y un
 `token_confirmacion`. **Nada se agendó.** Vuelve a pedir disponibilidad: el cupo
 sigue libre.
+
+Fíjate en el `resumen`: nombra la hora y el profesional, no el `slot_id`. A una
+recepcionista leyéndolo en voz alta, "cupo 412" no le dice nada.
 
 Verifícalo en la base:
 
@@ -219,6 +227,12 @@ npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
 **Esperas:** `SLOT_NO_DISPONIBLE` con los tres cupos libres más cercanos, con hora
 y profesional. Compara con lo que devuelve el 92% del ecosistema: `500`.
 
+Y nota **cuándo** falla: al proponer, no al confirmar. Pedirle a una persona que
+apruebe una operación que no puede funcionar es peor que un error. Lo mismo pasa
+si el paciente ya tiene otra cita a esa hora, o si la especialidad del cupo no es
+la que pediste. La comprobación se repite al ejecutar, porque el estado puede
+cambiar entre una cosa y la otra.
+
 Y prueba que un bug real no filtra nada:
 
 ```bash
@@ -239,6 +253,15 @@ docker compose logs mcp | grep tool.invocacion | tail -5 | python3 -m json.tool 
 `sujeto`, `scope_requerido`, `resultado` y `con_aprobacion_humana`. Y fíjate en
 que `documento` y `motivo` aparecen como `«redactado»`: el log registra que la
 llamada ocurrió, no el dato del paciente.
+
+Compruébalo a propósito:
+
+```bash
+docker compose logs mcp | grep -c "dolor severo"   # el motivo que enviaste en B3
+docker compose logs mcp | grep -c "redactado"
+```
+
+El primero debe dar `0` y el segundo, más de `0`.
 
 Y el historial de la cita en la base:
 
@@ -273,6 +296,10 @@ vuelve falso el consuelo de "solo escucha en localhost".
 
 ### C1 · La mora avisa, no bloquea
 
+El seed incluye cartera arrastrada de antes de la ventana de agenda, porque los
+cargos vencen a 30 días y la agenda solo llega dos semanas atrás: sin eso todos
+los pacientes saldrían `al_dia` y esta regla no tendría con qué demostrarse.
+
 Busca un paciente en mora y agéndale una cita:
 
 ```bash
@@ -302,9 +329,14 @@ ante la EPS.
 Sobre una cita en estado `agendada`, propón y confirma `registrar_asistencia` con
 `estado=atendida` (saltándose `confirmada` y `en_espera`).
 
-**Esperas:** `TRANSICION_INVALIDA`, listando las transiciones que sí serían
-válidas. Nota que **la aprobación humana no vuelve legal una operación ilegal**:
-aprobaste, y aun así el dominio la rechaza.
+**Esperas:** `TRANSICION_INVALIDA` al **proponer**, listando las transiciones que
+sí serían válidas. Consulta la cita primero con `consultar_cita`: el campo
+`transiciones_validas` te dice exactamente qué puede pasar después, que es la
+misma información que el modelo usa para elegir la siguiente herramienta.
+
+La comprobación también existe al ejecutar, y ahí es donde importa de verdad: si
+alguien cancela la cita entre tu propuesta y tu confirmación, el dominio la
+rechaza igual. **La aprobación humana no vuelve legal una operación ilegal.**
 
 ### C4 · Doble reserva imposible
 
@@ -327,7 +359,7 @@ validación en aplicación pierde esa carrera siempre.
 make test-fast
 ```
 
-**Esperas:** 777 pruebas verdes, cobertura ≥95% (hoy 99%).
+**Esperas:** más de 800 pruebas verdes, cobertura ≥95% (hoy 99%).
 
 ### D2 · El recorrido completo del cliente
 

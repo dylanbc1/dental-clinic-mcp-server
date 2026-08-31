@@ -369,7 +369,13 @@ def _auditar(
     return registro
 
 
-def _slot_reservable(session: Session, slot_id: int, *, ahora: datetime) -> AgendaSlot:
+def slot_reservable(session: Session, slot_id: int, *, ahora: datetime | None = None) -> AgendaSlot:
+    """The slot, if it can still be booked. Raises the structured error if not.
+
+    Shared by the booking path and by the read endpoint the tool layer calls
+    before proposing, so both refuse for exactly the same reasons.
+    """
+    ahora = ahora or ahora_utc()
     slot = session.get(AgendaSlot, slot_id)
     if slot is None:
         raise SlotNoEncontrado(
@@ -409,6 +415,65 @@ def _slot_reservable(session: Session, slot_id: int, *, ahora: datetime) -> Agen
     return slot
 
 
+def validar_reserva(
+    session: Session,
+    slot_id: int,
+    *,
+    paciente_id: int | None = None,
+    especialidad_esperada: Especialidad | None = None,
+    excluir_cita_id: int | None = None,
+    ahora: datetime | None = None,
+) -> AgendaSlot:
+    """Everything that must hold for a booking to succeed, in one place.
+
+    Called twice: once by the tool layer before proposing, so a human is never
+    asked to approve an operation that cannot work, and once by `agendar_cita`
+    at the moment of effect, because the state can change in between. Sharing
+    the function is what guarantees both refuse for the same reasons.
+    """
+    referencia = ahora or ahora_utc()
+    slot = slot_reservable(session, slot_id, ahora=referencia)
+
+    if especialidad_esperada is not None and slot.profesional.especialidad != especialidad_esperada:
+        raise EspecialidadNoCoincide(
+            f"El cupo es de {slot.profesional.especialidad}, no de {especialidad_esperada}.",
+            sugerencia=(
+                f"Pide disponibilidad con especialidad='{especialidad_esperada}' "
+                "y vuelve a agendar."
+            ),
+            detalles={
+                "especialidad_del_cupo": str(slot.profesional.especialidad),
+                "especialidad_pedida": str(especialidad_esperada),
+            },
+        )
+
+    if paciente_id is not None:
+        consulta = (
+            select(Cita)
+            .join(AgendaSlot, Cita.slot_id == AgendaSlot.id)
+            .where(
+                Cita.paciente_id == paciente_id,
+                Cita.estado.in_(ESTADOS_QUE_OCUPAN_SLOT),
+                AgendaSlot.inicio < slot.fin,
+                AgendaSlot.fin > slot.inicio,
+            )
+        )
+        if excluir_cita_id is not None:
+            consulta = consulta.where(Cita.id != excluir_cita_id)
+        solapada = session.scalar(consulta)
+        if solapada is not None:
+            raise PacienteYaTieneCita(
+                "El paciente ya tiene una cita que se cruza con ese horario.",
+                sugerencia=(
+                    f"Cancela o reprograma la cita {solapada.id} antes de agendar otra "
+                    "en el mismo horario."
+                ),
+                detalles={"cita_existente_id": solapada.id},
+            )
+
+    return slot
+
+
 def agendar_cita(
     session: Session,
     *,
@@ -438,40 +503,13 @@ def agendar_cita(
             )
 
     paciente = obtener_paciente(session, paciente_id)
-    slot = _slot_reservable(session, slot_id, ahora=referencia)
-
-    if especialidad_esperada is not None and slot.profesional.especialidad != especialidad_esperada:
-        raise EspecialidadNoCoincide(
-            f"El cupo es de {slot.profesional.especialidad}, no de {especialidad_esperada}.",
-            sugerencia=(
-                f"Pide disponibilidad con especialidad='{especialidad_esperada}' "
-                "y vuelve a agendar."
-            ),
-            detalles={
-                "especialidad_del_cupo": str(slot.profesional.especialidad),
-                "especialidad_pedida": str(especialidad_esperada),
-            },
-        )
-
-    solapada = session.scalar(
-        select(Cita)
-        .join(AgendaSlot, Cita.slot_id == AgendaSlot.id)
-        .where(
-            Cita.paciente_id == paciente_id,
-            Cita.estado.in_(ESTADOS_QUE_OCUPAN_SLOT),
-            AgendaSlot.inicio < slot.fin,
-            AgendaSlot.fin > slot.inicio,
-        )
+    slot = validar_reserva(
+        session,
+        slot_id,
+        paciente_id=paciente_id,
+        especialidad_esperada=especialidad_esperada,
+        ahora=referencia,
     )
-    if solapada is not None:
-        raise PacienteYaTieneCita(
-            "El paciente ya tiene una cita que se cruza con ese horario.",
-            sugerencia=(
-                f"Cancela o reprograma la cita {solapada.id} antes de agendar otra "
-                "en el mismo horario."
-            ),
-            detalles={"cita_existente_id": solapada.id},
-        )
 
     afiliacion = validar_afiliacion(
         paciente.regimen,
@@ -680,7 +718,13 @@ def reprogramar_cita(
     """
     referencia = ahora or ahora_utc()
     original = obtener_cita(session, cita_id)
-    nuevo_slot = _slot_reservable(session, nuevo_slot_id, ahora=referencia)
+    nuevo_slot = validar_reserva(
+        session,
+        nuevo_slot_id,
+        paciente_id=original.paciente_id,
+        excluir_cita_id=original.id,
+        ahora=referencia,
+    )
 
     resultado = cambiar_estado(
         session,
@@ -725,7 +769,7 @@ def ofrecer_cupo_lista_espera(
     contact. Booking is a separate, separately-approved decision.
     """
     referencia = ahora or ahora_utc()
-    slot = _slot_reservable(session, slot_id, ahora=referencia)
+    slot = slot_reservable(session, slot_id, ahora=referencia)
     especialidad = slot.profesional.especialidad
 
     entradas = entradas_lista_espera(session, especialidad)

@@ -364,6 +364,71 @@ def _crear_citas(
     return citas, cargos
 
 
+#: How far back the carried-over ledger reaches. The agenda window is a few
+#: weeks, but a clinic's balances are older than whatever window you happen to
+#: be looking at, and charges fall due 30 days after the visit. Without this the
+#: seeded cartera is always `al_dia`, and the rule that debt warns without
+#: blocking has no data to demonstrate itself on.
+DIAS_CARTERA_HISTORICA = 210
+
+#: Ageing profile of that carried-over debt: mostly recent, with a tail. Values
+#: are (days overdue lower bound, upper bound, weight).
+PERFIL_ANTIGUEDAD: list[tuple[int, int, int]] = [
+    (1, 30, 45),
+    (31, 60, 25),
+    (61, 90, 15),
+    (91, DIAS_CARTERA_HISTORICA, 15),
+]
+
+
+def _crear_cartera_historica(
+    session: Session, rng: random.Random, pacientes: list[Paciente], params: ParametrosSeed
+) -> list[Cargo]:
+    """Balances carried over from before the seeded agenda window.
+
+    These have no appointment attached, which is exactly right: they predate the
+    slice of agenda this dataset holds. Modelling them is what gives the
+    collections tools, and the ageing buckets, something real to report.
+    """
+    cargos: list[Cargo] = []
+    for paciente in rng.sample(pacientes, k=max(4, len(pacientes) // 4)):
+        afiliacion = validar_afiliacion(
+            paciente.regimen,
+            paciente.afiliacion_activa,
+            nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
+        )
+        for _ in range(rng.choice([1, 1, 2, 3])):
+            desde, hasta, _peso = rng.choices(
+                PERFIL_ANTIGUEDAD, weights=[p for *_, p in PERFIL_ANTIGUEDAD]
+            )[0]
+            dias_vencido = rng.randint(desde, hasta)
+            calculado = calcular_cargo_por_atencion(
+                afiliacion,
+                rng.choice([str(e) for e in Especialidad]),
+                nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
+            )
+            if calculado is None:  # SOAT covers the service, nothing to collect
+                continue
+            # A third of the aged debt was eventually settled, so the ledger is
+            # not uniformly delinquent.
+            pagado = rng.random() < 0.33
+            cargos.append(
+                Cargo(
+                    paciente_id=paciente.id,
+                    cita_id=None,
+                    concepto=calculado.concepto,
+                    monto=Decimal(calculado.monto),
+                    descripcion=f"{calculado.descripcion} (saldo anterior)",
+                    estado=EstadoCargo.PAGADO if pagado else EstadoCargo.PENDIENTE,
+                    vencimiento=params.fecha_base - timedelta(days=dias_vencido),
+                    pagado_en=None,
+                )
+            )
+    session.add_all(cargos)
+    session.flush()
+    return cargos
+
+
 def _crear_lista_espera(
     session: Session, fake: Faker, rng: random.Random, pacientes: list[Paciente]
 ) -> list[ListaEspera]:
@@ -407,6 +472,7 @@ def sembrar(session: Session, params: ParametrosSeed) -> dict[str, int]:
     pacientes = _crear_pacientes(session, fake, rng, params)
     slots = _crear_agenda(session, profesionales, params)
     citas, cargos = _crear_citas(session, fake, rng, pacientes, slots, params)
+    historicos = _crear_cartera_historica(session, rng, pacientes, params)
     lista = _crear_lista_espera(session, fake, rng, pacientes)
 
     return {
@@ -415,7 +481,7 @@ def sembrar(session: Session, params: ParametrosSeed) -> dict[str, int]:
         "paciente": len(pacientes),
         "agenda_slot": len(slots),
         "cita": len(citas),
-        "cargo": len(cargos),
+        "cargo": len(cargos) + len(historicos),
         "lista_espera": len(lista),
     }
 

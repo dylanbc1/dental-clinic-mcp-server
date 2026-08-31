@@ -20,6 +20,8 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from backend.config import Settings, get_settings
 from mcp_server import recursos
@@ -30,6 +32,11 @@ from mcp_server.cliente import ClienteBackend
 from mcp_server.contexto import Contexto
 from mcp_server.limites import LimitadorDePeticiones
 from mcp_server.tools import clinical, confirmacion, read, write
+
+REPOSITORIO = "https://github.com/dylanbc1/dental-clinic-mcp-server"
+
+RUTA_METADATA_RECURSO = "/.well-known/oauth-protected-resource"
+NOMBRE_METADATA = "metadata_recurso_corregida"
 
 INSTRUCCIONES = """\
 Servidor MCP de una clínica odontológica en Colombia. Expone la operación real de
@@ -106,8 +113,11 @@ def crear_servidor(
         instructions=INSTRUCCIONES,
         auth=auth_settings,
         token_verifier=verificador,
-        website_url="https://github.com/dylanbc1/dental-clinic-mcp-server",
+        website_url=REPOSITORIO,
     )
+
+    if auth_settings is not None:
+        _publicar_metadata_del_recurso(servidor, ajustes)
 
     read.registrar(servidor, ctx)
     write.registrar(servidor, ctx)
@@ -115,6 +125,55 @@ def crear_servidor(
     confirmacion.registrar(servidor, ctx)
     recursos.registrar(servidor, ctx)
     return servidor
+
+
+def _publicar_metadata_del_recurso(servidor: MCPServer[Any], config: Settings) -> None:
+    """Serve RFC 9728 metadata that actually names the scopes.
+
+    The SDK derives `scopes_supported` from `required_scopes`, and that has to
+    stay empty: a blanket requirement would make every tool need every scope,
+    which is the opposite of least privilege. The result is a discovery document
+    advertising an empty scope list, telling a client that no scopes are used
+    here. That is false and unhelpful, so this route answers with the truth:
+    three scopes exist, none of them is globally required, and which one a call
+    needs depends on the tool.
+
+    The SDK registers its own route for this path first, so `_preferir_nuestra_metadata`
+    drops it once the app is built and leaves exactly one handler here.
+    """
+    documento = {
+        "resource": config.mcp_public_url,
+        "authorization_servers": [config.oauth_issuer],
+        "scopes_supported": SCOPES_SOPORTADOS,
+        "bearer_methods_supported": ["header"],
+        "resource_name": "Clínica Odontológica · MCP",
+        # The repository, not a path on this server: /docs does not exist here.
+        "resource_documentation": REPOSITORIO,
+    }
+
+    @servidor.custom_route(  # type: ignore[untyped-decorator]
+        RUTA_METADATA_RECURSO, methods=["GET"], include_in_schema=False, name=NOMBRE_METADATA
+    )
+    async def metadata_recurso(_: Request) -> JSONResponse:
+        return JSONResponse(documento)
+
+
+def _preferir_nuestra_metadata(app: Starlette) -> None:
+    """Leave exactly one handler on the protected-resource path: ours.
+
+    Starlette matches the first route that fits, and the SDK's was registered
+    first, so without this the corrected document is unreachable.
+    """
+    nuestras = [
+        r
+        for r in app.routes
+        if getattr(r, "path", None) == RUTA_METADATA_RECURSO
+        and getattr(r, "name", None) == NOMBRE_METADATA
+    ]
+    if not nuestras:
+        return
+    resto = [r for r in app.routes if getattr(r, "path", None) != RUTA_METADATA_RECURSO]
+    app.router.routes[:] = nuestras + resto
 
 
 def construir_app(
@@ -136,6 +195,8 @@ def construir_app(
             allowed_origins=ajustes.mcp_allowed_origins,
         ),
     )
+    if con_auth:
+        _preferir_nuestra_metadata(app)
     app.add_middleware(
         LimitadorDePeticiones,
         limite=ajustes.mcp_rate_limite,

@@ -16,6 +16,7 @@ import itertools
 import json
 from collections.abc import Callable
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 from backend.domain.estados import es_transicion_valida
 from backend.enums import (
     ESTADOS_QUE_OCUPAN_SLOT,
+    EstadoCargo,
     EstadoCita,
     EstadoSlot,
     Regimen,
@@ -254,6 +256,42 @@ class TestRealismoDelDataset:
     def test_hay_cargos_pendientes_para_cobrar(self, sembrado: Session) -> None:
         pendientes = [c for c in sembrado.scalars(select(Cargo)) if c.estado == "pendiente"]
         assert pendientes
+
+    def test_hay_cartera_realmente_vencida(self, sembrado: Session) -> None:
+        """Charges fall due 30 days after the visit, and the seeded agenda only
+        reaches a couple of weeks back. Without carried-over balances every
+        patient reads `al_dia`, and the rule that debt warns without blocking
+        has nothing to demonstrate itself on."""
+        vencidos = [
+            c
+            for c in sembrado.scalars(select(Cargo))
+            if c.estado == EstadoCargo.PENDIENTE and c.vencimiento < FECHA_BASE
+        ]
+        assert vencidos, "el dataset no tiene ni un cargo vencido"
+        assert len({c.paciente_id for c in vencidos}) >= 3
+
+    def test_la_mora_cubre_varios_tramos_de_antiguedad(self, sembrado: Session) -> None:
+        """A ledger where everything is 20 days late exercises one bucket."""
+        dias = {
+            (FECHA_BASE - c.vencimiento).days
+            for c in sembrado.scalars(select(Cargo))
+            if c.estado == EstadoCargo.PENDIENTE and c.vencimiento < FECHA_BASE
+        }
+        assert max(dias) > 60, f"la mora más antigua es de {max(dias)} días"
+
+    def test_algun_paciente_supera_el_umbral_de_alerta(self, sembrado: Session) -> None:
+        """Otherwise `alerta_al_agendar` never fires on the demo data."""
+        from collections import defaultdict
+
+        from backend.domain.cartera import POLITICA_POR_DEFECTO
+
+        por_paciente: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+        for c in sembrado.scalars(select(Cargo)):
+            if c.estado == EstadoCargo.PENDIENTE and c.vencimiento < FECHA_BASE:
+                por_paciente[c.paciente_id] += c.monto
+        assert any(
+            total >= POLITICA_POR_DEFECTO.umbral_alerta_mora for total in por_paciente.values()
+        )
 
     def test_hay_pacientes_en_lista_de_espera(self, sembrado: Session) -> None:
         assert sembrado.scalar(select(func.count()).select_from(ListaEspera))

@@ -537,3 +537,168 @@ class TestFlujoCompleto:
             "cancelada",
         ]
         assert all(h["usuario"] in {"mcp-server", ACTOR} for h in detalle["historial"])
+
+
+class TestSlotReservable:
+    """The endpoint the tool layer calls before proposing a booking."""
+
+    def test_un_cupo_libre_se_devuelve_con_su_hora_local(
+        self, cliente: TestClient, escenario: Escenario
+    ) -> None:
+        cuerpo = cliente.get(f"/disponibilidad/{escenario.slots_general[0]}").json()
+        assert cuerpo["slot_id"] == escenario.slots_general[0]
+        assert cuerpo["inicio_local"].startswith(str(escenario.fecha_futura))
+        assert cuerpo["profesional"] == "Dra. General"
+
+    def test_un_cupo_ocupado_es_409_con_alternativas(
+        self, cliente: TestClient, cita_id: int, escenario: Escenario
+    ) -> None:
+        respuesta = cliente.get(f"/disponibilidad/{escenario.slots_general[0]}")
+        assert respuesta.status_code == 409
+        cuerpo = respuesta.json()
+        assert cuerpo["codigo"] == "SLOT_NO_DISPONIBLE"
+        assert cuerpo["detalles"]["alternativas"]
+
+    def test_un_cupo_pasado_es_400(self, cliente: TestClient, escenario: Escenario) -> None:
+        respuesta = cliente.get(f"/disponibilidad/{escenario.slot_pasado_id}")
+        assert respuesta.status_code == 400
+        assert respuesta.json()["codigo"] == "SLOT_EN_EL_PASADO"
+
+    def test_un_cupo_inexistente_es_404(self, cliente: TestClient, escenario: Escenario) -> None:
+        assert cliente.get("/disponibilidad/999999").status_code == 404
+
+    def test_falla_por_las_mismas_razones_que_agendar(
+        self, cliente: TestClient, escenario: Escenario
+    ) -> None:
+        """Both paths run the same validation, so a proposal that passes here
+        cannot be rejected for a different reason on confirmation."""
+        for slot_id in (escenario.slot_pasado_id, 999999):
+            chequeo = cliente.get(f"/disponibilidad/{slot_id}")
+            agendado = cliente.post(
+                "/citas",
+                json={"paciente_id": escenario.ana_id, "slot_id": slot_id},
+                headers=CABECERAS,
+            )
+            assert chequeo.status_code == agendado.status_code
+            assert chequeo.json()["codigo"] == agendado.json()["codigo"]
+
+
+class TestTransicionesValidas:
+    """The appointment detail tells the model what it can do next."""
+
+    def test_una_cita_agendada_lista_sus_salidas(self, cliente: TestClient, cita_id: int) -> None:
+        cuerpo = cliente.get(f"/citas/{cita_id}").json()
+        assert set(cuerpo["transiciones_validas"]) == {
+            "confirmada",
+            "cancelada",
+            "reprogramada",
+            "no_asistio",
+        }
+
+    def test_una_cita_cancelada_no_tiene_salidas(self, cliente: TestClient, cita_id: int) -> None:
+        cliente.post(
+            f"/citas/{cita_id}/cancelar",
+            json={"motivo": "El paciente viajó"},
+            headers=CABECERAS,
+        )
+        assert cliente.get(f"/citas/{cita_id}").json()["transiciones_validas"] == []
+
+    def test_las_salidas_siguen_a_la_transicion(self, cliente: TestClient, cita_id: int) -> None:
+        cliente.post(f"/citas/{cita_id}/confirmar", headers=CABECERAS)
+        assert set(cliente.get(f"/citas/{cita_id}").json()["transiciones_validas"]) == {
+            "en_espera",
+            "cancelada",
+            "reprogramada",
+            "no_asistio",
+        }
+
+
+class TestValidarReservaCompleta:
+    """`/disponibilidad/{slot_id}` answers the same question `POST /citas` does."""
+
+    def test_detecta_el_cruce_de_horario_del_paciente(
+        self, cliente: TestClient, sesion_api: Session, escenario: Escenario
+    ) -> None:
+        """The other reason a booking fails, and the one that used to surface
+        only on confirmation: the patient is already booked at that hour with a
+        different professional."""
+        agendar_cita(
+            sesion_api,
+            paciente_id=escenario.ana_id,
+            slot_id=escenario.slots_general[0],
+            usuario="setup",
+        )
+        sesion_api.commit()
+
+        respuesta = cliente.get(
+            f"/disponibilidad/{escenario.slots_orto[0]}",
+            params={"paciente_id": escenario.ana_id},
+        )
+        assert respuesta.status_code == 409
+        assert respuesta.json()["codigo"] == "PACIENTE_YA_TIENE_CITA"
+
+    def test_sin_paciente_no_comprueba_el_cruce(
+        self, cliente: TestClient, sesion_api: Session, escenario: Escenario
+    ) -> None:
+        agendar_cita(
+            sesion_api,
+            paciente_id=escenario.ana_id,
+            slot_id=escenario.slots_general[0],
+            usuario="setup",
+        )
+        sesion_api.commit()
+        assert cliente.get(f"/disponibilidad/{escenario.slots_orto[0]}").status_code == 200
+
+    def test_excluir_cita_permite_reprogramar_sobre_uno_mismo(
+        self, cliente: TestClient, sesion_api: Session, escenario: Escenario
+    ) -> None:
+        cita = agendar_cita(
+            sesion_api,
+            paciente_id=escenario.ana_id,
+            slot_id=escenario.slots_general[0],
+            usuario="setup",
+        ).cita
+        sesion_api.commit()
+
+        # The overlapping slot belongs to the appointment being moved, so with
+        # the exclusion it must not count as a conflict.
+        respuesta = cliente.get(
+            f"/disponibilidad/{escenario.slots_orto[0]}",
+            params={"paciente_id": escenario.ana_id, "excluir_cita_id": cita.id},
+        )
+        assert respuesta.status_code == 200
+
+    def test_verifica_la_especialidad_esperada(
+        self, cliente: TestClient, escenario: Escenario
+    ) -> None:
+        respuesta = cliente.get(
+            f"/disponibilidad/{escenario.slots_general[0]}",
+            params={"especialidad_esperada": "ortodoncia"},
+        )
+        assert respuesta.status_code == 400
+        assert respuesta.json()["codigo"] == "ESPECIALIDAD_NO_COINCIDE"
+
+    def test_coincide_con_lo_que_hace_agendar(
+        self, cliente: TestClient, sesion_api: Session, escenario: Escenario
+    ) -> None:
+        """The invariant that makes propose-time checking trustworthy: both
+        paths refuse for the same code."""
+        agendar_cita(
+            sesion_api,
+            paciente_id=escenario.ana_id,
+            slot_id=escenario.slots_general[0],
+            usuario="setup",
+        )
+        sesion_api.commit()
+
+        chequeo = cliente.get(
+            f"/disponibilidad/{escenario.slots_orto[0]}",
+            params={"paciente_id": escenario.ana_id},
+        )
+        agendado = cliente.post(
+            "/citas",
+            json={"paciente_id": escenario.ana_id, "slot_id": escenario.slots_orto[0]},
+            headers=CABECERAS,
+        )
+        assert chequeo.status_code == agendado.status_code == 409
+        assert chequeo.json()["codigo"] == agendado.json()["codigo"]

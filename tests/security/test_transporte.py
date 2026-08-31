@@ -340,3 +340,44 @@ class TestClienteBackendAnteFallos:
             with pytest.raises(Exception) as exc:
                 await cliente.obtener("/clinica")
         assert "502" in str(exc.value)
+
+
+class TestMetadataDelRecursoProtegido:
+    """RFC 9728 discovery, the document a new client reads first."""
+
+    def test_nombra_los_tres_scopes(self, cliente: TestClient) -> None:
+        """The SDK derives this field from `required_scopes`, which must stay
+        empty so no scope is globally required. Left alone it advertises an
+        empty list, telling a client no scopes are used here. That is false."""
+        cuerpo = cliente.get("/.well-known/oauth-protected-resource").json()
+        assert cuerpo["scopes_supported"] == ["read", "write", "clinical"]
+
+    def test_apunta_al_authorization_server(self, cliente: TestClient) -> None:
+        cuerpo = cliente.get("/.well-known/oauth-protected-resource").json()
+        assert cuerpo["authorization_servers"] == ["http://localhost:9000"]
+        assert cuerpo["resource"] == PUBLICA
+
+    def test_la_documentacion_apunta_a_algo_que_existe(self, cliente: TestClient) -> None:
+        """It must not point at a path on this server: the MCP surface is /mcp
+        and the discovery documents, nothing else."""
+        cuerpo = cliente.get("/.well-known/oauth-protected-resource").json()
+        assert not cuerpo["resource_documentation"].startswith(PUBLICA)
+        assert cuerpo["resource_documentation"].startswith("https://")
+
+    def test_hay_un_solo_handler_en_esa_ruta(
+        self, ctx_sin_backend: Contexto, ajustes: Settings
+    ) -> None:
+        """Starlette matches the first route that fits. Two handlers on the same
+        path means the corrected document is one refactor away from unreachable."""
+        app = construir_app(ctx_sin_backend, config=ajustes, con_auth=True)
+        rutas = [
+            r
+            for r in app.routes
+            if getattr(r, "path", None) == "/.well-known/oauth-protected-resource"
+        ]
+        assert len(rutas) == 1
+
+    def test_el_401_apunta_a_este_documento(self, cliente: TestClient) -> None:
+        respuesta = cliente.post("/mcp", json=INICIALIZAR, headers=CABECERAS_MCP)
+        cabecera = respuesta.headers["www-authenticate"]
+        assert "/.well-known/oauth-protected-resource" in cabecera

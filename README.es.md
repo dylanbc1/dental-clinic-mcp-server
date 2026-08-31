@@ -11,7 +11,7 @@
   <img alt="MCP SDK v2" src="https://img.shields.io/badge/MCP%20SDK-v2-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="cobertura 99%" src="https://img.shields.io/badge/cobertura-99%25-1f8b4c">
-  <img alt="777 pruebas" src="https://img.shields.io/badge/pruebas-777-1f8b4c">
+  <img alt="813 pruebas" src="https://img.shields.io/badge/pruebas-813-1f8b4c">
 </p>
 
 ```bash
@@ -223,7 +223,7 @@ zona), el MCP server real, el Authorization Server real.
 | `tests/security` | **La matriz completa 13 × 3 de scopes**, replay/expiración/alteración de aprobaciones, PKCE obligatorio, audiencia del JWT y `alg=none`, guardas de Host/Origin, rate limiting |
 | `scripts/smoke.py` | El camino completo del cliente sobre HTTP real, ejecutado en CI |
 
-777 pruebas: 346 unitarias, 215 de integración, 71 de contrato, 145 de seguridad.
+813 pruebas: 346 unitarias, 231 de integración, 86 de contrato, 150 de seguridad.
 **¿Quieres comprobarlo tú mismo?** [`docs/pruebas-manuales.md`](./docs/pruebas-manuales.md)
 es un recorrido de 25 minutos con trece pruebas, cada una diciendo qué correr y
 qué deberías ver. [`docs/inspector.es.md`](./docs/inspector.es.md) cubre lo mismo

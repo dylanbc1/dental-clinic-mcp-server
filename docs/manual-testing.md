@@ -14,7 +14,8 @@ cp .env.example .env
 make up
 ```
 
-`make up` should finish in about 10 seconds with all four services `healthy`.
+`make up` should finish in about 15 seconds with all four services `healthy`.
+The first run takes longer because it builds the images.
 
 ---
 
@@ -27,7 +28,7 @@ make down && docker compose down -v      # wipe everything
 time make up
 ```
 
-**Expect:** four healthy containers in under 20 seconds. `make up` migrates,
+**Expect:** four healthy containers in under 30 seconds. `make up` migrates,
 seeds and starts the API before returning, so if the command finished, the system
 answers.
 
@@ -151,21 +152,28 @@ are different kinds of authority, not different amounts of the same one.
 ### B5 · Layer 3 · A write does not write
 
 ```bash
-# Grab a free slot
-npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
-  --transport http --header "Authorization: Bearer $TOKEN_RW" \
+MCP="npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp --transport http"
+
+# A real patient and a real slot. The ids depend on database state, so do not
+# invent them: ask for them.
+$MCP --header "Authorization: Bearer $TOKEN_RW" \
+  --method tools/call --tool-name buscar_paciente --tool-arg nombre=a --tool-arg limite=1
+
+$MCP --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name consultar_disponibilidad --tool-arg limite=1
 
-# Book it (substitute the SLOT_ID and PACIENTE_ID you saw)
-npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
-  --transport http --header "Authorization: Bearer $TOKEN_RW" \
+# Book with the ids you saw
+$MCP --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name agendar_cita \
-  --tool-arg paciente_id=1 --tool-arg slot_id=SLOT_ID
+  --tool-arg paciente_id=PACIENTE_ID --tool-arg slot_id=SLOT_ID
 ```
 
 **Expect:** `"requiere_confirmacion": true`, an `esto_va_a_pasar` list, and a
 `token_confirmacion`. **Nothing was booked.** Ask for availability again: the slot
 is still free.
+
+Look at the `resumen`: it names the time and the professional, not the
+`slot_id`. Read aloud to a receptionist, "slot 412" means nothing.
 
 Confirm it in the database:
 
@@ -219,6 +227,12 @@ npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
 **Expect:** `SLOT_NO_DISPONIBLE` listing the three closest free slots with times
 and professionals. Compare with what 92% of the ecosystem returns: `500`.
 
+Note *when* it fails: at proposal time, not on confirmation. Asking a person to
+approve an operation that cannot succeed is worse than an error. The same holds
+if the patient already has an appointment at that hour, or if the slot's
+specialty is not the one you asked for. The check runs again at execution,
+because the state can change in between.
+
 And check a real bug leaks nothing:
 
 ```bash
@@ -238,6 +252,15 @@ docker compose logs mcp | grep tool.invocacion | tail -5
 `scope_requerido`, `resultado` and `con_aprobacion_humana`. Note that `documento`
 and `motivo` show as `«redactado»`: the log records that the call happened, not
 the patient's data.
+
+Check it on purpose:
+
+```bash
+docker compose logs mcp | grep -c "manual check"   # the motivo you sent in B3
+docker compose logs mcp | grep -c "redactado"
+```
+
+The first must be `0` and the second above `0`.
 
 And the appointment history in the database:
 
@@ -272,6 +295,11 @@ listens on localhost" a false comfort.
 
 ### C1 · Debt warns, it does not block
 
+The seed includes balances carried over from before the agenda window, because
+charges fall due 30 days after the visit and the agenda only reaches two weeks
+back. Without them every patient would read `al_dia` and this rule would have
+nothing to demonstrate itself on.
+
 Find a patient in arrears and book them an appointment:
 
 ```bash
@@ -301,9 +329,14 @@ with the EPS.
 On an appointment in `agendada`, propose and confirm `registrar_asistencia` with
 `estado=atendida`, skipping `confirmada` and `en_espera`.
 
-**Expect:** `TRANSICION_INVALIDA`, listing which transitions would be valid. Note
-that **human approval does not make an illegal operation legal**: you approved it,
-and the domain still refuses.
+**Expect:** `TRANSICION_INVALIDA` at **proposal** time, listing which transitions
+would be valid. Ask `consultar_cita` first: the `transiciones_validas` field says
+exactly what can happen next, which is the same information the model uses to
+pick its next tool.
+
+The check also runs at execution, and that is where it really counts: if someone
+cancels the appointment between your proposal and your confirmation, the domain
+refuses anyway. **Human approval does not make an illegal operation legal.**
 
 ### C4 · Double-booking is impossible
 
@@ -326,7 +359,7 @@ application-level check loses that race every time.
 make test-fast
 ```
 
-**Expect:** 777 green tests, coverage ≥95% (currently 99%).
+**Expect:** over 800 green tests, coverage ≥95% (currently 99%).
 
 ### D2 · The whole client path
 

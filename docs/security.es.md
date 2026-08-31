@@ -136,6 +136,23 @@ Dos sutilezas que las pruebas fijan:
   se revisa en el momento del efecto, no en el de la intención. Un token emitido
   cuando el llamador tenía `clinical` no ejecuta si ese scope ya fue revocado.
 
+### Una propuesta sobre la que nadie puede actuar
+
+Antes de proponer, una tool de escritura comprueba lo que puede: que el cupo siga
+libre y en el futuro, que la especialidad coincida, que el paciente no tenga otra
+cita a esa hora y que la transición de estado sea legal. Todo con la misma
+validación del backend que corre al agendar, así que ambas rechazan exactamente
+por las mismas razones.
+
+La alternativa es pedirle a alguien que apruebe una operación que va a fallar al
+confirmar, lo que entrena a la gente a aprobar sin leer. Las comprobaciones se
+repiten al ejecutar porque el estado puede cambiar en el medio, y esa segunda es
+la que manda.
+
+Los rechazos durante esa validación se auditan como todo lo demás. Un log que
+solo registra propuestas exitosas no puede decirte que un agente pasó una hora
+proponiendo algo imposible.
+
 ### Capa 3, human-in-the-loop
 
 Toda herramienta de escritura y la clínica son de dos fases:

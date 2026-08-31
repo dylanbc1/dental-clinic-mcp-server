@@ -189,23 +189,31 @@ class TestConfirmacion:
         sesion_backend.expire_all()
         assert sesion_backend.get(AgendaSlot, escenario.slots_general[0]).estado is EstadoSlot.LIBRE
 
-    async def test_un_error_de_dominio_sobrevive_a_la_confirmacion(
+    async def test_la_aprobacion_no_legaliza_lo_que_deja_de_ser_legal(
         self, servidor: MCPServer[Any], sesion_backend: Session, cita_existente: int
     ) -> None:
-        """Approval authorises an action; it does not make an illegal one legal."""
+        """The state can change between proposing and confirming.
+
+        The tool checks the transition before proposing, so the human is not
+        shown an impossible action. That check cannot be the only one: here the
+        appointment is cancelled behind the proposal's back, and the domain must
+        still refuse at the moment of effect. Approval authorises an action, it
+        does not make an illegal one legal.
+        """
+        from backend.domain.servicios import cancelar_cita
+
         with como(SUJETO, ESCRITURA):
-            propuesta = await llamar(
-                servidor,
-                "registrar_asistencia",
-                {"cita_id": cita_existente, "estado": "atendida"},
-            )
+            propuesta = await llamar(servidor, "confirmar_cita", {"cita_id": cita_existente})
+
+            cancelar_cita(sesion_backend, cita_existente, motivo="urgencia", usuario="otro")
+            sesion_backend.commit()
+
             mensaje = await error_de(
                 servidor,
                 "confirmar_operacion",
                 {"token_confirmacion": propuesta["token_confirmacion"]},
             )
-        assert "TRANSICION_INVALIDA" in mensaje
-        assert "confirmada" in mensaje
+        assert "TRANSICION_INVALIDA" in mensaje or "estado final" in mensaje
 
     async def test_el_flujo_de_lista_de_espera_completo(
         self, servidor: MCPServer[Any], sesion_backend: Session, escenario: Escenario
@@ -339,8 +347,15 @@ class TestElRestoDelCicloDeVida:
         assert resultado["resultado"]["cargo"]["concepto"] == "cuota_moderadora"
 
     async def test_la_propuesta_de_asistencia_explica_el_cargo(
-        self, servidor: MCPServer[Any], cita_existente: int
+        self, servidor: MCPServer[Any], sesion_backend: Session, cita_existente: int
     ) -> None:
+        from backend.domain.servicios import confirmar_cita, registrar_asistencia
+        from backend.enums import EstadoCita as E
+
+        confirmar_cita(sesion_backend, cita_existente, usuario="setup")
+        registrar_asistencia(sesion_backend, cita_existente, E.EN_ESPERA, usuario="setup")
+        sesion_backend.commit()
+
         with como(SUJETO, ESCRITURA):
             propuesta = await llamar(
                 servidor,
@@ -401,3 +416,231 @@ class TestElRestoDelCicloDeVida:
         efectos = " ".join(propuesta["esto_va_a_pasar"])
         assert "quedará libre" in efectos
         assert "quedará ocupado" in efectos
+
+
+class TestLaPropuestaValidaAntesDeProponer:
+    """A proposal a human cannot act on is worse than an error.
+
+    Every check here is repeated in the domain at execution time, because the
+    state can change between proposing and confirming. These exist so the person
+    reading the proposal is not asked to approve something that will fail.
+    """
+
+    async def test_no_propone_agendar_en_un_cupo_ya_ocupado(
+        self, servidor: MCPServer[Any], escenario: Escenario, cita_existente: int
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "agendar_cita",
+                {"paciente_id": escenario.carla_id, "slot_id": escenario.slots_general[0]},
+            )
+        assert "SLOT_NO_DISPONIBLE" in mensaje
+        assert "cupos libres más cercanos" in mensaje
+
+    async def test_no_propone_agendar_en_el_pasado(
+        self, servidor: MCPServer[Any], escenario: Escenario
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "agendar_cita",
+                {"paciente_id": escenario.ana_id, "slot_id": escenario.slot_pasado_id},
+            )
+        assert "SLOT_EN_EL_PASADO" in mensaje
+
+    async def test_la_propuesta_nombra_la_hora_y_el_profesional_reales(
+        self, servidor: MCPServer[Any], escenario: Escenario
+    ) -> None:
+        """Read aloud to a receptionist, 'slot 412' means nothing."""
+        with como(SUJETO, ESCRITURA):
+            propuesta = await llamar(
+                servidor,
+                "agendar_cita",
+                {"paciente_id": escenario.ana_id, "slot_id": escenario.slots_general[0]},
+            )
+        assert str(escenario.fecha_futura) in propuesta["resumen"]
+        assert "Dra. General" in propuesta["resumen"]
+
+    async def test_no_propone_confirmar_una_cita_ya_confirmada(
+        self, servidor: MCPServer[Any], sesion_backend: Session, cita_existente: int
+    ) -> None:
+        from backend.domain.servicios import confirmar_cita
+
+        confirmar_cita(sesion_backend, cita_existente, usuario="setup")
+        sesion_backend.commit()
+
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(servidor, "confirmar_cita", {"cita_id": cita_existente})
+        assert "TRANSICION_INVALIDA" in mensaje
+        assert "en_espera" in mensaje
+
+    async def test_no_propone_atender_saltandose_la_sala_de_espera(
+        self, servidor: MCPServer[Any], cita_existente: int
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "registrar_asistencia",
+                {"cita_id": cita_existente, "estado": "atendida"},
+            )
+        assert "TRANSICION_INVALIDA" in mensaje
+        assert "confirmada" in mensaje
+
+    async def test_no_propone_cancelar_una_cita_ya_cancelada(
+        self, servidor: MCPServer[Any], sesion_backend: Session, cita_existente: int
+    ) -> None:
+        from backend.domain.servicios import cancelar_cita
+
+        cancelar_cita(sesion_backend, cita_existente, motivo="ya estaba", usuario="setup")
+        sesion_backend.commit()
+
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "cancelar_cita",
+                {"cita_id": cita_existente, "motivo": "otra vez"},
+            )
+        assert "TRANSICION_INVALIDA" in mensaje
+        assert "estado final" in mensaje
+
+    async def test_no_propone_reprogramar_a_un_cupo_ocupado(
+        self,
+        servidor: MCPServer[Any],
+        sesion_backend: Session,
+        cita_existente: int,
+        escenario: Escenario,
+    ) -> None:
+        agendar_cita(
+            sesion_backend,
+            paciente_id=escenario.carla_id,
+            slot_id=escenario.slots_general[3],
+            usuario="setup",
+        )
+        sesion_backend.commit()
+
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "reprogramar_cita",
+                {"cita_id": cita_existente, "nuevo_slot_id": escenario.slots_general[3]},
+            )
+        assert "SLOT_NO_DISPONIBLE" in mensaje
+
+    async def test_una_cita_inexistente_falla_al_proponer_no_al_confirmar(
+        self, servidor: MCPServer[Any], escenario: Escenario
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(servidor, "confirmar_cita", {"cita_id": 424242})
+        assert "CITA_NO_ENCONTRADA" in mensaje
+
+
+class TestElCruceDeHorarioSeDetectaAlProponer:
+    async def test_no_propone_una_cita_que_se_cruza_con_otra(
+        self, servidor: MCPServer[Any], sesion_backend: Session, escenario: Escenario
+    ) -> None:
+        """Same hour, different professional. The patient cannot be in two
+        chairs at once, and the proposal must say so rather than the
+        confirmation."""
+        agendar_cita(
+            sesion_backend,
+            paciente_id=escenario.ana_id,
+            slot_id=escenario.slots_general[0],
+            usuario="setup",
+        )
+        sesion_backend.commit()
+
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "agendar_cita",
+                {"paciente_id": escenario.ana_id, "slot_id": escenario.slots_orto[0]},
+            )
+        assert "PACIENTE_YA_TIENE_CITA" in mensaje
+        assert "Cancela o reprograma" in mensaje
+
+    async def test_la_especialidad_esperada_se_verifica_al_proponer(
+        self, servidor: MCPServer[Any], escenario: Escenario
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            mensaje = await error_de(
+                servidor,
+                "agendar_cita",
+                {
+                    "paciente_id": escenario.ana_id,
+                    "slot_id": escenario.slots_general[0],
+                    "especialidad_esperada": "ortodoncia",
+                },
+            )
+        assert "ESPECIALIDAD_NO_COINCIDE" in mensaje
+
+    async def test_reprogramar_no_choca_consigo_misma(
+        self, servidor: MCPServer[Any], escenario: Escenario, cita_existente: int
+    ) -> None:
+        """The appointment being moved is excluded from the overlap check,
+        otherwise every reschedule to an overlapping hour would be refused."""
+        with como(SUJETO, ESCRITURA):
+            propuesta = await llamar(
+                servidor,
+                "reprogramar_cita",
+                {"cita_id": cita_existente, "nuevo_slot_id": escenario.slots_orto[0]},
+            )
+        assert propuesta["requiere_confirmacion"] is True
+
+
+class TestLosRechazosSeAuditan:
+    """A log that records only what succeeded cannot tell you an agent spent an
+    hour proposing something impossible."""
+
+    async def test_un_rechazo_por_transicion_queda_en_el_log(
+        self, servidor: MCPServer[Any], ctx: Any, cita_existente: int
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            await error_de(
+                servidor,
+                "registrar_asistencia",
+                {"cita_id": cita_existente, "estado": "atendida"},
+            )
+        evento = ctx.auditor.eventos[-1]
+        assert evento["herramienta"] == "registrar_asistencia"
+        assert evento["resultado"] == "error"
+        assert evento["codigo_error"] == "TRANSICION_INVALIDA"
+
+    async def test_un_rechazo_por_cupo_ocupado_queda_en_el_log(
+        self, servidor: MCPServer[Any], ctx: Any, escenario: Escenario, cita_existente: int
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            await error_de(
+                servidor,
+                "agendar_cita",
+                {"paciente_id": escenario.carla_id, "slot_id": escenario.slots_general[0]},
+            )
+        evento = ctx.auditor.eventos[-1]
+        assert evento["resultado"] == "error"
+        assert evento["codigo_error"] == "SLOT_NO_DISPONIBLE"
+
+    async def test_el_motivo_sigue_redactado_al_rechazar(
+        self, servidor: MCPServer[Any], ctx: Any, sesion_backend: Session, cita_existente: int
+    ) -> None:
+        """A refusal must not become a loophole that copies clinical data into
+        the log."""
+        from backend.domain.servicios import cancelar_cita
+
+        cancelar_cita(sesion_backend, cita_existente, motivo="ya estaba", usuario="setup")
+        sesion_backend.commit()
+
+        secreto = "sangrado persistente desde el martes"
+        with como(SUJETO, ESCRITURA):
+            await error_de(
+                servidor, "cancelar_cita", {"cita_id": cita_existente, "motivo": secreto}
+            )
+        assert secreto not in str(ctx.auditor.eventos)
+        assert ctx.auditor.eventos[-1]["argumentos"]["motivo"] == "«redactado»"
+
+    async def test_una_propuesta_exitosa_se_marca_como_propuesta(
+        self, servidor: MCPServer[Any], ctx: Any, cita_existente: int
+    ) -> None:
+        with como(SUJETO, ESCRITURA):
+            await llamar(servidor, "confirmar_cita", {"cita_id": cita_existente})
+        eventos = [e for e in ctx.auditor.eventos if e["evento"] == "tool.invocacion"]
+        assert eventos[-1]["resultado"] == "propuesta"
