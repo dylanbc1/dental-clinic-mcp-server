@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.api import app as backend_app
 from backend.config import Settings
 from backend.database import get_session
-from backend.domain.tiempo import UTC, a_local, slots_del_dia
+from backend.domain.tiempo import UTC, a_local, ahora_local, slots_del_dia
 from backend.enums import ConceptoCargo, Especialidad, EstadoCargo, Regimen, TipoDocumento
 from backend.models import AgendaSlot, Base, Cargo, Clinica, Paciente, Profesional
 from mcp_server.auditoria import Auditor
@@ -233,7 +233,8 @@ def datos_minimos(sesiones: Callable[[], Session]) -> dict[str, int]:
     sesion.add_all(pacientes)
     sesion.flush()
 
-    manana = date.today() + timedelta(days=1)
+    # The clinic's calendar, not the runner's: they differ for five hours a day.
+    manana = ahora_local().date() + timedelta(days=1)
     while not slots_del_dia(manana):
         manana += timedelta(days=1)
     inicio, fin = slots_del_dia(manana)[0]
@@ -338,12 +339,12 @@ def escenario(sesiones: Callable[[], Session]) -> Escenario:
             monto=Decimal("180000"),
             descripcion="Tarifa particular vencida",
             estado=EstadoCargo.PENDIENTE,
-            vencimiento=date.today() - timedelta(days=75),
+            vencimiento=ahora_local().date() - timedelta(days=75),
         )
     )
 
     # A future working day with free slots for both professionals.
-    futura = date.today() + timedelta(days=3)
+    futura = ahora_local().date() + timedelta(days=3)
     while not slots_del_dia(futura):
         futura += timedelta(days=1)
     rangos = slots_del_dia(futura)
@@ -362,7 +363,7 @@ def escenario(sesiones: Callable[[], Session]) -> Escenario:
             destino.append(slot)
 
     # One slot in the past, to prove the domain refuses to book backwards.
-    pasada = date.today() - timedelta(days=5)
+    pasada = ahora_local().date() - timedelta(days=5)
     while not slots_del_dia(pasada):
         pasada -= timedelta(days=1)
     inicio_pasado, fin_pasado = slots_del_dia(pasada)[0]

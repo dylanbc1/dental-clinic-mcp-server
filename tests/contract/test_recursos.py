@@ -14,6 +14,8 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 
 from backend.domain.servicios import agendar_cita
+from backend.domain.tiempo import ahora_local
+from backend.models import AgendaSlot
 from tests.conftest import SUJETO, Escenario, como
 
 pytestmark = pytest.mark.integration
@@ -68,14 +70,11 @@ class TestRecursos:
     async def test_agenda_hoy_refleja_las_citas_del_dia(
         self, servidor: MCPServer[Any], sesion_backend: Any, escenario: Escenario
     ) -> None:
-        # Move a slot to today so the resource has something to report.
-        from datetime import date
-
-        slot = sesion_backend.get(
-            __import__("backend.models", fromlist=["AgendaSlot"]).AgendaSlot,
-            escenario.slots_general[0],
-        )
-        slot.fecha = date.today()
+        # "Today" means today at the clinic, not on whatever machine is running
+        # this. Using the system date passes in Bogotá and fails on a UTC runner
+        # for the five hours a day the two disagree.
+        slot = sesion_backend.get(AgendaSlot, escenario.slots_general[0])
+        slot.fecha = ahora_local().date()
         sesion_backend.commit()
         agendar_cita(
             sesion_backend,
@@ -87,8 +86,19 @@ class TestRecursos:
 
         with como(SUJETO, ["read"]):
             agenda = await leer(servidor, "agenda://hoy")
+        assert agenda["fecha"] == ahora_local().date().isoformat()
         assert agenda["total"] == 1
         assert agenda["por_estado"] == {"agendada": 1}
+
+    async def test_hoy_es_hoy_en_la_clinica_no_en_el_servidor(
+        self, servidor: MCPServer[Any], escenario: Escenario
+    ) -> None:
+        """America/Bogota is UTC-5, so for five hours a day the two disagree.
+        A server that answered with its own date would show the wrong agenda
+        every evening."""
+        with como(SUJETO, ["read"]):
+            agenda = await leer(servidor, "agenda://hoy")
+        assert agenda["fecha"] == ahora_local().date().isoformat()
 
 
 class TestPrompt:
