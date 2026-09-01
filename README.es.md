@@ -444,4 +444,4 @@ docs/               architecture.md · security.md (bilingües)
 
 ## Licencia
 
-MIT, en [`LICENSE`](./LICENSE). Proyecto de portafolio, Horizonte Labs.
+MIT, en [`LICENSE`](./LICENSE). Proyecto personal de portafolio, de Dylan Bermudez Cardona.
