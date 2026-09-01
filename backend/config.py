@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # --- database ----------------------------------------------------------
-    database_url: str = "postgresql+psycopg://clinic:clinica_dev_only@localhost:5433/clinic"
+    database_url: str = "postgresql+psycopg://clinic:clinic_dev_only@localhost:5433/clinic"
     db_echo: bool = False
     db_pool_size: int = 5
     db_max_overflow: int = 10

@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
-TEST_DB ?= postgresql+psycopg://clinica:clinica_dev_only@localhost:5433/clinica_test
+TEST_DB ?= postgresql+psycopg://clinic:clinic_dev_only@localhost:5433/clinic_test
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -29,7 +29,7 @@ logs: ## Follow the logs of every service
 
 keycloak: ## Start Keycloak plus a second MCP server that trusts it
 	docker compose --profile keycloak up -d --build --wait
-	@echo "  keycloak     http://localhost:9100 (admin/admin, realm 'clinica')"
+	@echo "  keycloak     http://localhost:9100 (admin/admin, realm 'clinic')"
 	@echo "  mcp-keycloak http://localhost:8081/mcp"
 
 keycloak-verify: ## Prove the auth layer is pluggable, against the running Keycloak

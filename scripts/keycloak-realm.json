@@ -1,5 +1,5 @@
 {
-  "realm": "clinica",
+  "realm": "clinic",
   "enabled": true,
   "displayName": "Clínica Odontológica",
   "clientScopes": [
@@ -33,7 +33,7 @@
   ],
   "clients": [
     {
-      "clientId": "clinica-demo",
+      "clientId": "clinic-demo",
       "name": "Cliente MCP de demostración",
       "enabled": true,
       "publicClient": true,
@@ -76,7 +76,7 @@
       ]
     },
     {
-      "clientId": "clinica-service",
+      "clientId": "clinic-service",
       "name": "Cuenta de servicio para verificar el cambio de IdP",
       "enabled": true,
       "publicClient": false,

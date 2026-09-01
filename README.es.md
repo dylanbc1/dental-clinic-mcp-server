@@ -100,7 +100,7 @@ catálogo pequeño y descrito con precisión es el diseño, no una limitación.
 | `write` | `book_appointment` · `confirm_appointment` · `cancel_appointment` · `reschedule_appointment` · `record_attendance` · `offer_slot_to_waiting_list` |
 | `clinical` | `record_visit_reason` |
 
-Resources: `clinica://info`, `politicas://cartera`, `agenda://hoy`.
+Resources: `clinic://info`, `politicas://cartera`, `agenda://hoy`.
 Prompt: `recepcionista_odontologia`.
 
 **Toda herramienta de escritura y la clínica se detienen a preguntarle a una

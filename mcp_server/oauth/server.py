@@ -52,7 +52,7 @@ from mcp_server.oauth.keys import KeyPair, signing_keys
 PKCE_METHODS = ("S256",)
 
 CODE_TTL = 60
-DEMO_CLIENT = "clinica-demo"
+DEMO_CLIENT = "clinic-demo"
 
 
 def _b64(payload: bytes) -> str:

@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 REDIRECT = "http://localhost:6274/oauth/callback"
-CLIENTE = "clinica-demo"
+CLIENTE = "clinic-demo"
 
 
 def pkce() -> tuple[str, str]:

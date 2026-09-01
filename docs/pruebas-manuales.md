@@ -46,7 +46,7 @@ curl -s localhost:8000/ready
 ### A2 · Los datos son sintéticos y suficientes
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -c "
+docker compose exec -T postgres psql -U clinic -d clinic -c "
 select regimen, afiliacion_activa, count(*) from paciente group by 1,2 order by 1;
 select estado, count(*) from cita group by 1 order by 2 desc;
 select count(*) as free_slots from agenda_slot where status='free';"
@@ -60,11 +60,11 @@ citas en los seis estados, y más de mil cupos libres para agendar.
 
 ```bash
 uv run python -m backend.seed --base-date 2026-08-31
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
 
 uv run python -m backend.seed --base-date 2026-08-31
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
 ```
 
@@ -107,7 +107,7 @@ curl -s localhost:9000/.well-known/oauth-authorization-server | python3 -m json.
 Un `/authorize` sin PKCE:
 
 ```bash
-curl -si "localhost:9000/authorize?response_type=code&client_id=clinica-demo\
+curl -si "localhost:9000/authorize?response_type=code&client_id=clinic-demo\
 &redirect_uri=http://localhost:6274/oauth/callback&state=x" | grep -i location
 ```
 
@@ -117,7 +117,7 @@ falta `code_challenge`.
 Y un `redirect_uri` no registrado (intento de exfiltrar el código):
 
 ```bash
-curl -si "localhost:9000/authorize?response_type=code&client_id=clinica-demo\
+curl -si "localhost:9000/authorize?response_type=code&client_id=clinic-demo\
 &redirect_uri=https://atacante.test/robar&code_challenge=x&code_challenge_method=S256" \
   | head -1
 ```
@@ -180,7 +180,7 @@ en lenguaje llano (nombra la hora y el profesional, no el `slot_id`) y un
 `requestState` de unos 470 bytes que empieza por `v1.`. **No se agendó nada.**
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select estado from agenda_slot where id = SLOT_ID;"
 ```
 → `libre`
@@ -267,12 +267,12 @@ El primero debe dar `0` y el segundo, más de `0`.
 Y el historial de la cita en la base:
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -c \
+docker compose exec -T postgres psql -U clinic -d clinic -c \
   "select previous_status, new_status, changed_by, occurred_at from appointment_history
    order by id desc limit 5;"
 ```
 
-**Esperas:** el `user` es el sujeto del token (`recepcion@clinica.local`), no
+**Esperas:** el `user` es el sujeto del token (`recepcion@clinic.local`), no
 `system` ni `mcp-server`. Una auditoría con el mismo usuario en cada fila no es
 una auditoría.
 
@@ -304,7 +304,7 @@ los pacientes saldrían `al_dia` y esta regla no tendría con qué demostrarse.
 Busca un paciente en mora y agéndale una cita:
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select paciente_id, sum(monto)::int from cargo
    where status='pendiente' and vencimiento < current_date
    group by 1 order by 2 desc limit 1;"
@@ -317,7 +317,7 @@ agenda una vez aprobada. Las clínicas no niegan atención por un copago sin pag
 ### C2 · La afiliación vencida cambia la tarifa, no el acceso
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
 ```
 

@@ -20,24 +20,24 @@ x-python: &python
   environment: &entorno-comun
     APP_ENV: ${APP_ENV:-development}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-clinica}:${POSTGRES_PASSWORD:-clinica_dev_only}@postgres:5432/${POSTGRES_DB:-clinica}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-clinic}:${POSTGRES_PASSWORD:-clinic_dev_only}@postgres:5432/${POSTGRES_DB:-clinic}
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-clinica}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clinica_dev_only}
-      POSTGRES_DB: ${POSTGRES_DB:-clinica}
+      POSTGRES_USER: ${POSTGRES_USER:-clinic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clinic_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-clinic}
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Creates the dedicated `clinica_test` database on first boot.
+      # Creates the dedicated `clinic_test` database on first boot.
       - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
     healthcheck:
       # The backend must not start before Postgres actually accepts queries.
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clinica} -d ${POSTGRES_DB:-clinica}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clinic} -d ${POSTGRES_DB:-clinic}"]
       interval: 3s
       timeout: 3s
       retries: 20

@@ -29,7 +29,7 @@ def keycloak_token(scope: str = "read") -> str:
         f"{KEYCLOAK}/protocol/openid-connect/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": "clinica-service",
+            "client_id": "clinic-service",
             "client_secret": "dev-only-secret-not-a-credential",
             "scope": scope,
         },

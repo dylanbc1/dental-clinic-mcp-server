@@ -100,7 +100,7 @@ a smaller, precisely described catalogue is the design, not a limitation.
 | `write` | `book_appointment` · `confirm_appointment` · `cancel_appointment` · `reschedule_appointment` · `record_attendance` · `offer_slot_to_waiting_list` |
 | `clinical` | `record_visit_reason` |
 
-Resources: `clinica://info`, `politicas://cartera`, `agenda://hoy`.
+Resources: `clinic://info`, `politicas://cartera`, `agenda://hoy`.
 Prompt: `recepcionista_odontologia`.
 
 **Every write and clinical tool pauses for a person**, over Multi Round-Trip

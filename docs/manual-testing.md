@@ -45,7 +45,7 @@ curl -s localhost:8000/ready
 ### A2 · The data is synthetic and rich enough to be useful
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -c "
+docker compose exec -T postgres psql -U clinic -d clinic -c "
 select regimen, afiliacion_activa, count(*) from paciente group by 1,2 order by 1;
 select estado, count(*) from cita group by 1 order by 2 desc;
 select count(*) as free_slots from agenda_slot where status='free';"
@@ -59,11 +59,11 @@ states, and over a thousand free slots to book into.
 
 ```bash
 uv run python -m backend.seed --base-date 2026-08-31
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
 
 uv run python -m backend.seed --base-date 2026-08-31
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
 ```
 
@@ -106,7 +106,7 @@ curl -s localhost:9000/.well-known/oauth-authorization-server | python3 -m json.
 An `/authorize` without PKCE:
 
 ```bash
-curl -si "localhost:9000/authorize?response_type=code&client_id=clinica-demo\
+curl -si "localhost:9000/authorize?response_type=code&client_id=clinic-demo\
 &redirect_uri=http://localhost:6274/oauth/callback&state=x" | grep -i location
 ```
 
@@ -116,7 +116,7 @@ is missing.
 And an unregistered `redirect_uri` (a code-exfiltration attempt):
 
 ```bash
-curl -si "localhost:9000/authorize?response_type=code&client_id=clinica-demo\
+curl -si "localhost:9000/authorize?response_type=code&client_id=clinic-demo\
 &redirect_uri=https://attacker.test/steal&code_challenge=x&code_challenge_method=S256" \
   | head -1
 ```
@@ -180,7 +180,7 @@ question in plain language (it names the hour and the professional, not the
 **Nothing was booked.**
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select estado from agenda_slot where id = SLOT_ID;"
 ```
 -> `libre`
@@ -268,12 +268,12 @@ The first must be `0` and the second above `0`.
 And the appointment history in the database:
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -c \
+docker compose exec -T postgres psql -U clinic -d clinic -c \
   "select previous_status, new_status, changed_by, occurred_at from appointment_history
    order by id desc limit 5;"
 ```
 
-**Expect:** `user` is the token's subject (`recepcion@clinica.local`), not
+**Expect:** `user` is the token's subject (`recepcion@clinic.local`), not
 `system` or `mcp-server`. An audit trail with the same user in every row is not
 an audit trail.
 
@@ -306,7 +306,7 @@ nothing to demonstrate itself on.
 Find a patient in arrears and book them an appointment:
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select paciente_id, sum(monto)::int from cargo
    where status='pendiente' and vencimiento < current_date
    group by 1 order by 2 desc limit 1;"
@@ -319,7 +319,7 @@ appointment goes through once approved. Clinics do not refuse care over an unpai
 ### C2 · A lapsed affiliation changes the tariff, not the access
 
 ```bash
-docker compose exec -T postgres psql -U clinica -d clinica -t -c \
+docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
 ```
 
