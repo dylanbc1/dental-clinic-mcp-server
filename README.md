@@ -438,4 +438,4 @@ docs/               architecture.md · security.md (bilingual)
 
 ## License
 
-MIT. Portfolio project, Horizonte Labs.
+MIT, in [`LICENSE`](./LICENSE). Portfolio project, Horizonte Labs.
