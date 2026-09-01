@@ -25,6 +25,7 @@ x-python: &python
     # the common block: the backend verifies with the same ring the MCP signs
     # with, and a mismatch shows up as a 401 on the first tool call.
     INTERNAL_API_KEYS: ${INTERNAL_API_KEYS:-dev-only-internal-api-key-change-me-32b}
+    INTERNAL_REQUEST_SKEW_SECONDS: ${INTERNAL_REQUEST_SKEW_SECONDS:-300}
 
 services:
   postgres:
@@ -58,6 +59,8 @@ services:
       # that is a deployment decision, not a code default.
       BACKEND_HOST: 0.0.0.0
       SEED_VALUE: ${SEED_VALUE:-20260831}
+      SEED_PATIENTS: ${SEED_PATIENTS:-60}
+      SEED_AGENDA_DAYS: ${SEED_AGENDA_DAYS:-21}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -132,6 +135,11 @@ services:
       # REQUEST_STATE_KEYS since, so the old name set nothing and the ring
       # silently stayed on its development default.
       REQUEST_STATE_KEYS: ${REQUEST_STATE_KEYS:-dev-only-request-state-key-change-me-32b}
+      REQUEST_STATE_TTL_SECONDS: ${REQUEST_STATE_TTL_SECONDS:-300}
+      MCP_STATELESS: ${MCP_STATELESS:-true}
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-true}
+      MCP_RATE_LIMIT: ${MCP_RATE_LIMIT:-120}
+      MCP_RATE_WINDOW_SECONDS: ${MCP_RATE_WINDOW_SECONDS:-60}
     ports:
       - "${MCP_PORT:-8080}:8080"
     healthcheck:
@@ -191,6 +199,11 @@ services:
       # REQUEST_STATE_KEYS since, so the old name set nothing and the ring
       # silently stayed on its development default.
       REQUEST_STATE_KEYS: ${REQUEST_STATE_KEYS:-dev-only-request-state-key-change-me-32b}
+      REQUEST_STATE_TTL_SECONDS: ${REQUEST_STATE_TTL_SECONDS:-300}
+      MCP_STATELESS: ${MCP_STATELESS:-true}
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-true}
+      MCP_RATE_LIMIT: ${MCP_RATE_LIMIT:-120}
+      MCP_RATE_WINDOW_SECONDS: ${MCP_RATE_WINDOW_SECONDS:-60}
     ports:
       - "8081:8081"
     healthcheck:

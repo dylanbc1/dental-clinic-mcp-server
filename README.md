@@ -12,7 +12,7 @@
   <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="coverage 99%" src="https://img.shields.io/badge/coverage-99%25-1f8b4c">
-  <img alt="856 tests" src="https://img.shields.io/badge/tests-856-1f8b4c">
+  <img alt="879 tests" src="https://img.shields.io/badge/tests-879-1f8b4c">
 </p>
 
 ```bash
@@ -363,7 +363,7 @@ exist), the real MCP server, the real authorization server.
 | `tests/security` | **The full 13 × 3 scope matrix** over the wire, the sealed request state under attack (tampering, cross-operation reuse, wrong principal, expiry, key rotation), PKCE enforcement, JWT audience and `alg=none`, Host/Origin guards, statelessness, rate limiting |
 | `scripts/smoke.py` | The whole client path over real HTTP, run in CI |
 
-856 tests: 365 unit, 234 integration, 92 contract, 165 security.
+879 tests: 388 unit, 234 integration, 92 contract, 165 security.
 **Want to check it yourself?** [`docs/manual-testing.md`](./docs/manual-testing.md)
 is a 25-minute walkthrough of thirteen checks, each saying what to run and what
 you should see. [`docs/inspector.md`](./docs/inspector.md) covers the same ground
@@ -381,7 +381,7 @@ Six commands, in this order, from a clean checkout. Each one fails loudly.
 make reset            # empty volume, full migration chain, deterministic seed
 make lint             # ruff + ruff format --check + mypy --strict
 make audit            # bandit + pip-audit
-make test-fast        # 856 tests against the running stack, 95% coverage floor
+make test-fast        # 879 tests against the running stack, 95% coverage floor
 make smoke            # the nine-step client path over real HTTP
 make probe            # Block E: expiry, replay, idempotency, races, tenancy
 make keycloak && make keycloak-verify    # the auth layer is swappable
