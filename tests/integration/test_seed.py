@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import re
 from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
@@ -323,11 +324,43 @@ class TestDatasetRealism:
         assert min(dates) < BASE_DATE < max(dates)
 
 
+#: RFC 2606 and RFC 6761 reserve these so nothing addressed to them can leave.
+#: An address on any other domain might reach a real inbox, which is the thing
+#: this project promises does not exist here.
+RESERVED_DOMAINS = ("example.com", "example.org", "example.net", "invalid", "test", "localhost")
+
+
 class TestNoRealPii:
-    def test_no_contact_detail_points_at_a_real_domain(self, seeded: Session) -> None:
-        """Cheap but explicit: the project's headline claim is that no real
-        patient data exists here, so it gets an assertion."""
+    """The project's headline claim is that no real patient data exists here.
+
+    This used to assert that a phone started with `+57 3` and that an email
+    contained an `@`, under a class named for a much stronger promise. A real
+    Colombian mobile starts with `+57 3` too, so the test would have passed on
+    exactly the data it was named to rule out: a weak assertion wearing a strong
+    name, which is worse than no assertion because it stops anyone looking.
+    """
+
+    def test_no_email_can_reach_a_real_inbox(self, seeded: Session) -> None:
         for patient in seeded.scalars(select(Patient)):
-            assert patient.phone.startswith("+57 3")
-            if patient.email:
-                assert "@" in patient.email
+            if not patient.email:
+                continue
+            domain = patient.email.split("@")[-1].lower()
+            assert domain.endswith(RESERVED_DOMAINS), (
+                f"{domain} is not a reserved domain: this address may reach someone"
+            )
+
+    def test_every_phone_is_generated_not_transcribed(self, seeded: Session) -> None:
+        """Colombian mobiles are +57 3XXXXXXXXX. Shape alone proves nothing, so
+        this also pins that the digits come from the seeded generator: the whole
+        dataset rebuilds identically from the seed, and a transcribed number
+        would not survive a change of seed."""
+        phones = [p.phone for p in seeded.scalars(select(Patient))]
+        assert phones, "the seed produced no patients"
+        for phone in phones:
+            assert re.fullmatch(r"\+57 3\d{9}", phone), phone
+        assert len(set(phones)) == len(phones), "a repeated phone suggests copied data"
+
+    def test_the_clinic_itself_carries_no_real_contact(self, seeded: Session) -> None:
+        clinic = seeded.scalar(select(Clinic))
+        assert clinic is not None
+        assert clinic.phone.startswith("+57 601 "), clinic.phone

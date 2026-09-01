@@ -258,7 +258,7 @@ llamada ocurrió, no el dato del paciente.
 Compruébalo a propósito:
 
 ```bash
-docker compose logs mcp | grep -c "dolor severo"   # el motivo que enviaste en B3
+docker compose logs mcp | grep -c "prueba manual"   # el motivo que enviaste en B3
 docker compose logs mcp | grep -c "redacted"
 ```
 
