@@ -84,10 +84,10 @@ Hoy es {hoy} y son las {hora} (hora de {ciudad}).
 def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     @servidor.resource(
         "clinica://info",
-        name="Información de la clínica",
+        name="Clinic information",
         description=(
-            "Datos de la clínica, sus profesionales y las especialidades disponibles. "
-            "Consúltalo antes de ofrecer una especialidad o nombrar a un profesional."
+            "The clinic's details, its professionals, and the specialties on offer. "
+            "Read it before offering a specialty or naming a professional."
         ),
         mime_type="application/json",
     )
@@ -96,12 +96,12 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     @servidor.resource(
         "politicas://cartera",
-        name="Políticas de cartera y tarifas",
+        name="Cartera policy and tariffs",
         description=(
-            "Reglas de cobro de la clínica: tarifas particulares por especialidad, cuota "
-            "moderadora por nivel, porcentaje de copago del régimen subsidiado, "
-            "penalización por inasistencia y plazo de pago. Úsalo para informar un costo; "
-            "nunca estimes un precio por tu cuenta."
+            "The clinic's billing rules: private tariffs per specialty, cuota "
+            "moderadora by bracket, the subsidiado régimen copago percentage, the "
+            "no-show penalty, and the payment term. Use it to quote a cost; never "
+            "estimate a price yourself."
         ),
         mime_type="application/json",
     )
@@ -112,10 +112,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     @servidor.resource(
         "agenda://hoy",
-        name="Agenda de hoy",
+        name="Today's agenda",
         description=(
-            "Panorama de las citas de hoy con su estado, para saber quién está en sala, "
-            "quién confirmó y quién no llegó."
+            "Today's appointments with their state, so you know who is in the waiting "
+            "room, who confirmed, and who did not turn up."
         ),
         mime_type="application/json",
     )
@@ -129,10 +129,12 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
 
     @servidor.prompt(
         name="recepcionista_odontologia",
-        title="Recepcionista de clínica odontológica",
+        title="Dental clinic receptionist",
         description=(
-            "Configura al agente como recepcionista de la clínica: tono, límites, cuándo "
-            "escalar y la regla de que nada se ejecuta sin aprobación humana."
+            "Sets the agent up as the clinic's receptionist: tone, limits, when to "
+            "escalate, and the rule that nothing runs without human approval. Its "
+            "content is in Spanish on purpose: it is how to speak to a Colombian "
+            "patient."
         ),
     )
     async def recepcionista_odontologia() -> str:

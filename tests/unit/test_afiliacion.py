@@ -90,7 +90,7 @@ class TestAfiliacionInactiva:
     def test_conserva_el_regimen_original_para_informar(self) -> None:
         r = validar_afiliacion(Regimen.SUBSIDIADO, afiliacion_activa=False)
         assert r.regimen is Regimen.SUBSIDIADO
-        assert "inactiva" in r.mensaje
+        assert "is inactive" in r.mensaje
 
     def test_da_una_sugerencia_accionable(self) -> None:
         r = validar_afiliacion(Regimen.CONTRIBUTIVO, afiliacion_activa=False)

@@ -7,8 +7,8 @@ A tool that leaks a traceback hands the model a puzzle instead of an
 instruction.
 
 The rendering is deliberately text, not JSON: the model reads the tool result as
-prose, and `"Sugerencia: los cupos libres más cercanos son 09:00, 09:30"` is
-acted on correctly far more often than a nested object it has to traverse.
+prose, and `"Suggestion: the closest free slots are 09:00, 09:30"` is acted on
+correctly far more often than a nested object it has to traverse.
 """
 
 from __future__ import annotations
@@ -58,9 +58,9 @@ class ErrorHerramienta(ToolError):
         partes = [f"[{self.codigo}] {self.mensaje}"]
         if self.sugerencia:
             prefijo = (
-                "Acción requerida"
+                "Action required"
                 if self.codigo in {str(c) for c in CODIGOS_QUE_EXIGEN_ESCALAR}
-                else "Sugerencia"
+                else "Suggestion"
             )
             partes.append(f"{prefijo}: {self.sugerencia}")
         if self.detalles:
@@ -80,7 +80,7 @@ class ErrorHerramienta(ToolError):
         """Rebuild from the backend's JSON envelope."""
         return cls(
             codigo=str(payload.get("codigo", "ERROR_INTERNO")),
-            mensaje=str(payload.get("mensaje", "El backend devolvió un error sin detalle.")),
+            mensaje=str(payload.get("mensaje", "The backend returned an error with no detail.")),
             sugerencia=payload.get("sugerencia"),
             detalles=payload.get("detalles"),
         )
@@ -93,10 +93,10 @@ class ErrorHerramienta(ToolError):
 def error_no_autenticado(recurso: str) -> ErrorHerramienta:
     return ErrorHerramienta(
         str(CodigoError.NO_AUTENTICADO),
-        "La petición no trae un token de acceso válido.",
+        "The request carries no valid access token.",
         sugerencia=(
-            "Autentícate con el Authorization Server (OAuth 2.1 + PKCE) descrito en "
-            f"{recurso}/.well-known/oauth-protected-resource y reintenta."
+            "Authenticate with the authorization server (OAuth 2.1 + PKCE) described at "
+            f"{recurso}/.well-known/oauth-protected-resource and try again."
         ),
     )
 
@@ -104,11 +104,11 @@ def error_no_autenticado(recurso: str) -> ErrorHerramienta:
 def error_scope(herramienta: str, requerido: str, presentes: list[str]) -> ErrorHerramienta:
     return ErrorHerramienta(
         str(CodigoError.SCOPE_INSUFICIENTE),
-        f"La herramienta '{herramienta}' exige el permiso '{requerido}'.",
+        f"The tool '{herramienta}' requires the '{requerido}' permission.",
         sugerencia=(
-            f"Tu token trae {presentes or ['ningún scope']}. Solicita un token que incluya "
-            f"'{requerido}' antes de reintentar. No vuelvas a llamar esta herramienta con "
-            "el token actual: el resultado será el mismo."
+            f"Your token carries {presentes or ['no scopes']}. Request a token that "
+            f"includes '{requerido}' before retrying. Do not call this tool again with "
+            "the current token: the result will be the same."
         ),
         detalles={
             "herramienta": herramienta,
@@ -122,10 +122,10 @@ def error_backend_caido(detalle: str) -> ErrorHerramienta:
     """The backend is unreachable. Not the caller's fault, so say so."""
     return ErrorHerramienta(
         "BACKEND_NO_DISPONIBLE",
-        "El sistema de la clínica no está respondiendo.",
+        "The clinic's system is not responding.",
         sugerencia=(
-            "No es un problema de tu solicitud. Informa al usuario que el sistema está "
-            "temporalmente fuera de servicio y no reintentes en bucle."
+            "This is not a problem with your request. Tell the user the system is "
+            "temporarily unavailable, and do not retry in a loop."
         ),
         detalles={"detalle": detalle},
     )

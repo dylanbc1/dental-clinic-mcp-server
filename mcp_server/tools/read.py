@@ -61,11 +61,11 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="buscar_paciente",
         title="Buscar paciente",
         description=(
-            "Encuentra un paciente por número de documento (coincidencia exacta) o por "
-            "nombre (coincidencia parcial, sin distinguir mayúsculas). Úsala SIEMPRE "
-            "antes de agendar o consultar: el resto de herramientas trabajan con el "
-            "paciente_id que esta devuelve. Si el documento no aparece, no inventes un "
-            "id: vuelve a preguntar el número al paciente."
+            "Finds a patient by documento (exact match) or by name (partial, "
+            "case-insensitive). ALWAYS use it before booking or looking anything up: "
+            "every other tool works with the paciente_id this one returns. If the "
+            "documento does not turn up, do not invent an id, ask the patient for the "
+            "number again."
         ),
     )
     async def buscar_paciente(
@@ -89,10 +89,11 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="consultar_disponibilidad",
         title="Consultar cupos disponibles",
         description=(
-            "Lista los cupos LIBRES y futuros de la agenda. Filtra por especialidad, "
-            "fecha (AAAA-MM-DD) o profesional. Devuelve la hora en zona de la clínica "
-            "(America/Bogota) y el slot_id que necesitas para agendar. Si no hay cupos "
-            "para la fecha pedida, consulta sin fecha para ver los más próximos."
+            "Lists the FREE, future slots in the agenda. Filter by specialty, date "
+            "(YYYY-MM-DD) or professional. Returns the time in the clinic's timezone "
+            "(America/Bogota) and the slot_id you need in order to book. If there are "
+            "no slots on the date asked for, query without a date to see the nearest "
+            "ones."
         ),
     )
     async def consultar_disponibilidad(
@@ -129,9 +130,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="consultar_cita",
         title="Consultar una cita",
         description=(
-            "Detalle completo de una cita: estado actual, paciente, profesional, horario "
-            "e historial de cambios con quién hizo cada uno y cuándo. Úsala para "
-            "verificar el estado antes de proponer un cambio."
+            "Full detail of one appointment: current state, patient, professional, "
+            "time, and the change history with who did what and when. It also returns "
+            "transiciones_validas, which tells you exactly what the appointment can "
+            "become next. Use it to check the state before attempting a change."
         ),
     )
     async def consultar_cita(cita_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
@@ -145,9 +147,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="listar_citas_paciente",
         title="Listar las citas de un paciente",
         description=(
-            "Historial de citas de un paciente, de la más reciente a la más antigua. "
-            "Filtra opcionalmente por rango de fechas (AAAA-MM-DD). No incluye el motivo "
-            "de consulta: eso es dato clínico y no se expone por esta vía."
+            "A patient's appointment history, most recent first. Optionally filtered by "
+            "date range (YYYY-MM-DD). It does not include the reason for consultation: "
+            "that is clinical data and is not exposed through this route."
         ),
     )
     async def listar_citas_paciente(
@@ -168,9 +170,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="consultar_cartera",
         title="Consultar la cartera del paciente",
         description=(
-            "Saldos pendientes del paciente, cuánto está vencido, cuántos días de mora y "
-            "el desglose por antigüedad. IMPORTANTE: un saldo en mora NO impide agendar. "
-            "Sirve para informar al paciente, no para negarle la cita."
+            "The patient's outstanding cartera: what is overdue, how many days late, "
+            "and the ageing breakdown. IMPORTANT: an overdue cartera does NOT prevent "
+            "booking. It is there to inform the patient, not to refuse them an "
+            "appointment."
         ),
     )
     async def consultar_cartera(paciente_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
@@ -184,10 +187,11 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="validar_afiliacion",
         title="Validar la afiliación del paciente",
         description=(
-            "Régimen de afiliación (contributivo, subsidiado, particular o SOAT) y si "
-            "está vigente. Determina si el paciente paga cuota moderadora, copago o "
-            "tarifa particular. Una afiliación inactiva NO impide la atención: se liquida "
-            "a tarifa particular. Consúltala antes de agendar para poder informar el costo."
+            "The patient's régimen de afiliación (contributivo, subsidiado, particular "
+            "or SOAT) and whether it is active. It determines whether they pay a cuota "
+            "moderadora, a copago, or the private tariff. An inactive afiliación does "
+            "NOT prevent care: it is billed at the private tariff. Check it before "
+            "booking so you can tell the patient the cost."
         ),
     )
     async def validar_afiliacion(paciente_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:

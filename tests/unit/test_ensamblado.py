@@ -129,5 +129,5 @@ class TestServidor:
             or ""
         ).lower()
         assert "confirmación" in instrucciones
-        assert "reintenta la misma llamada" in instrucciones
-        assert "consentimiento" in instrucciones
+        assert "retries the same call" in instrucciones
+        assert "consent" in instrucciones

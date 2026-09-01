@@ -64,8 +64,8 @@ class ClienteBackend:
             raise ErrorHerramienta.desde_envoltura(payload)
         raise ErrorHerramienta(
             "ERROR_INTERNO",
-            f"El backend respondió {respuesta.status_code} sin un error estructurado.",
-            sugerencia="Reintenta en unos segundos; si persiste, reporta el incidente.",
+            f"The backend answered {respuesta.status_code} with no structured error.",
+            sugerencia="Retry in a few seconds; if it persists, report the incident.",
             detalles={"status": respuesta.status_code},
         )
 
@@ -80,8 +80,8 @@ class ClienteBackend:
         if not isinstance(datos, tipo):
             raise ErrorHerramienta(
                 "RESPUESTA_INESPERADA",
-                f"{ruta} devolvió {type(datos).__name__} en vez de {tipo.__name__}.",
-                sugerencia="Es un fallo del backend, no de tu solicitud. Repórtalo.",
+                f"{ruta} returned {type(datos).__name__} instead of {tipo.__name__}.",
+                sugerencia="This is a backend fault, not a problem with your request.",
             )
         return datos
 

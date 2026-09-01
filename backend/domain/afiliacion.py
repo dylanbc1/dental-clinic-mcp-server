@@ -76,7 +76,7 @@ def validar_afiliacion(
             cubierto=False,
             requiere_copago=False,
             concepto_cargo=ConceptoCargo.PARTICULAR,
-            mensaje="Paciente particular: paga tarifa plena, sin copago ni cuota moderadora.",
+            mensaje="Private patient: pays the full tariff, no copago and no cuota moderadora.",
         )
 
     if not afiliacion_activa:
@@ -88,12 +88,12 @@ def validar_afiliacion(
             requiere_copago=False,
             concepto_cargo=ConceptoCargo.PARTICULAR,
             mensaje=(
-                f"La afiliación al régimen {regimen} figura inactiva. "
-                "La atención se liquida a tarifa particular."
+                f"Affiliation to the {regimen} régimen is inactive. "
+                "The visit is billed at the private tariff."
             ),
             sugerencia=(
-                "Informa al paciente que puede reactivar su afiliación ante su EPS; "
-                "entre tanto se cobra tarifa particular."
+                "Tell the patient they can reactivate their afiliación with their EPS; "
+                "meanwhile the private tariff applies."
             ),
         )
 
@@ -105,7 +105,7 @@ def validar_afiliacion(
             cubierto=True,
             requiere_copago=False,
             concepto_cargo=ConceptoCargo.PARTICULAR,
-            mensaje="Cobertura SOAT vigente: la atención derivada del accidente no genera cobro.",
+            mensaje="SOAT cover is active: care arising from the accident carries no charge.",
         )
 
     if regimen is Regimen.CONTRIBUTIVO:
@@ -120,7 +120,7 @@ def validar_afiliacion(
             requiere_copago=True,
             concepto_cargo=ConceptoCargo.CUOTA_MODERADORA,
             mensaje=(
-                f"Afiliación contributiva activa. Aplica cuota moderadora de ${cuota:,.0f} COP."
+                f"Contributivo afiliación active. A cuota moderadora of ${cuota:,.0f} COP applies."
             ),
         )
 
@@ -133,8 +133,8 @@ def validar_afiliacion(
         requiere_copago=True,
         concepto_cargo=ConceptoCargo.COPAGO,
         mensaje=(
-            "Afiliación subsidiada activa. Aplica copago del "
-            f"{PORCENTAJE_COPAGO_SUBSIDIADO:.0%} sobre la tarifa."
+            "Subsidiado afiliación active. A copago of "
+            f"{PORCENTAJE_COPAGO_SUBSIDIADO:.0%} of the tariff applies."
         ),
     )
 

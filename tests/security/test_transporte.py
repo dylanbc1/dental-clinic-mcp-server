@@ -319,7 +319,7 @@ class TestClienteBackendAnteFallos:
                 await cliente.obtener("/clinica")
         mensaje = str(exc.value)
         assert "BACKEND_NO_DISPONIBLE" in mensaje
-        assert "no reintentes en bucle" in mensaje
+        assert "do not retry in a loop" in mensaje
 
     async def test_una_respuesta_con_forma_inesperada_se_detecta(self) -> None:
         transporte = httpx.MockTransport(

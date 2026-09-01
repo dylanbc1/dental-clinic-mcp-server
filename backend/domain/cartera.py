@@ -117,7 +117,7 @@ def calcular_cargo_por_atencion(
         return CargoCalculado(
             concepto=ConceptoCargo.PARTICULAR,
             monto=_redondear(tarifa),
-            descripcion=f"Tarifa particular · {especialidad}",
+            descripcion=f"Private tariff · {especialidad}",
         )
 
     if afiliacion.regimen_efectivo is Regimen.CONTRIBUTIVO:
@@ -134,7 +134,7 @@ def calcular_cargo_por_atencion(
     return CargoCalculado(
         concepto=ConceptoCargo.COPAGO,
         monto=_redondear(tarifa * PORCENTAJE_COPAGO_SUBSIDIADO),
-        descripcion=f"Copago régimen subsidiado · {especialidad}",
+        descripcion=f"Copago, subsidiado régimen · {especialidad}",
     )
 
 
@@ -151,7 +151,7 @@ def calcular_cargo_por_no_show(
     return CargoCalculado(
         concepto=ConceptoCargo.NO_SHOW,
         monto=_redondear(politica.monto_no_show),
-        descripcion="Penalización por inasistencia sin cancelación previa",
+        descripcion="No-show penalty, no prior cancellation",
     )
 
 
@@ -187,17 +187,17 @@ def resumir_cartera(
 
     if estado is EstadoCartera.AL_DIA:
         mensaje = (
-            "Cartera al día."
+            "Cartera up to date."
             if not pendientes
-            else f"Cartera al día. Hay ${total_pendiente:,.0f} COP por vencer."
+            else f"Cartera up to date. ${total_pendiente:,.0f} COP not yet due."
         )
     else:
         mensaje = (
-            f"Cartera en mora: ${total_vencido:,.0f} COP vencidos, "
-            f"máximo {dias_mora_maximo} días de atraso."
+            f"Cartera in arrears: ${total_vencido:,.0f} COP overdue, "
+            f"up to {dias_mora_maximo} days late."
         )
         if supera_umbral:
-            mensaje += " Supera el umbral de alerta de la clínica."
+            mensaje += " Above the clinic's alert threshold."
 
     return ResumenCartera(
         paciente_id=paciente_id,
@@ -221,7 +221,7 @@ def alerta_al_agendar(resumen: ResumenCartera) -> str | None:
     if resumen.estado is EstadoCartera.AL_DIA or not resumen.supera_umbral_alerta:
         return None
     return (
-        f"Aviso: el paciente registra ${resumen.total_vencido:,.0f} COP en mora "
-        f"({resumen.dias_mora_maximo} días). La cita se puede agendar; "
-        "informa al paciente del saldo pendiente al confirmar."
+        f"Heads-up: the patient has ${resumen.total_vencido:,.0f} COP of overdue "
+        f"cartera ({resumen.dias_mora_maximo} days). The appointment can still be "
+        "booked; tell the patient about the outstanding balance when confirming."
     )

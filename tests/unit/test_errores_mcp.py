@@ -27,7 +27,7 @@ class TestRenderizado:
 
     def test_la_sugerencia_se_etiqueta_como_tal(self) -> None:
         error = ErrorHerramienta("X", "algo pasó", sugerencia="haz esto otro")
-        assert "Sugerencia: haz esto otro" in error.render()
+        assert "Suggestion: haz esto otro" in error.render()
 
     def test_los_errores_de_permiso_piden_escalar_no_reintentar(self) -> None:
         """ "Sugerencia" invites a retry. A missing permission never resolves by
@@ -35,7 +35,7 @@ class TestRenderizado:
         error = ErrorHerramienta(
             str(CodigoError.SCOPE_INSUFICIENTE), "falta permiso", sugerencia="pide write"
         )
-        assert "Acción requerida: pide write" in error.render()
+        assert "Action required: pide write" in error.render()
 
     def test_los_detalles_viajan_como_json_legible(self) -> None:
         error = ErrorHerramienta("X", "y", detalles={"slot_id": 4, "libres": [1, 2]})
@@ -95,13 +95,13 @@ class TestErroresPrefabricados:
         error = error_scope("cancelar_cita", "write", ["read"])
         assert error.detalles["scope_requerido"] == "write"
         assert error.detalles["scopes_del_token"] == ["read"]
-        assert "no vuelvas a llamar" in (error.sugerencia or "").lower()
+        assert "do not call this tool again" in (error.sugerencia or "").lower()
 
-    def test_el_de_scope_sin_scopes_lo_dice_en_castellano(self) -> None:
-        assert "ningún scope" in (error_scope("x", "read", []).sugerencia or "")
+    def test_el_de_scope_sin_scopes_lo_dice_explicitamente(self) -> None:
+        assert "no scopes" in (error_scope("x", "read", []).sugerencia or "")
 
     def test_el_de_backend_caido_deslinda_al_llamador(self) -> None:
         """The model must not conclude its own arguments were wrong."""
         error = error_backend_caido("connection refused")
-        assert "No es un problema de tu solicitud" in (error.sugerencia or "")
-        assert "no reintentes en bucle" in (error.sugerencia or "")
+        assert "not a problem with your request" in (error.sugerencia or "")
+        assert "do not retry in a loop" in (error.sugerencia or "")

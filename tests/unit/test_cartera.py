@@ -128,7 +128,7 @@ class TestResumenCartera:
         assert resumen.estado is EstadoCartera.AL_DIA
         assert resumen.total_pendiente == Decimal("0")
         assert resumen.cantidad_cargos == 0
-        assert "al día" in resumen.mensaje
+        assert "up to date" in resumen.mensaje
 
     def test_los_cargos_pagados_no_cuentan(self) -> None:
         cargos = [cargo("100000", 60, estado=EstadoCargo.PAGADO)]
@@ -145,7 +145,7 @@ class TestResumenCartera:
         assert resumen.estado is EstadoCartera.AL_DIA
         assert resumen.total_pendiente == Decimal("50000")
         assert resumen.total_vencido == Decimal("0")
-        assert "por vencer" in resumen.mensaje
+        assert "not yet due" in resumen.mensaje
 
     def test_un_cargo_vencido_pone_la_cartera_en_mora(self) -> None:
         resumen = resumir_cartera(1, [cargo("50000", 45)], hoy=HOY)
@@ -239,10 +239,10 @@ class TestAlertaAlAgendar:
         resumen = resumir_cartera(1, [cargo("150000", 70)], hoy=HOY)
         alerta = alerta_al_agendar(resumen)
         assert alerta is not None
-        assert "Aviso" in alerta
+        assert "Heads-up" in alerta
         # The wording must make clear the appointment still goes through: the
         # spec is explicit that debt warns, it does not block.
-        assert "se puede agendar" in alerta
+        assert "can still be booked" in alerta
 
     def test_el_umbral_es_configurable(self) -> None:
         politica = PoliticaCartera(umbral_alerta_mora=Decimal("10000"))

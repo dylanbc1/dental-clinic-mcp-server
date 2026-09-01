@@ -46,13 +46,12 @@ def exigir_cliente_que_confirma(contexto: Context) -> None:
         return
     raise ErrorHerramienta(
         "CLIENTE_SIN_CONFIRMACION",
-        "Tu cliente MCP no puede pedirle una confirmación a una persona, y este "
-        "servidor no ejecuta escrituras sin ella.",
+        "Your MCP client cannot ask a person for confirmation, and this server does "
+        "not perform writes without one.",
         sugerencia=(
-            "Las herramientas de lectura funcionan con normalidad. Para las de "
-            "escritura necesitas un cliente sobre la spec 2026-07-28 que declare la "
-            "capacidad 'elicitation'. Si estás explorando, usa "
-            "`uv run python scripts/consola.py`."
+            "Read tools work normally. For the write tools you need a client on the "
+            "2026-07-28 spec that declares the 'elicitation' capability. If you are "
+            "exploring, use `uv run python scripts/consola.py`."
         ),
         detalles={
             "protocolo_negociado": contexto.protocol_version,
@@ -71,8 +70,8 @@ class Confirmacion(BaseModel):
 
     confirmado: bool = Field(
         description=(
-            "true para ejecutar la operación tal como está descrita, "
-            "false para abortarla sin cambiar nada."
+            "true to run the operation exactly as described, "
+            "false to abort it without changing anything."
         )
     )
 

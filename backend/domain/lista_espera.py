@@ -82,10 +82,10 @@ def siguiente_en_lista(
     candidatos = candidatos_para_cupo(entradas, especialidad, excluir_pacientes=excluir_pacientes)
     if not candidatos:
         raise ListaEsperaVacia(
-            f"No hay pacientes en lista de espera para {especialidad}.",
+            f"No patients are on the waiting list for {especialidad}.",
             sugerencia=(
-                "El cupo queda libre en la agenda. Puedes ofrecerlo directamente "
-                "con consultar_disponibilidad y agendar_cita."
+                "The slot stays free in the agenda. You can offer it directly with "
+                "consultar_disponibilidad and agendar_cita."
             ),
             detalles={"especialidad": str(especialidad)},
         )

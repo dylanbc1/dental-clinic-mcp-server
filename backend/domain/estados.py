@@ -112,17 +112,20 @@ def validar_transicion(
         permitidas = sorted(TRANSICIONES[actual])
         if es_final(actual):
             raise TransicionInvalida(
-                f"La cita ya está en estado final '{actual}' y no admite más cambios.",
+                f"The appointment is already in final state '{actual}' and accepts no "
+                "further changes.",
                 sugerencia=(
-                    "Si el paciente necesita otra atención, agenda una cita nueva con agendar_cita."
+                    "If the patient needs another visit, book a new appointment with agendar_cita."
                 ),
                 detalles={"estado_actual": str(actual), "estado_solicitado": str(nuevo)},
                 codigo=CodigoError.CITA_EN_ESTADO_FINAL,
             )
         raise TransicionInvalida(
-            f"No se puede pasar de '{actual}' a '{nuevo}'.",
+            f"Cannot move from '{actual}' to '{nuevo}'.",
             sugerencia=(
-                "Desde este estado solo son válidas: " + ", ".join(str(e) for e in permitidas) + "."
+                "From this state only these are valid: "
+                + ", ".join(str(e) for e in permitidas)
+                + "."
             ),
             detalles={
                 "estado_actual": str(actual),
@@ -133,10 +136,10 @@ def validar_transicion(
 
     if nuevo in TRANSICIONES_QUE_EXIGEN_MOTIVO and not (motivo or "").strip():
         raise MotivoRequerido(
-            f"La transición a '{nuevo}' exige un motivo.",
+            f"Moving to '{nuevo}' requires a reason.",
             sugerencia=(
-                "Vuelve a llamar la herramienta incluyendo el parámetro 'motivo' "
-                "con la razón que dio el paciente."
+                "Call the tool again including the 'motivo' parameter with the reason "
+                "the patient gave."
             ),
             detalles={"estado_solicitado": str(nuevo)},
         )

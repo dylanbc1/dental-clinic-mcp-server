@@ -34,7 +34,7 @@ class TestBuscarPaciente:
         with como(SUJETO, ["read"]):
             mensaje = await error_de(servidor, "buscar_paciente", {})
         assert "PACIENTE_NO_ENCONTRADO" in mensaje
-        assert "Sugerencia:" in mensaje
+        assert "Suggestion:" in mensaje
 
     async def test_un_limite_fuera_de_rango_lo_rechaza_el_esquema(
         self, servidor: MCPServer[Any], escenario: Escenario

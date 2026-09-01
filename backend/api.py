@@ -71,10 +71,10 @@ logger = logging.getLogger(__name__)
 USUARIO_POR_DEFECTO = "mcp-server"
 
 RESPUESTAS_ERROR: dict[int | str, dict[str, Any]] = {
-    400: {"model": RespuestaError, "description": "Entrada inválida o regla de dominio violada"},
-    403: {"model": RespuestaError, "description": "Falta consentimiento informado"},
-    404: {"model": RespuestaError, "description": "Recurso no encontrado"},
-    409: {"model": RespuestaError, "description": "Conflicto de estado o de concurrencia"},
+    400: {"model": RespuestaError, "description": "Invalid input or a domain rule violated"},
+    403: {"model": RespuestaError, "description": "Informed consent missing"},
+    404: {"model": RespuestaError, "description": "Resource not found"},
+    409: {"model": RespuestaError, "description": "State or concurrency conflict"},
 }
 
 
@@ -130,14 +130,14 @@ def _envoltura_de_validacion(exc: ValidationError | RequestValidationError) -> J
     campos = [
         {"campo": ".".join(str(p) for p in e["loc"]), "problema": e["msg"]} for e in exc.errors()
     ]
-    nombres = ", ".join(c["campo"] for c in campos) or "los parámetros"
+    nombres = ", ".join(c["campo"] for c in campos) or "the parameters"
     return JSONResponse(
         status_code=422,
         content={
             "error": True,
             "codigo": str(CodigoError.ENTRADA_INVALIDA),
-            "mensaje": "Los parámetros recibidos no son válidos.",
-            "sugerencia": f"Corrige {nombres} y vuelve a llamar la herramienta.",
+            "mensaje": "The parameters received are not valid.",
+            "sugerencia": f"Fix {nombres} and call the tool again.",
             "detalles": {"campos": campos},
         },
     )
@@ -163,8 +163,8 @@ async def manejar_error_inesperado(_: Request, exc: Exception) -> JSONResponse:
         content={
             "error": True,
             "codigo": "ERROR_INTERNO",
-            "mensaje": "Ocurrió un error interno procesando la solicitud.",
-            "sugerencia": "Reintenta en unos segundos; si persiste, reporta el incidente.",
+            "mensaje": "An internal error occurred while processing the request.",
+            "sugerencia": "Retry in a few seconds; if it persists, report the incident.",
         },
     )
 
@@ -193,8 +193,8 @@ async def listo() -> JSONResponse:
             content={
                 "error": True,
                 "codigo": str(CodigoError.ENTRADA_INVALIDA),
-                "mensaje": "La base de datos no está disponible.",
-                "sugerencia": "Verifica que el contenedor de PostgreSQL esté arriba.",
+                "mensaje": "The database is not available.",
+                "sugerencia": "Check that the PostgreSQL container is up.",
             },
         )
     return JSONResponse(status_code=200, content={"estado": "listo"})
@@ -232,8 +232,8 @@ def politicas_cartera() -> PoliticasCartera:
         cuota_moderadora_por_nivel=dict(CUOTA_MODERADORA_POR_NIVEL),
         porcentaje_copago_subsidiado=PORCENTAJE_COPAGO_SUBSIDIADO,
         nota=(
-            "Un saldo vencido genera alerta al agendar, nunca bloqueo: la clínica "
-            "informa al paciente y atiende igual."
+            "Overdue cartera raises a warning when booking, never a block: the clinic "
+            "tells the patient and sees them anyway."
         ),
     )
 
@@ -410,19 +410,19 @@ def lista_espera(
 
 def _mensaje_transicion(resultado: servicios.ResultadoTransicion) -> str:
     partes = [
-        f"Cita {resultado.cita.id}: {resultado.efectos.estado_anterior} → "
+        f"Appointment {resultado.cita.id}: {resultado.efectos.estado_anterior} → "
         f"{resultado.efectos.estado_nuevo}."
     ]
     if resultado.efectos.libera_slot:
-        partes.append("El cupo quedó libre en la agenda.")
+        partes.append("The slot is free again in the agenda.")
     if resultado.cargo_generado is not None:
         partes.append(
-            f"Se generó un cargo de ${resultado.cargo_generado.monto:,.0f} COP "
+            f"A charge of ${resultado.cargo_generado.monto:,.0f} COP was created "
             f"({resultado.cargo_generado.concepto})."
         )
     if resultado.siguiente_en_espera is not None:
         partes.append(
-            "Hay un paciente en lista de espera para "
+            "There is a patient on the waiting list for "
             f"{resultado.siguiente_en_espera.especialidad}: "
             f"{resultado.siguiente_en_espera.paciente.nombre}."
         )
@@ -544,9 +544,9 @@ def ofrecer_cupo(
         slot_id=oferta.slot.id,
         inicio_local=inicio,
         mensaje=(
-            f"Contacta a {oferta.paciente.nombre} ({oferta.paciente.telefono}) para "
-            f"ofrecerle el cupo del {inicio}. Era el número {oferta.posicion_original} "
-            f"de la lista de {oferta.entrada.especialidad}."
+            f"Contact {oferta.paciente.nombre} ({oferta.paciente.telefono}) to offer "
+            f"them the {inicio} slot. They were number {oferta.posicion_original} on "
+            f"the {oferta.entrada.especialidad} list."
         ),
     )
 

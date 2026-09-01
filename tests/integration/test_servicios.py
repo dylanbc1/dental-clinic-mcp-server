@@ -247,7 +247,7 @@ class TestAgendar:
         )
         assert resultado.cita.id is not None
         assert resultado.alerta_cartera is not None
-        assert "se puede agendar" in resultado.alerta_cartera
+        assert "can still be booked" in resultado.alerta_cartera
 
     def test_sin_mora_no_hay_alerta(
         self, sesiones: Callable[[], Session], escenario: Escenario
@@ -278,7 +278,7 @@ class TestAgendar:
             )
         # An LLM that receives named alternatives recovers on its own turn.
         assert exc.value.detalles["alternativas"]
-        assert "cupos libres más cercanos" in (exc.value.sugerencia or "")
+        assert "closest free slots" in (exc.value.sugerencia or "")
 
     def test_un_cupo_pasado_se_rechaza(
         self, sesiones: Callable[[], Session], escenario: Escenario
@@ -605,7 +605,7 @@ class TestReprogramar:
         s.commit()
         historial = historial_de(s, nueva.id)
         assert len(historial) == 1
-        assert "Reprogramación" in (historial[0].motivo or "")
+        assert "Rescheduled from" in (historial[0].motivo or "")
 
     def test_no_reprograma_a_un_cupo_ocupado(
         self, cita_agendada: tuple[Session, int], escenario: Escenario
@@ -752,7 +752,7 @@ class TestMotivoDeConsulta:
         assert cita.motivo_registrado_en is not None
 
         ultimo = historial_de(s, cita_id)[-1]
-        assert "dato clínico" in (ultimo.motivo or "")
+        assert "clinical data" in (ultimo.motivo or "")
         assert ultimo.usuario == "odontologa@clinica.test"
 
     def test_sin_consentimiento_se_rechaza(

@@ -218,7 +218,7 @@ class TestCuandoLaPersonaDiceQueNo:
                 await mcp.responder("agendar_cita", args, pregunta, confirmado=False)
 
         assert "OPERACION_NO_APROBADA" in exc.value.texto
-        assert "No se modificó ningún dato" in exc.value.texto
+        assert "Nothing was changed" in exc.value.texto
         assert contar_citas(sesion_backend) == 0
 
     async def test_el_rechazo_pide_no_reintentar(
@@ -230,7 +230,7 @@ class TestCuandoLaPersonaDiceQueNo:
             pregunta = await mcp.preguntar("agendar_cita", args)
             with pytest.raises(ErrorDeHerramienta) as exc:
                 await mcp.responder("agendar_cita", args, pregunta, confirmado=False)
-        assert "No reintentes" in exc.value.texto
+        assert "Do not retry" in exc.value.texto
 
     async def test_declinar_la_elicitacion_tambien_aborta(
         self, mcp: ClienteMCP, sesion_backend: Session, escenario: Escenario
@@ -260,7 +260,7 @@ class TestValidaAntesDePreguntar:
                 {"paciente_id": escenario.carla_id, "slot_id": escenario.slots_general[0]},
             )
         assert "SLOT_NO_DISPONIBLE" in exc.value.texto
-        assert "cupos libres más cercanos" in exc.value.texto
+        assert "closest free slots" in exc.value.texto
 
     async def test_no_pregunta_por_un_cupo_en_el_pasado(
         self, mcp: ClienteMCP, escenario: Escenario
@@ -306,7 +306,7 @@ class TestValidaAntesDePreguntar:
             await mcp.preguntar(
                 "registrar_asistencia", {"cita_id": cita_existente, "estado": "cancelada"}
             )
-        assert "no es un estado de asistencia" in exc.value.texto
+        assert "is not an attendance state" in exc.value.texto
 
     async def test_una_cita_inexistente_falla_antes_de_preguntar(
         self, mcp: ClienteMCP, escenario: Escenario
@@ -429,7 +429,7 @@ class TestUnClienteQueNoPuedeConfirmar:
         # Not a transport error the reader cannot act on.
         assert "back-channel" not in mensaje
         assert "elicitation" in mensaje
-        assert "lectura funcionan" in mensaje
+        assert "Read tools work" in mensaje
 
     async def test_las_lecturas_siguen_funcionando(
         self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario

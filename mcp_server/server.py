@@ -41,19 +41,21 @@ RUTA_METADATA_RECURSO = "/.well-known/oauth-protected-resource"
 NOMBRE_METADATA = "metadata_recurso_corregida"
 
 INSTRUCCIONES = """\
-Servidor MCP de una clínica odontológica en Colombia. Expone la operación real de
-recepción: agenda, validación de afiliación y cartera.
+MCP server for a dental clinic in Colombia. It exposes the real front-desk
+operation: the agenda, afiliación checks, and the cartera.
 
-Dos reglas gobiernan todo lo demás:
+Two rules govern everything else:
 
-1. Las herramientas de lectura responden directo. Las de escritura no ejecutan al
-   primer intento: devuelven una solicitud de confirmación describiendo qué va a
-   pasar. Tu cliente le muestra eso a una persona y reintenta la misma llamada con
-   la respuesta. Hasta entonces no se ha modificado ningún dato.
-2. Agendar es administrativo; registrar el motivo de consulta es dato clínico y exige
-   el permiso 'clinical' más consentimiento informado del paciente.
+1. Read tools answer directly. Write tools do not execute on the first attempt:
+   they return a request for confirmación describing what is about to happen. Your
+   client shows that to a person and retries the same call carrying their answer.
+   Until then, no data has been modified.
+2. Booking is administrative; recording the reason for consultation is clinical
+   data, and needs the 'clinical' permission plus the patient's informed consent.
 
-Empieza por el prompt 'recepcionista_odontologia' y por el recurso 'clinica://info'.
+Start with the 'recepcionista_odontologia' prompt and the 'clinica://info'
+resource. The prompt is in Spanish on purpose: it is how the agent should speak
+to a Colombian patient.
 """
 
 

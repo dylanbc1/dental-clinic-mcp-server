@@ -68,7 +68,7 @@ class TestCatalogo:
         por_nombre = {t.name: t for t in await servidor.list_tools()}
         for nombre in TOOLS_CON_CONFIRMACION:
             descripcion = (por_nombre[nombre].description or "").lower()
-            assert "confirmación" in descripcion, f"{nombre} no anuncia el gate"
+            assert "confirmation" in descripcion, f"{nombre} no anuncia el gate"
 
     async def test_el_parametro_de_confirmacion_no_se_expone_al_modelo(
         self, servidor: MCPServer[Any]
@@ -98,15 +98,15 @@ class TestCatalogo:
         por_nombre = {t.name: t for t in await servidor.list_tools()}
         descripcion = por_nombre["registrar_motivo_consulta"].description or ""
         assert "2654" in descripcion
-        assert "consentimiento" in descripcion.lower()
-        assert "nunca interpretes" in descripcion.lower()
+        assert "consent" in descripcion.lower()
+        assert "never interpret" in descripcion.lower()
 
     async def test_las_tools_de_lectura_no_anuncian_confirmacion(
         self, servidor: MCPServer[Any]
     ) -> None:
         por_nombre = {t.name: t for t in await servidor.list_tools()}
         for nombre in TOOLS_LECTURA:
-            assert "confirmación" not in (por_nombre[nombre].description or "").lower()
+            assert "confirmation" not in (por_nombre[nombre].description or "").lower()
 
     async def test_la_regla_de_no_bloqueo_por_mora_esta_en_la_descripcion(
         self, servidor: MCPServer[Any]
@@ -114,7 +114,7 @@ class TestCatalogo:
         """The rule most likely to be got wrong is stated where the model reads it."""
         por_nombre = {t.name: t for t in await servidor.list_tools()}
         cartera = (por_nombre["consultar_cartera"].description or "").lower()
-        assert "no impide agendar" in cartera
+        assert "does not prevent" in cartera.lower()
 
     async def test_los_parametros_obligatorios_estan_marcados(
         self, servidor: MCPServer[Any]
@@ -134,5 +134,5 @@ class TestCatalogo:
     ) -> None:
         instrucciones = (servidor.instructions or "").lower()
         assert "confirmación" in instrucciones
-        assert "reintenta la misma llamada" in instrucciones
+        assert "retries the same call" in instrucciones
         assert "clinical" in instrucciones

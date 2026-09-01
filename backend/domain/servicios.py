@@ -137,8 +137,8 @@ def obtener_paciente(session: Session, paciente_id: int) -> Paciente:
     paciente = session.get(Paciente, paciente_id)
     if paciente is None:
         raise PacienteNoEncontrado(
-            f"No existe el paciente con id {paciente_id}.",
-            sugerencia="Búscalo primero con buscar_paciente usando su documento o su nombre.",
+            f"There is no patient with id {paciente_id}.",
+            sugerencia="Look them up first with buscar_paciente, by documento or by name.",
             detalles={"paciente_id": paciente_id},
         )
     return paciente
@@ -157,8 +157,8 @@ def obtener_cita(session: Session, cita_id: int) -> Cita:
     )
     if cita is None:
         raise CitaNoEncontrada(
-            f"No existe la cita con id {cita_id}.",
-            sugerencia="Lista las citas del paciente con listar_citas_paciente.",
+            f"There is no appointment with id {cita_id}.",
+            sugerencia="List the patient's appointments with listar_citas_paciente.",
             detalles={"cita_id": cita_id},
         )
     return cita
@@ -168,8 +168,8 @@ def obtener_profesional(session: Session, profesional_id: int) -> Profesional:
     profesional = session.get(Profesional, profesional_id)
     if profesional is None:
         raise ProfesionalNoEncontrado(
-            f"No existe el profesional con id {profesional_id}.",
-            sugerencia="Consulta el listado en el recurso clinica://info.",
+            f"There is no professional with id {profesional_id}.",
+            sugerencia="See the list in the clinica://info resource.",
             detalles={"profesional_id": profesional_id},
         )
     return profesional
@@ -179,8 +179,8 @@ def obtener_clinica(session: Session) -> Clinica:
     clinica = session.scalar(select(Clinica).order_by(Clinica.id).limit(1))
     if clinica is None:  # pragma: no cover - only on an unseeded database
         raise PacienteNoEncontrado(
-            "La base no tiene una clínica configurada.",
-            sugerencia="Ejecuta `make seed` para cargar los datos sintéticos.",
+            "The database has no clinic configured.",
+            sugerencia="Run `make seed` to load the synthetic data.",
         )
     return clinica
 
@@ -205,8 +205,8 @@ def buscar_pacientes(
         consulta = consulta.where(func.lower(Paciente.nombre).like(patron))
     else:
         raise PacienteNoEncontrado(
-            "Debes indicar un documento o un nombre para buscar.",
-            sugerencia="Llama buscar_paciente con 'documento' o con 'nombre'.",
+            "You must give a documento or a name to search by.",
+            sugerencia="Call buscar_paciente with 'documento' or with 'nombre'.",
         )
     return list(session.scalars(consulta.order_by(Paciente.nombre).limit(limite)))
 
@@ -379,14 +379,14 @@ def slot_reservable(session: Session, slot_id: int, *, ahora: datetime | None = 
     slot = session.get(AgendaSlot, slot_id)
     if slot is None:
         raise SlotNoEncontrado(
-            f"No existe el cupo con id {slot_id}.",
-            sugerencia="Consulta los cupos vigentes con consultar_disponibilidad.",
+            f"There is no slot with id {slot_id}.",
+            sugerencia="Check current slots with consultar_disponibilidad.",
             detalles={"slot_id": slot_id},
         )
     if slot.inicio <= ahora:
         raise SlotEnElPasado(
-            f"El cupo del {a_local(slot.inicio):%Y-%m-%d %H:%M} ya pasó.",
-            sugerencia="Pide disponibilidad futura con consultar_disponibilidad.",
+            f"The slot at {a_local(slot.inicio):%Y-%m-%d %H:%M} is in the past.",
+            sugerencia="Ask for future availability with consultar_disponibilidad.",
             detalles={"slot_id": slot_id, "inicio": slot.inicio.isoformat()},
         )
     if slot.estado is not EstadoSlot.LIBRE:
@@ -397,13 +397,11 @@ def slot_reservable(session: Session, slot_id: int, *, ahora: datetime | None = 
             ahora=ahora,
         )
         raise SlotNoDisponible(
-            f"El cupo del {a_local(slot.inicio):%Y-%m-%d %H:%M} ya no está libre.",
+            f"The slot at {a_local(slot.inicio):%Y-%m-%d %H:%M} is no longer free.",
             sugerencia=(
-                "Los cupos libres más cercanos son: "
-                + ", ".join(a.etiqueta for a in alternativas)
-                + "."
+                "The closest free slots are: " + ", ".join(a.etiqueta for a in alternativas) + "."
                 if alternativas
-                else "No hay cupos libres próximos para esa especialidad."
+                else "There are no free slots coming up for that specialty."
             ),
             detalles={
                 "slot_id": slot_id,
@@ -436,10 +434,9 @@ def validar_reserva(
 
     if especialidad_esperada is not None and slot.profesional.especialidad != especialidad_esperada:
         raise EspecialidadNoCoincide(
-            f"El cupo es de {slot.profesional.especialidad}, no de {especialidad_esperada}.",
+            f"The slot is for {slot.profesional.especialidad}, not {especialidad_esperada}.",
             sugerencia=(
-                f"Pide disponibilidad con especialidad='{especialidad_esperada}' "
-                "y vuelve a agendar."
+                f"Ask for availability with especialidad='{especialidad_esperada}' and book again."
             ),
             detalles={
                 "especialidad_del_cupo": str(slot.profesional.especialidad),
@@ -463,10 +460,10 @@ def validar_reserva(
         solapada = session.scalar(consulta)
         if solapada is not None:
             raise PacienteYaTieneCita(
-                "El paciente ya tiene una cita que se cruza con ese horario.",
+                "The patient already has an appointment that overlaps that hour.",
                 sugerencia=(
-                    f"Cancela o reprograma la cita {solapada.id} antes de agendar otra "
-                    "en el mismo horario."
+                    f"Cancel or reschedule appointment {solapada.id} before booking "
+                    "another one at the same time."
                 ),
                 detalles={"cita_existente_id": solapada.id},
             )
@@ -536,8 +533,8 @@ def agendar_cita(
         # The database is what turns that into a conflict rather than a
         # duplicate. The caller's transaction scope performs the rollback.
         raise ConflictoConcurrencia(
-            "Otro proceso tomó ese cupo mientras se creaba la cita.",
-            sugerencia="Vuelve a consultar disponibilidad y agenda en otro cupo.",
+            "Another process took that slot while the appointment was being created.",
+            sugerencia="Check availability again and book a different slot.",
             detalles={"slot_id": slot_id},
         ) from exc
 
@@ -731,7 +728,7 @@ def reprogramar_cita(
         cita_id,
         EstadoCita.REPROGRAMADA,
         usuario=usuario,
-        motivo=motivo or "Reprogramación solicitada",
+        motivo=motivo or "Reschedule requested",
     )
 
     nueva = Cita(
@@ -752,7 +749,7 @@ def reprogramar_cita(
         estado_anterior=None,
         estado_nuevo=EstadoCita.AGENDADA,
         usuario=usuario,
-        motivo=f"Reprogramación de la cita {original.id}",
+        motivo=f"Rescheduled from appointment {original.id}",
     )
     session.flush()
     return ResultadoTransicion(
@@ -811,8 +808,8 @@ def inscribir_en_lista_espera(
     )
     if existente is not None:
         raise YaEnListaEspera(
-            f"El paciente ya está en lista de espera para {especialidad}.",
-            sugerencia="Consulta su posición actual antes de volver a inscribirlo.",
+            f"The patient is already on the waiting list for {especialidad}.",
+            sugerencia="Check their current position before enrolling them again.",
             detalles={"entrada_id": existente.id},
         )
     entrada = ListaEspera(
@@ -840,13 +837,13 @@ def registrar_motivo_consulta(session: Session, cita_id: int, motivo: str, *, us
     if not paciente.consentimiento_datos_clinicos:
         raise ConsentimientoRequerido(
             (
-                f"El paciente {paciente.nombre} no tiene consentimiento informado "
-                "registrado para el tratamiento de datos clínicos."
+                f"Patient {paciente.nombre} has no informed consent on file for the "
+                "handling of clinical data."
             ),
             sugerencia=(
-                "Solicita y registra el consentimiento informado antes de anotar "
-                "el motivo de consulta. Es un requisito de la Resolución 2654/2019, "
-                "no una validación del sistema."
+                "Obtain and record informed consent before writing the reason for "
+                "consultation. This is a requirement of Resolución 2654/2019, not a "
+                "validation of this system."
             ),
             detalles={"paciente_id": paciente.id, "cita_id": cita_id},
         )
@@ -863,7 +860,7 @@ def registrar_motivo_consulta(session: Session, cita_id: int, motivo: str, *, us
         estado_anterior=cita.estado,
         estado_nuevo=cita.estado,
         usuario=usuario,
-        motivo="Registro de motivo de consulta (dato clínico)",
+        motivo="Reason for consultation recorded (clinical data)",
     )
     session.flush()
     return cita

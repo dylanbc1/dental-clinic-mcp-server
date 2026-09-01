@@ -39,9 +39,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     async def _confirmar_motivo(
         contexto: Context, cita_id: int, motivo: str
     ) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "motivo": motivo}
         identidad = ctx.autorizar_auditando("registrar_motivo_consulta", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         async with ctx.auditar_fallo("registrar_motivo_consulta", SCOPE, argumentos, identidad):
             cita = await ctx.cliente.obtener(f"/citas/{cita_id}")
 
@@ -77,13 +77,13 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="registrar_motivo_consulta",
         title="Registrar el motivo de consulta (dato clínico)",
         description=(
-            "Anota el motivo de consulta o un antecedente en una cita. Esto es DATO "
-            "CLÍNICO y está regulado (Resolución 2654/2019): exige el permiso 'clinical', "
-            "confirmación de una persona y consentimiento informado registrado del "
-            "paciente. Si el paciente no tiene consentimiento, la operación será "
-            "rechazada y NO debes insistir: pide que se registre el consentimiento "
-            "primero. Transcribe lo que dice el paciente; nunca interpretes, "
-            "diagnostiques ni sugieras tratamiento."
+            "Records the reason for consultation, or a relevant history note, on an "
+            "appointment. This is CLINICAL DATA and it is regulated (Resolución "
+            "2654/2019): it requires the 'clinical' permission, a person's confirmation, "
+            "and the patient's informed consent on file. If the patient has no consent "
+            "recorded the operation is refused and you must NOT insist: ask for consent "
+            "to be recorded first. Transcribe what the patient says; never interpret, "
+            "diagnose, or suggest treatment."
         ),
     )
     async def registrar_motivo_consulta(
@@ -94,8 +94,8 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
                 min_length=3,
                 max_length=500,
                 description=(
-                    "Lo que el paciente reporta, en sus términos. Sin diagnóstico ni "
-                    "interpretación clínica."
+                    "What the patient reports, in their own words. No diagnosis and no "
+                    "clinical interpretation."
                 ),
             ),
         ],

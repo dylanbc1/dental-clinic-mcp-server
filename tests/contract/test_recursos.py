@@ -55,7 +55,7 @@ class TestRecursos:
             politicas = await leer(servidor, "politicas://cartera")
         assert politicas["tarifas_particular"]["endodoncia"] == "350000"
         assert politicas["monto_no_show"] == "40000"
-        assert "nunca bloqueo" in politicas["nota"]
+        assert "never a block" in politicas["nota"]
 
     async def test_agenda_hoy_responde_aunque_no_haya_citas(
         self, servidor: MCPServer[Any], escenario: Escenario

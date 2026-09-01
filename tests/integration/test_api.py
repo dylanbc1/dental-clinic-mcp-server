@@ -81,7 +81,7 @@ class TestPoliticas:
         assert "odontologia_general" in cuerpo["tarifas_particular"]
 
     def test_deja_explicita_la_regla_de_no_bloqueo(self, cliente: TestClient) -> None:
-        assert "nunca bloqueo" in cliente.get("/politicas/cartera").json()["nota"]
+        assert "never a block" in cliente.get("/politicas/cartera").json()["nota"]
 
 
 class TestBuscarPacientes:
@@ -309,7 +309,7 @@ class TestTransiciones:
             headers=CABECERAS,
         ).json()
         assert cuerpo["libero_cupo"] is True
-        assert "libre" in cuerpo["mensaje"]
+        assert "free again" in cuerpo["mensaje"]
 
     def test_cancelar_avisa_de_la_lista_de_espera(
         self, cliente: TestClient, cita_id: int, sesion_api: Session, escenario: Escenario
@@ -345,7 +345,7 @@ class TestTransiciones:
         ).json()
         assert cuerpo["genero_cargo"] is True
         assert cuerpo["cargo"]["concepto"] == "cuota_moderadora"
-        assert "cargo de" in cuerpo["mensaje"]
+        assert "A charge of" in cuerpo["mensaje"]
 
     def test_reprogramar_devuelve_la_cita_nueva(
         self, cliente: TestClient, cita_id: int, escenario: Escenario
@@ -398,7 +398,7 @@ class TestListaEsperaApi:
         ).json()
         assert cuerpo["paciente_id"] == escenario.ana_id
         assert cuerpo["telefono"].startswith("+57")
-        assert "Contacta a" in cuerpo["mensaje"]
+        assert "Contact" in cuerpo["mensaje"]
 
     def test_ofrecer_con_lista_vacia_es_404(
         self, cliente: TestClient, escenario: Escenario

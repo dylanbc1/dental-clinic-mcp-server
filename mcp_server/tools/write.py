@@ -48,10 +48,10 @@ def exigir_aprobacion(confirmacion: Confirmacion, accion: str) -> None:
     if not confirmacion.confirmado:
         raise ErrorHerramienta(
             "OPERACION_NO_APROBADA",
-            f"La persona responsable no aprobó '{accion}'. No se modificó ningún dato.",
+            f"The responsible person did not approve '{accion}'. Nothing was changed.",
             sugerencia=(
-                "No reintentes la misma operación. Pregunta qué debe cambiar, o "
-                "informa al paciente que no se pudo hacer."
+                "Do not retry the same operation. Ask what needs to change, or tell the "
+                "patient it could not be done."
             ),
         )
 
@@ -68,12 +68,12 @@ async def exigir_transicion_posible(ctx: Contexto, cita_id: int, destino: str) -
     if destino not in validas:
         raise ErrorHerramienta(
             "TRANSICION_INVALIDA",
-            f"La cita {cita_id} está en '{cita['estado']}' y no puede pasar a '{destino}'.",
+            f"Appointment {cita_id} is in '{cita['estado']}' and cannot move to '{destino}'.",
             sugerencia=(
-                "Desde este estado solo son válidas: " + ", ".join(validas) + "."
+                "From this state only these are valid: " + ", ".join(validas) + "."
                 if validas
-                else "La cita está en un estado final y ya no admite cambios. Si el "
-                "paciente necesita otra atención, agenda una cita nueva."
+                else "The appointment is in a final state and accepts no more changes. "
+                "If the patient needs another visit, book a new appointment."
             ),
             detalles={
                 "cita_id": cita_id,
@@ -126,7 +126,6 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         especialidad_esperada: str | None = None,
         idempotency_key: str | None = None,
     ) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {
             "paciente_id": paciente_id,
             "slot_id": slot_id,
@@ -134,6 +133,7 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
             "idempotency_key": idempotency_key,
         }
         identidad = ctx.autorizar_auditando("agendar_cita", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         async with ctx.auditar_fallo("agendar_cita", SCOPE, argumentos, identidad):
             # Built from live data, so the person approves what will actually
             # happen. The slot is checked first: proposing to book a taken slot
@@ -177,11 +177,12 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="agendar_cita",
         title="Agendar una cita",
         description=(
-            "Agenda una cita en un cupo libre. NO agenda de inmediato: primero pide "
-            "confirmación a una persona, describiendo qué va a pasar. Hasta que esa "
-            "persona apruebe, no le digas al paciente que la cita quedó agendada. Usa "
-            "el slot_id de consultar_disponibilidad. Si el paciente tiene saldo en mora "
-            "la confirmación lo advierte, pero la cita SÍ se puede agendar."
+            "Books an appointment in a free slot. It does NOT book straight away: it "
+            "first asks a person for confirmation, describing what will happen. Until "
+            "that person approves, do not tell the patient the appointment is booked. "
+            "Use the slot_id from consultar_disponibilidad. If the patient has an "
+            "overdue cartera the confirmation warns about it, but the appointment CAN "
+            "still be booked."
         ),
     )
     async def agendar_cita(
@@ -190,15 +191,15 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         confirmacion: Annotated[Confirmacion, Resolve(_confirmar_agendar)],
         especialidad_esperada: Annotated[
             str | None,
-            Field(description="Verificación opcional de que el cupo es de la especialidad."),
+            Field(description="Optional check that the slot is for the expected specialty."),
         ] = None,
         idempotency_key: Annotated[
             str | None,
             Field(
                 max_length=80,
                 description=(
-                    "Identificador propio de esta solicitud. Si reintentas, reutilízalo: "
-                    "evita crear una cita duplicada."
+                    "Your own identifier for this request. If you retry, reuse it: it "
+                    "prevents creating a duplicate appointment."
                 ),
             ),
         ] = None,
@@ -219,9 +220,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     # --- confirmar_cita -------------------------------------------------- #
 
     async def _confirmar_confirmar(contexto: Context, cita_id: int) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id}
         identidad = ctx.autorizar_auditando("confirmar_cita", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         async with ctx.auditar_fallo("confirmar_cita", SCOPE, argumentos, identidad):
             cita = await exigir_transicion_posible(ctx, cita_id, "confirmada")
         return preguntar(
@@ -238,9 +239,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="confirmar_cita",
         title="Confirmar asistencia",
         description=(
-            "Marca una cita como confirmada por el paciente, idealmente 48 horas antes. "
-            "Pide confirmación a una persona antes de aplicarlo. Confirmar protege el "
-            "cupo: las citas sin confirmar son las candidatas a liberarse."
+            "Marks an appointment as confirmed by the patient, ideally 48 hours ahead. "
+            "Asks a person for confirmation before applying it. Confirming protects the "
+            "slot: unconfirmed appointments are the ones eligible to be released."
         ),
     )
     async def confirmar_cita(
@@ -259,9 +260,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     async def _confirmar_cancelar(
         contexto: Context, cita_id: int, motivo: str
     ) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "motivo": motivo}
         identidad = ctx.autorizar_auditando("cancelar_cita", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         async with ctx.auditar_fallo("cancelar_cita", SCOPE, argumentos, identidad):
             cita = await exigir_transicion_posible(ctx, cita_id, "cancelada")
         return preguntar(
@@ -284,10 +285,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="cancelar_cita",
         title="Cancelar una cita",
         description=(
-            "Cancela una cita. El motivo es OBLIGATORIO: sin él la clínica no puede "
-            "auditar sus cancelaciones. Pide confirmación a una persona antes de "
-            "aplicarlo. Al ejecutarse libera el cupo y, si hay alguien en lista de "
-            "espera para esa especialidad, lo informa para que se le ofrezca."
+            "Cancels an appointment. The motivo is MANDATORY: without it the clinic "
+            "cannot audit its own cancellations. Asks a person for confirmation before "
+            "applying it. Once it runs the slot is released and, if someone is on the "
+            "waiting list for that specialty, it says so, so they can be offered it."
         ),
     )
     async def cancelar_cita(
@@ -297,7 +298,7 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
             Field(
                 min_length=3,
                 max_length=500,
-                description="Razón que dio el paciente. Se guarda en el historial.",
+                description="The reason the patient gave. Stored in the history.",
             ),
         ],
         confirmacion: Annotated[Confirmacion, Resolve(_confirmar_cancelar)],
@@ -318,9 +319,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     async def _confirmar_reprogramar(
         contexto: Context, cita_id: int, nuevo_slot_id: int, motivo: str | None = None
     ) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "nuevo_slot_id": nuevo_slot_id, "motivo": motivo}
         identidad = ctx.autorizar_auditando("reprogramar_cita", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         async with ctx.auditar_fallo("reprogramar_cita", SCOPE, argumentos, identidad):
             cita = await exigir_transicion_posible(ctx, cita_id, "reprogramada")
             cupo = await ctx.cliente.obtener(
@@ -348,9 +349,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="reprogramar_cita",
         title="Reprogramar una cita",
         description=(
-            "Mueve una cita a otro cupo. Tiene doble efecto: libera el cupo actual y "
-            "ocupa el nuevo, por eso pide confirmación a una persona. La cita original "
-            "queda en estado 'reprogramada' y se crea una nueva enlazada a ella."
+            "Moves an appointment to a different slot. It has two effects at once, "
+            "freeing the current slot and taking the new one, which is why it asks a "
+            "person for confirmation. The original appointment ends in state "
+            "'reprogramada' and a new one is created, linked back to it."
         ),
     )
     async def reprogramar_cita(
@@ -375,15 +377,15 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     async def _confirmar_asistencia(
         contexto: Context, cita_id: int, estado: str
     ) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {"cita_id": cita_id, "estado": estado}
         identidad = ctx.autorizar_auditando("registrar_asistencia", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         async with ctx.auditar_fallo("registrar_asistencia", SCOPE, argumentos, identidad):
             if estado not in ESTADOS_ASISTENCIA:
                 raise ErrorHerramienta(
                     "ENTRADA_INVALIDA",
-                    f"'{estado}' no es un estado de asistencia.",
-                    sugerencia=f"Usa uno de: {', '.join(ESTADOS_ASISTENCIA)}.",
+                    f"'{estado}' is not an attendance state.",
+                    sugerencia=f"Use one of: {', '.join(ESTADOS_ASISTENCIA)}.",
                     detalles={"estados_validos": list(ESTADOS_ASISTENCIA)},
                 )
             cita = await exigir_transicion_posible(ctx, cita_id, estado)
@@ -408,10 +410,11 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="registrar_asistencia",
         title="Registrar asistencia",
         description=(
-            "Registra qué pasó con la cita: 'en_espera' (el paciente llegó y está en "
-            "sala), 'atendida' (se realizó) o 'no_asistio' (no llegó). Pide confirmación "
-            "a una persona porque 'atendida' y 'no_asistio' generan cargos en cartera. "
-            "El orden válido es agendada → confirmada → en_espera → atendida."
+            "Records what happened with the appointment: 'en_espera' (the patient "
+            "arrived and is in the waiting room), 'atendida' (it took place) or "
+            "'no_asistio' (they did not turn up). Asks a person for confirmation, "
+            "because 'atendida' and 'no_asistio' create charges in the cartera. The "
+            "valid order is agendada → confirmada → en_espera → atendida."
         ),
     )
     async def registrar_asistencia(
@@ -433,9 +436,9 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
     # --- ofrecer_cupo_lista_espera --------------------------------------- #
 
     async def _confirmar_ofrecer(contexto: Context, slot_id: int) -> Elicit[Confirmacion]:
-        exigir_cliente_que_confirma(contexto)
         argumentos = {"slot_id": slot_id}
         identidad = ctx.autorizar_auditando("ofrecer_cupo_lista_espera", SCOPE, argumentos)
+        exigir_cliente_que_confirma(contexto)
         return preguntar(
             "ofrecer_cupo_lista_espera",
             identidad,
@@ -452,10 +455,11 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         name="ofrecer_cupo_lista_espera",
         title="Ofrecer un cupo liberado",
         description=(
-            "Ofrece un cupo libre al siguiente paciente de la lista de espera de esa "
-            "especialidad. Prioriza urgencias y, a igual prioridad, antigüedad. NO "
-            "agenda la cita: devuelve a quién contactar y su teléfono. Pide confirmación "
-            "a una persona porque implica contactar a alguien."
+            "Offers a free slot to the next patient on the waiting list for that "
+            "specialty. Urgent cases jump the queue; within the same priority it is "
+            "first come, first served. It does NOT book the appointment: it returns who "
+            "to contact and their phone number. Asks a person for confirmation, because "
+            "it means contacting someone."
         ),
     )
     async def ofrecer_cupo_lista_espera(

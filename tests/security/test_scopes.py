@@ -136,10 +136,10 @@ class TestMensajeDeDenegacion:
             mensaje = await error_de(mcp, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"})
         assert "SCOPE_INSUFICIENTE" in mensaje
         assert "'write'" in mensaje
-        assert "Acción requerida" in mensaje
+        assert "Action required" in mensaje
         # It must tell the model not to loop: retrying with the same token is
         # the single most common wasted-token pattern.
-        assert "no vuelvas a llamar" in mensaje.lower()
+        assert "do not call this tool again" in mensaje.lower()
 
     async def test_no_revela_datos_del_paciente_al_denegar(
         self, mcp: ClienteMCP, escenario: Escenario
@@ -219,3 +219,50 @@ class TestElScopeSeRevisaEnAmbasRondas:
         with como(SUJETO, ["read"]), pytest.raises(ErrorDeHerramienta) as exc:
             await mcp.responder("confirmar_cita", {"cita_id": cita.id}, pregunta)
         assert "SCOPE_INSUFICIENTE" in exc.value.texto
+
+
+class TestElOrdenDeLosChequeos:
+    """Authorisation runs before anything else the tool might complain about.
+
+    A caller with no permission should be told that, not something about their
+    client's capabilities: the first refusal a request meets should be the one
+    that is actually their problem, and it is the one that must be audited.
+    """
+
+    async def test_sin_scope_gana_el_error_de_scope_no_el_de_cliente(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        with como(SUJETO, ["read"]):
+            mensaje = await error_de(
+                mcp_sin_elicitacion, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+            )
+        assert "SCOPE_INSUFICIENTE" in mensaje
+        assert "CLIENTE_SIN_CONFIRMACION" not in mensaje
+
+    async def test_sin_token_gana_el_error_de_autenticacion(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        mensaje = await error_de(
+            mcp_sin_elicitacion, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+        )
+        assert "NO_AUTENTICADO" in mensaje
+        assert "CLIENTE_SIN_CONFIRMACION" not in mensaje
+
+    async def test_la_denegacion_por_scope_se_audita_aunque_el_cliente_no_confirme(
+        self, mcp_sin_elicitacion: ClienteMCP, ctx: Any, escenario: Escenario
+    ) -> None:
+        """Checking the capability first would have skipped the audit entirely."""
+        with como(SUJETO, ["read"]):
+            await error_de(mcp_sin_elicitacion, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"})
+        evento = ctx.auditor.eventos[-1]
+        assert evento["resultado"] == "error"
+        assert evento["codigo_error"] == "SCOPE_INSUFICIENTE"
+
+    async def test_con_scope_correcto_si_avisa_del_cliente(
+        self, mcp_sin_elicitacion: ClienteMCP, escenario: Escenario
+    ) -> None:
+        with como(SUJETO, ["read", "write"]):
+            mensaje = await error_de(
+                mcp_sin_elicitacion, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+            )
+        assert "CLIENTE_SIN_CONFIRMACION" in mensaje

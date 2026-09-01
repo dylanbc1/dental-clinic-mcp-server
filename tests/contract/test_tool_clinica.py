@@ -86,7 +86,7 @@ class TestSinConsentimiento:
             await mcp.aprobar("registrar_motivo_consulta", args)
         assert "CONSENTIMIENTO_REQUERIDO" in exc.value.texto
         assert "2654" in exc.value.texto
-        assert "Acción requerida" in exc.value.texto
+        assert "Action required" in exc.value.texto
 
     async def test_el_rechazo_no_deja_el_motivo_escrito(
         self, mcp: ClienteMCP, sesion_backend: Session, cita_sin_consentimiento: int
