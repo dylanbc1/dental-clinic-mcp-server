@@ -91,6 +91,9 @@ services:
       # restart invalidates every outstanding token, which is correct for a
       # key nobody persisted on purpose.
       OAUTH_PRIVATE_KEY_PEM: ${OAUTH_PRIVATE_KEY_PEM:-}
+      # Documented in .env.example but never passed through, so shortening
+      # a token's life to watch expiry happen was not possible from here.
+      OAUTH_ACCESS_TOKEN_TTL_SECONDS: ${OAUTH_ACCESS_TOKEN_TTL_SECONDS:-900}
     ports:
       - "${OAUTH_PORT:-9000}:9000"
     healthcheck:

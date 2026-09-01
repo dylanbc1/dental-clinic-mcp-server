@@ -385,6 +385,98 @@ working.
 
 ---
 
+## Block E · The assumptions the checks above do not touch (7 min)
+
+Five probes aimed at what the other thirteen take for granted. Three of them
+found real bugs; the fixes and their regression tests are named below. Run them
+with `make probe`, which reports each one's expectation, what happened, and a
+verdict.
+
+### E1 · An expired token, not just a wrong scope
+
+Everything above tests insufficient scope. Nothing tested a structurally valid
+token that has simply run out.
+
+```bash
+OAUTH_ACCESS_TOKEN_TTL_SECONDS=3 docker compose up -d oauth --wait
+TOKEN=$(uv run python scripts/get_token.py --scope read)
+sleep 6
+curl -si -X POST localhost:8080/mcp -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -H 'mcp-method: tools/list' \
+  -H 'accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | head -1
+docker compose up -d oauth --wait   # back to the normal 900s
+```
+
+**Expect:** `401` with `WWW-Authenticate`. Not a `500`, and certainly not a
+result. **Found:** passes. A resource server that accepts expired tokens is not
+validating `exp`, and this one is.
+
+### E2 · Replaying a confirmation that already succeeded
+
+Tampering with `requestState` is covered. Reusing an intact one after it worked
+was not.
+
+**Expect:** refused, or idempotent. Never a second effect. **Found: a real bug.**
+The sealed state carries no server-side "spent" marker, on purpose: the design
+is stateless. Replaying an approved `book_appointment` re-ran the tool and was
+stopped only by the unique index. `offer_slot_to_waiting_list` is protected by
+neither an index nor the state machine, and replaying it **offered the same
+freed slot to a second patient**, so two people were told to come in for one
+appointment.
+
+**Fixed** by making the operation idempotent rather than by adding state: a slot
+already promised to someone returns that standing offer. `tests/integration/
+test_retry_and_races.py::TestOfferingAFreedSlotTwice`.
+
+### E3 · Idempotency under a real retry
+
+The README promises a retrying agent gets the same appointment back.
+
+**Expect:** the same `appointment_id` twice, one row in the database.
+**Found: a real bug.** True of the backend, false through the only path an agent
+has. The MCP resolver validated the slot before proposing, and on the retry that
+slot was taken by the first attempt, so the call died with `SLOT_UNAVAILABLE`
+and the idempotent branch was never reached.
+
+**Fixed:** the key is consulted first, and a retry of a completed operation asks
+nobody to approve it again, because nothing new is about to happen.
+`tests/contract/test_write_tools.py::test_a_retry_with_the_same_key_asks_nobody
+_and_books_nothing_new`.
+
+### E4 · Ten concurrent bookings over HTTP, not two connections in psql
+
+C4 races two database connections. This races the whole path: OAuth, the
+confirmation round trip, and the write.
+
+**Expect:** exactly one success, the rest refused cleanly, no `500`, one live
+appointment. **Found: a real bug.** One success, two clean refusals, and **six
+`500`s**. The optimistic `version_id` on `agenda_slot` raises `StaleDataError`,
+a different class from the `IntegrityError` the code caught, so it escaped as an
+unhandled error. Every promise about actionable failures was void for the exact
+case those promises exist for.
+
+**Fixed** in three places, plus a net at the API layer so no future path can
+answer a race with a `500`. The loser now receives what a caller arriving a
+second later receives, alternatives included: one fact, one shape, whatever the
+timing. `tests/integration/test_retry_and_races.py::TestALostRace`.
+
+### E5 · Horizontal authorisation, across tenants
+
+**There is no tenant model, and that is a scope decision rather than a
+defect.** `clinic` holds one row, and only `professional` carries a `clinic_id`;
+patients, slots and appointments are not scoped to a clinic. Any valid token
+reads any patient, and a probe with a subject from another clinic does exactly
+that.
+
+This is honest for a single-clinic demonstration and it is **wrong for a
+multi-tenant deployment**, where it would be a horizontal authorisation hole.
+Closing it means a tenant on every row, a tenant claim in the token, and a
+filter no query can forget. It is recorded here as a known limit so nobody has
+to discover it, which is the difference between a documented boundary and a
+silent gap.
+
 ## How to judge what you saw
 
 If you want to be hard on the project, these are the questions I would ask:

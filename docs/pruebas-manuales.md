@@ -384,6 +384,98 @@ validación de audiencia funcionando.
 
 ---
 
+## Bloque E · Los supuestos que las de arriba no tocan (7 min)
+
+Cinco sondas apuntadas a lo que las otras trece dan por hecho. Tres encontraron
+bugs reales; abajo están los arreglos y sus pruebas de regresión. Se corren con
+`make probe`, que reporta qué esperaba cada una, qué pasó y un veredicto.
+
+### E1 · Un token vencido, no un scope equivocado
+
+Todo lo anterior prueba scope insuficiente. Nada probaba un token
+estructuralmente válido que simplemente caducó.
+
+```bash
+OAUTH_ACCESS_TOKEN_TTL_SECONDS=3 docker compose up -d oauth --wait
+TOKEN=$(uv run python scripts/get_token.py --scope read)
+sleep 6
+curl -si -X POST localhost:8080/mcp -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -H 'mcp-method: tools/list' \
+  -H 'accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | head -1
+docker compose up -d oauth --wait   # de vuelta a los 900s normales
+```
+
+**Esperas:** `401` con `WWW-Authenticate`. Ni un `500`, y mucho menos un
+resultado. **Resultado:** pasa. Un resource server que acepta tokens vencidos no
+está validando `exp`, y este sí.
+
+### E2 · Reproducir una confirmación que ya funcionó
+
+Alterar el `requestState` está cubierto. Reusar uno intacto después de que
+funcionó, no.
+
+**Esperas:** rechazo, o idempotencia. Nunca un segundo efecto. **Resultado: un
+bug real.** El estado sellado no lleva marca de "gastado" en el servidor, a
+propósito: el diseño es sin estado. Reproducir un `book_appointment` aprobado
+volvió a ejecutar la tool y solo lo frenó el índice único.
+`offer_slot_to_waiting_list` no está protegida ni por índice ni por la máquina de
+estados, y reproducirla **ofreció el mismo cupo liberado a un segundo paciente**:
+dos personas citadas para un solo cupo.
+
+**Arreglado** haciendo la operación idempotente en vez de añadir estado: un cupo
+ya prometido devuelve esa oferta vigente. `tests/integration/
+test_retry_and_races.py::TestOfferingAFreedSlotTwice`.
+
+### E3 · Idempotencia bajo un reintento real
+
+El README promete que un agente que reintenta recibe la misma cita.
+
+**Esperas:** el mismo `appointment_id` dos veces, una fila en la base.
+**Resultado: un bug real.** Cierto en el backend, falso por el único camino que
+tiene un agente. El resolver del MCP validaba el cupo antes de proponer, y en el
+reintento ese cupo lo tenía el primer intento, así que la llamada moría con
+`SLOT_UNAVAILABLE` y nunca llegaba a la rama idempotente.
+
+**Arreglado:** la clave se consulta primero, y un reintento de una operación ya
+completada no le pide aprobación a nadie, porque no va a pasar nada nuevo.
+`tests/contract/test_write_tools.py::test_a_retry_with_the_same_key_asks_nobody
+_and_books_nothing_new`.
+
+### E4 · Diez reservas concurrentes por HTTP, no dos conexiones en psql
+
+C4 hace competir dos conexiones de base de datos. Esta hace competir el camino
+completo: OAuth, la ida y vuelta de confirmación, y la escritura.
+
+**Esperas:** exactamente un éxito, el resto rechazado limpio, ningún `500`, una
+cita viva. **Resultado: un bug real.** Un éxito, dos rechazos limpios y **seis
+`500`**. El `version_id` optimista de `agenda_slot` levanta `StaleDataError`,
+una clase distinta del `IntegrityError` que el código atrapaba, así que escapaba
+como error no manejado. Toda la promesa sobre fallos accionables quedaba anulada
+justo en el caso para el que existe.
+
+**Arreglado** en tres sitios, más una red en la capa de API para que ninguna ruta
+futura pueda responder a una carrera con un `500`. Quien pierde recibe ahora lo
+mismo que quien llega un segundo tarde, alternativas incluidas: un hecho, una
+forma, sin importar el tiempo. `tests/integration/test_retry_and_races.py::
+TestALostRace`.
+
+### E5 · Autorización horizontal, entre tenants
+
+**No hay modelo de tenant, y eso es una decisión de alcance, no un defecto.**
+`clinic` tiene una sola fila, y solo `professional` lleva `clinic_id`; pacientes,
+cupos y citas no están acotados a una clínica. Cualquier token válido lee
+cualquier paciente, y una sonda con un sujeto de otra clínica hace exactamente
+eso.
+
+Es honesto para una demostración de una sola clínica y es **incorrecto para un
+despliegue multi-tenant**, donde sería un hueco de autorización horizontal.
+Cerrarlo significa un tenant en cada fila, un claim de tenant en el token, y un
+filtro que ninguna consulta pueda olvidar. Queda anotado aquí como límite
+conocido para que nadie tenga que descubrirlo, que es la diferencia entre una
+frontera documentada y un hueco silencioso.
+
 ## Cómo evaluar lo que viste
 
 Si quieres ser duro con el proyecto, estas son las preguntas que yo haría:

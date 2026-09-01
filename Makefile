@@ -47,6 +47,9 @@ token: ## Print an access token obtained through the real PKCE flow
 smoke: ## End-to-end check against the running stack
 	uv run python scripts/smoke.py
 
+probe: ## Block E: the five assumptions the manual checks do not cover
+	uv run python scripts/probe.py
+
 consola: ## Interactive client: you answer the confirmations yourself
 	uv run python scripts/console.py
 
@@ -92,5 +95,5 @@ audit: ## Dependency and static security audit
 
 check: lint test audit ## Everything CI runs
 
-.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke consola inspector \
+.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke probe consola inspector \
 	inspector-cli lint fmt test test-fast test-unit test-security test-contract audit check
