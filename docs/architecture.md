@@ -6,8 +6,8 @@
 
 <!-- diagram:layers -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/layers-dark.svg">
-  <img alt="MCP client, MCP server with its five layers, and the domain backend" src="docs/img/layers.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="img/layers-dark.svg">
+  <img alt="MCP client, MCP server with its five layers, and the domain backend" src="img/layers.svg">
 </picture>
 
 <details>
@@ -72,17 +72,8 @@ before a single row is touched.
 
 <!-- diagram:domain-model -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/domain-model-dark.svg">
-  <img alt="Entity relationships: clinic, professional, patient, slot, appointment, charge" src="docs/img/domain-model.svg">
-</picture>
-
-<details>
-<summary>Diagram source</summary>
-
-<!-- diagram:domain-model -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/domain-model-dark.svg">
-  <img alt="Entity relationships: clinic, professional, patient, slot, appointment, charge" src="docs/img/domain-model.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="img/domain-model-dark.svg">
+  <img alt="Entity relationships: clinic, professional, patient, slot, appointment, charge" src="img/domain-model.svg">
 </picture>
 
 <details>
@@ -110,17 +101,8 @@ erDiagram
 
 <!-- diagram:appointment-states -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/appointment-states-dark.svg">
-  <img alt="The appointment state machine and its legal transitions" src="docs/img/appointment-states.svg">
-</picture>
-
-<details>
-<summary>Diagram source</summary>
-
-<!-- diagram:appointment-states -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/appointment-states-dark.svg">
-  <img alt="The appointment state machine and its legal transitions" src="docs/img/appointment-states.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="img/appointment-states-dark.svg">
+  <img alt="The appointment state machine and its legal transitions" src="img/appointment-states.svg">
 </picture>
 
 <details>

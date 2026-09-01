@@ -19,6 +19,7 @@ Needs node, which is why it is a target rather than part of the test suite.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import subprocess
@@ -107,13 +108,19 @@ def _pin_size(svg: pathlib.Path) -> None:
     svg.write_text(text)
 
 
-def figure(slug: str, body: str, alt: str) -> str:
-    """A themed image, with the source underneath rather than replaced by it."""
+def figure(slug: str, body: str, alt: str, prefix: str) -> str:
+    """A themed image, with the source underneath rather than replaced by it.
+
+    `prefix` is the path from the document to the images, not from the
+    repository root. `docs/architecture.md` reaches them at `img/`, and using
+    the root-relative path there rendered a broken-image icon beside the alt
+    text: the README only looked right because it happens to sit at the root.
+    """
     return (
         f"{OPEN.format(slug=slug)}\n"
         "<picture>\n"
-        f'  <source media="(prefers-color-scheme: dark)" srcset="docs/img/{slug}-dark.svg">\n'
-        f'  <img alt="{alt}" src="docs/img/{slug}.svg">\n'
+        f'  <source media="(prefers-color-scheme: dark)" srcset="{prefix}{slug}-dark.svg">\n'
+        f'  <img alt="{alt}" src="{prefix}{slug}.svg">\n'
         "</picture>\n\n"
         "<details>\n<summary>Diagram source</summary>\n\n"
         f"```mermaid\n{body}```\n\n"
@@ -129,6 +136,7 @@ def main() -> int:
         text = path.read_text()
         # A rerun works on the source inside `<details>`, so the images stay in
         # step with the diagram rather than drifting away from it.
+        prefix = f"{os.path.relpath(IMAGES, path.parent)}/".replace(os.sep, "/")
         blocks = list(BLOCK.finditer(text))
         if len(blocks) != len(named):
             raise SystemExit(
@@ -139,11 +147,15 @@ def main() -> int:
             slug, alt = named[len(blocks) - 1 - index]
             body = match.group("body")
             render(body, slug)
-            replacement = figure(slug, body, alt)
-            wrapper = RENDERED.search(text)
+            replacement = figure(slug, body, alt, prefix)
             start, end = match.start(), match.end()
-            if wrapper and wrapper.start() < start < wrapper.end():
-                start, end = wrapper.start(), wrapper.end()
+            # The wrapper around *this* block, not merely the first one in the
+            # file: with three diagrams in a document, searching from the top
+            # rewrote the wrong one.
+            for wrapper in RENDERED.finditer(text):
+                if wrapper.start() < start < wrapper.end():
+                    start, end = wrapper.start(), wrapper.end()
+                    break
             text = text[:start] + replacement + text[end:]
         path.write_text(text)
         print(f"  {name}: {len(blocks)} diagrama(s)")

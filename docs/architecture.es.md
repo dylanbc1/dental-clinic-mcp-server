@@ -6,8 +6,8 @@
 
 <!-- diagram:capas -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/capas-dark.svg">
-  <img alt="Cliente MCP, servidor MCP con sus cinco capas, y el backend de dominio" src="docs/img/capas.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="img/capas-dark.svg">
+  <img alt="Cliente MCP, servidor MCP con sus cinco capas, y el backend de dominio" src="img/capas.svg">
 </picture>
 
 <details>
@@ -72,17 +72,8 @@ de tocar una sola fila.
 
 <!-- diagram:modelo-dominio -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/modelo-dominio-dark.svg">
-  <img alt="Relaciones: clinica, profesional, paciente, cupo, cita, cargo" src="docs/img/modelo-dominio.svg">
-</picture>
-
-<details>
-<summary>Diagram source</summary>
-
-<!-- diagram:modelo-dominio -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/modelo-dominio-dark.svg">
-  <img alt="Relaciones: clinica, profesional, paciente, cupo, cita, cargo" src="docs/img/modelo-dominio.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="img/modelo-dominio-dark.svg">
+  <img alt="Relaciones: clinica, profesional, paciente, cupo, cita, cargo" src="img/modelo-dominio.svg">
 </picture>
 
 <details>
@@ -110,17 +101,8 @@ erDiagram
 
 <!-- diagram:estados-cita -->
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/estados-cita-dark.svg">
-  <img alt="La maquina de estados de una cita y sus transiciones legales" src="docs/img/estados-cita.svg">
-</picture>
-
-<details>
-<summary>Diagram source</summary>
-
-<!-- diagram:estados-cita -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/estados-cita-dark.svg">
-  <img alt="La maquina de estados de una cita y sus transiciones legales" src="docs/img/estados-cita.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="img/estados-cita-dark.svg">
+  <img alt="La maquina de estados de una cita y sus transiciones legales" src="img/estados-cita.svg">
 </picture>
 
 <details>
