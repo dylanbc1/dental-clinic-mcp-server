@@ -329,7 +329,7 @@ class TestBackendClientOnFailure:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
                 await client.get_object("/clinic")
-        assert "RESPUESTA_INESPERADA" in str(exc.value)
+        assert "UNEXPECTED_RESPONSE" in str(exc.value)
 
     async def test_an_error_without_an_envelope_does_not_blow_up(self) -> None:
         transport = httpx.MockTransport(lambda _: httpx.Response(502, text="bad gateway"))

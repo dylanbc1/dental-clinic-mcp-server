@@ -57,6 +57,18 @@ class ErrorCode(StrEnum):
     CONSENT_REQUIRED = "CONSENT_REQUIRED"
     ORIGIN_NOT_ALLOWED = "ORIGIN_NOT_ALLOWED"
     RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
+    NOT_APPROVED = "NOT_APPROVED"
+    CLIENT_CANNOT_CONFIRM = "CLIENT_CANNOT_CONFIRM"
+
+    # --- the MCP layer and the transport -----------------------------------
+    #: Raised above the domain, but the code space is one space. These lived as
+    #: bare strings at their raise sites until a decline surfaced one of them
+    #: still written in Spanish; a code nobody can enumerate is a code nobody
+    #: notices. `tests/unit/test_errors.py` now fails if a new one appears.
+    BACKEND_UNAVAILABLE = "BACKEND_UNAVAILABLE"
+    UNEXPECTED_RESPONSE = "UNEXPECTED_RESPONSE"
+    UNKNOWN_SCOPE = "UNKNOWN_SCOPE"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
 class DomainError(Exception):

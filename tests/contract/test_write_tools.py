@@ -227,7 +227,7 @@ class TestWhenThePersonSaysNo:
             with pytest.raises(ToolCallError) as exc:
                 await mcp.respond("book_appointment", args, question, confirmed=False)
 
-        assert "OPERACION_NO_APROBADA" in exc.value.text_of
+        assert "NOT_APPROVED" in exc.value.text_of
         assert "Nothing was changed" in exc.value.text_of
         assert count_appointments(backend_session) == 0
 

@@ -84,15 +84,15 @@ erDiagram
 stateDiagram-v2
     [*] --> scheduled
     scheduled --> confirmed
-    scheduled --> cancelled : exige motivo
+    scheduled --> cancelled : requires a reason
     scheduled --> rescheduled
     scheduled --> no_show
     confirmed --> waiting
-    confirmed --> cancelled : exige motivo
+    confirmed --> cancelled : requires a reason
     confirmed --> rescheduled
     confirmed --> no_show
     waiting --> attended
-    waiting --> cancelled : exige motivo
+    waiting --> cancelled : requires a reason
     attended --> [*]
     cancelled --> [*]
     rescheduled --> [*]

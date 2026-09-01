@@ -121,7 +121,7 @@ def scope_error(tool_name: str, required: str, presentes: list[str]) -> Structur
 def backend_down_error(detail: str) -> StructuredToolError:
     """The backend is unreachable. Not the caller's fault, so say so."""
     return StructuredToolError(
-        "BACKEND_UNAVAILABLE",
+        ErrorCode.BACKEND_UNAVAILABLE,
         "The clinic's system is not responding.",
         suggestion=(
             "This is not a problem with your request. Tell the user the system is "

@@ -87,7 +87,7 @@ agent that recovers on its own turn and one that loops.
 ### 7 · Everything is on the record (layer 5)
 
 ```bash
-docker compose logs mcp | grep tool.invocacion | tail -5
+docker compose logs mcp | grep tool.invocation | tail -5
 ```
 
 One JSON line per call, including the refused ones, each with the subject, the

@@ -7,7 +7,10 @@ Never a mute 500, never a leaked stack trace.
 
 from __future__ import annotations
 
+import ast
 import inspect
+import pathlib
+import re
 
 import pytest
 
@@ -20,6 +23,15 @@ from backend.domain.errors import (
     NotFound,
     PatientNotFound,
     SlotUnavailable,
+)
+
+#: A SHOUTING_SNAKE literal long enough to be a code, not a header name.
+CODE_SHAPED = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){1,5}$")
+
+#: Fragments that only appear in Spanish. Cheap, and it caught a real one.
+SPANISH_FRAGMENT = re.compile(
+    r"OPERACION|APROBAD|DESCONOCID|RESPUESTA|INESPERAD|HERRAMIENTA|CUPO|"
+    r"PACIENTE|PROFESIONAL|CITA_|_CITA|ESPERA_|VALIDO|REQUERIDO"
 )
 
 CONCRETE_CLASSES = [
@@ -116,3 +128,39 @@ class TestCodeSpace:
             "RATE_LIMIT_EXCEEDED",
         ):
             assert expected in set(ErrorCode)
+
+
+class TestTheCodeSpaceIsClosed:
+    """No error code may exist outside the catalogue.
+
+    `ErrorCode` says it defines the code space in one place, but six codes were
+    raised as bare strings that never entered it, and one of them
+    (`OPERACION_NO_APROBADA`) stayed Spanish through the whole i18n migration
+    because nothing enumerated it and only a declined confirmation showed it.
+    """
+
+    def test_no_code_is_raised_as_a_bare_string(self) -> None:
+        known = {str(c) for c in ErrorCode}
+        offenders: list[str] = []
+        for source in (pathlib.Path("backend"), pathlib.Path("mcp_server")):
+            for module in source.rglob("*.py"):
+                tree = ast.parse(module.read_text())
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    callee = ast.unparse(node.func)
+                    if "Error" not in callee and "error" not in callee:
+                        continue
+                    first = node.args[0] if node.args else None
+                    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+                        continue
+                    code = first.value
+                    if CODE_SHAPED.match(code) and code not in known:
+                        offenders.append(f"{module}:{node.lineno} {code}")
+        assert not offenders, "codes raised outside ErrorCode: " + ", ".join(offenders)
+
+    def test_every_code_is_english(self) -> None:
+        """`OPERACION_NO_APROBADA` shipped. An English-only code space is the
+        cheapest way to notice the next one."""
+        spanish = [c for c in ErrorCode if SPANISH_FRAGMENT.search(str(c))]
+        assert not spanish, f"Spanish error codes: {spanish}"

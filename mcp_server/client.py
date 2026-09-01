@@ -14,6 +14,7 @@ from typing import Any, cast
 
 import httpx
 
+from backend.domain.errors import ErrorCode
 from mcp_server.errors import StructuredToolError, backend_down_error
 
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -79,7 +80,7 @@ class BackendClient:
         """
         if not isinstance(payload, expected):
             raise StructuredToolError(
-                "RESPUESTA_INESPERADA",
+                ErrorCode.UNEXPECTED_RESPONSE,
                 f"{path} returned {type(payload).__name__} instead of {expected.__name__}.",
                 suggestion="This is a backend fault, not a problem with your request.",
             )

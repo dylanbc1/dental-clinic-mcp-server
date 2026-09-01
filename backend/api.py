@@ -162,7 +162,7 @@ async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
         status_code=500,
         content={
             "error": True,
-            "code": "INTERNAL_ERROR",
+            "code": str(ErrorCode.INTERNAL_ERROR),
             "message": "An internal error occurred while processing the request.",
             "suggestion": "Retry in a few seconds; if it persists, report the incident.",
         },

@@ -31,6 +31,7 @@ import jwt
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
+from backend.domain.errors import ErrorCode
 from mcp_server.errors import StructuredToolError, scope_error, unauthenticated_error
 
 
@@ -168,7 +169,7 @@ def validate_requested_scopes(requested: Sequence[str]) -> list[str]:
     unknown = [s for s in requested if s not in known]
     if unknown:
         raise StructuredToolError(
-            "UNKNOWN_SCOPE",
+            ErrorCode.UNKNOWN_SCOPE,
             f"Unrecognised scopes: {', '.join(unknown)}.",
             suggestion=f"The valid scopes are: {', '.join(sorted(known))}.",
             details={"unknown": unknown},

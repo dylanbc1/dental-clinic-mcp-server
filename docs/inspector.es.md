@@ -88,7 +88,7 @@ un agente que se recupera en su propio turno y uno que entra en bucle.
 ### 7 · Todo queda registrado (capa 5)
 
 ```bash
-docker compose logs mcp | grep tool.invocacion | tail -5
+docker compose logs mcp | grep tool.invocation | tail -5
 ```
 
 Una línea JSON por llamada, incluidas las rechazadas, cada una con el sujeto, el

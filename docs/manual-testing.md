@@ -46,8 +46,8 @@ curl -s localhost:8000/ready
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -c "
-select regimen, afiliacion_activa, count(*) from paciente group by 1,2 order by 1;
-select estado, count(*) from cita group by 1 order by 2 desc;
+select regimen, affiliation_active, count(*) from patient group by 1,2 order by 1;
+select status, count(*) from appointment group by 1 order by 2 desc;
 select count(*) as free_slots from agenda_slot where status='free';"
 ```
 
@@ -60,11 +60,11 @@ states, and over a thousand free slots to book into.
 ```bash
 uv run python -m backend.seed --base-date 2026-08-31
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
+  "select md5(string_agg(document_number||name, '' order by document_number)) from patient;"
 
 uv run python -m backend.seed --base-date 2026-08-31
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
+  "select md5(string_agg(document_number||name, '' order by document_number)) from patient;"
 ```
 
 **Expect:** the same hash twice. Change `--seed 999` and it must change.
@@ -181,7 +181,7 @@ question in plain language (it names the hour and the professional, not the
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select estado from agenda_slot where id = SLOT_ID;"
+  "select status from agenda_slot where id = SLOT_ID;"
 ```
 -> `libre`
 
@@ -239,7 +239,7 @@ because the state can change in between.
 And check a real bug leaks nothing:
 
 ```bash
-curl -s localhost:8000/citas/999999 | python3 -m json.tool
+curl -s localhost:8000/appointments/999999 | python3 -m json.tool
 ```
 
 **Expect:** JSON with `code`, `message` and `suggestion`. No `Traceback`, no
@@ -248,19 +248,19 @@ SQL, no internal class names.
 ### B8 · Layer 5 · The audit records without copying
 
 ```bash
-docker compose logs mcp | grep tool.invocacion | tail -5
+docker compose logs mcp | grep tool.invocation | tail -5
 ```
 
 **Expect:** one JSON line per call, **refusals included**, with `subject`,
 `required_scope`, `result` and `with_human_approval`. Note that `document_number`
-and `reason` show as `«redactado»`: the log records that the call happened, not
+and `reason` show as `«redacted»`: the log records that the call happened, not
 the patient's data.
 
 Check it on purpose:
 
 ```bash
-docker compose logs mcp | grep -c "manual check"   # the motivo you sent in B3
-docker compose logs mcp | grep -c "redactado"
+docker compose logs mcp | grep -c "manual check"   # the reason you sent in B3
+docker compose logs mcp | grep -c "redacted"
 ```
 
 The first must be `0` and the second above `0`.
@@ -307,8 +307,8 @@ Find a patient in arrears and book them an appointment:
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select paciente_id, sum(monto)::int from cargo
-   where status='pendiente' and vencimiento < current_date
+  "select patient_id, sum(amount)::int from charge
+   where status='pending' and due_date < current_date
    group by 1 order by 2 desc limit 1;"
 ```
 
@@ -320,11 +320,11 @@ appointment goes through once approved. Clinics do not refuse care over an unpai
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
+  "select id from patient where affiliation_active=false and regimen<>'particular' limit 1;"
 ```
 
-Call `validate_affiliation` with that id. **Expect:** `regimen_efectivo:
-"particular"`, `bloquea_agendamiento: false`, and a suggestion about reactivating
+Call `validate_affiliation` with that id. **Expect:** `effective_regimen:
+"particular"`, `blocks_booking: false`, and a suggestion about reactivating
 with the EPS.
 
 ### C3 · The state machine allows no shortcuts

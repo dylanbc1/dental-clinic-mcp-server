@@ -30,6 +30,7 @@ from __future__ import annotations
 from mcp.server.mcpserver import Context
 from pydantic import BaseModel, Field
 
+from backend.domain.errors import ErrorCode
 from mcp_server.errors import StructuredToolError
 
 
@@ -45,7 +46,7 @@ def require_client_that_can_confirm(context: Context) -> None:
     if capabilities is not None and capabilities.elicitation is not None:
         return
     raise StructuredToolError(
-        "CLIENT_CANNOT_CONFIRM",
+        ErrorCode.CLIENT_CANNOT_CONFIRM,
         "Your MCP client cannot ask a person for confirmation, and this server does "
         "not perform writes without one.",
         suggestion=(

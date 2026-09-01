@@ -25,6 +25,7 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from pydantic import Field
 
+from backend.domain.errors import ErrorCode
 from backend.domain.labels import specialty_label, state_label
 from mcp_server.auth import Identity, Scope
 from mcp_server.confirmation import (
@@ -48,7 +49,7 @@ def require_approval(confirmation: Confirmation, action: str) -> None:
     """
     if not confirmation.confirmed:
         raise StructuredToolError(
-            "OPERACION_NO_APROBADA",
+            ErrorCode.NOT_APPROVED,
             f"The responsible person did not approve '{action}'. Nothing was changed.",
             suggestion=(
                 "Do not retry the same operation. Ask what needs to change, or tell the "

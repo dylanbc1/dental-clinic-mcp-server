@@ -47,8 +47,8 @@ curl -s localhost:8000/ready
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -c "
-select regimen, afiliacion_activa, count(*) from paciente group by 1,2 order by 1;
-select estado, count(*) from cita group by 1 order by 2 desc;
+select regimen, affiliation_active, count(*) from patient group by 1,2 order by 1;
+select status, count(*) from appointment group by 1 order by 2 desc;
 select count(*) as free_slots from agenda_slot where status='free';"
 ```
 
@@ -61,11 +61,11 @@ citas en los seis estados, y más de mil cupos libres para agendar.
 ```bash
 uv run python -m backend.seed --base-date 2026-08-31
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
+  "select md5(string_agg(document_number||name, '' order by document_number)) from patient;"
 
 uv run python -m backend.seed --base-date 2026-08-31
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
+  "select md5(string_agg(document_number||name, '' order by document_number)) from patient;"
 ```
 
 **Esperas:** el mismo hash las dos veces. Cambia `--seed 999` y debe cambiar.
@@ -181,7 +181,7 @@ en lenguaje llano (nombra la hora y el profesional, no el `slot_id`) y un
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select estado from agenda_slot where id = SLOT_ID;"
+  "select status from agenda_slot where id = SLOT_ID;"
 ```
 → `libre`
 
@@ -237,7 +237,7 @@ cambiar entre una cosa y la otra.
 Y prueba que un bug real no filtra nada:
 
 ```bash
-curl -s localhost:8000/citas/999999 | python3 -m json.tool
+curl -s localhost:8000/appointments/999999 | python3 -m json.tool
 ```
 
 **Esperas:** un JSON con `code`, `message` y `suggestion`. Sin `Traceback`, sin
@@ -246,20 +246,20 @@ SQL, sin nombres de clases internas.
 ### B8 · Capa 5 · La auditoría registra, sin copiar datos
 
 ```bash
-docker compose logs mcp | grep tool.invocacion | tail -5 | python3 -m json.tool 2>/dev/null \
-  || docker compose logs mcp | grep tool.invocacion | tail -5
+docker compose logs mcp | grep tool.invocation | tail -5 | python3 -m json.tool 2>/dev/null \
+  || docker compose logs mcp | grep tool.invocation | tail -5
 ```
 
 **Esperas:** una línea JSON por llamada, **incluidas las rechazadas**, con
 `subject`, `required_scope`, `result` y `with_human_approval`. Y fíjate en
-que `document_number` y `reason` aparecen como `«redactado»`: el log registra que la
+que `document_number` y `reason` aparecen como `«redacted»`: el log registra que la
 llamada ocurrió, no el dato del paciente.
 
 Compruébalo a propósito:
 
 ```bash
 docker compose logs mcp | grep -c "dolor severo"   # el motivo que enviaste en B3
-docker compose logs mcp | grep -c "redactado"
+docker compose logs mcp | grep -c "redacted"
 ```
 
 El primero debe dar `0` y el segundo, más de `0`.
@@ -305,8 +305,8 @@ Busca un paciente en mora y agéndale una cita:
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select paciente_id, sum(monto)::int from cargo
-   where status='pendiente' and vencimiento < current_date
+  "select patient_id, sum(amount)::int from charge
+   where status='pending' and due_date < current_date
    group by 1 order by 2 desc limit 1;"
 ```
 
@@ -318,11 +318,11 @@ agenda una vez aprobada. Las clínicas no niegan atención por un copago sin pag
 
 ```bash
 docker compose exec -T postgres psql -U clinic -d clinic -t -c \
-  "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
+  "select id from patient where affiliation_active=false and regimen<>'particular' limit 1;"
 ```
 
-Llama `validate_affiliation` con ese id. **Esperas:** `regimen_efectivo:
-"particular"`, `bloquea_agendamiento: false`, y una sugerencia sobre reactivar
+Llama `validate_affiliation` con ese id. **Esperas:** `effective_regimen:
+"particular"`, `blocks_booking: false`, y una sugerencia sobre reactivar
 ante la EPS.
 
 ### C3 · La máquina de estados no admite atajos
