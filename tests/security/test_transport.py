@@ -35,7 +35,7 @@ from mcp_server.server import build_app
 
 pytestmark = pytest.mark.security
 
-PUBLICA = "http://localhost:8080"
+PUBLIC = "http://localhost:8080"
 
 
 @pytest.fixture
@@ -43,9 +43,9 @@ def settings_() -> Settings:
     return Settings(  # type: ignore[call-arg]
         _env_file=None,
         app_env="test",
-        mcp_public_url=PUBLICA,
+        mcp_public_url=PUBLIC,
         oauth_issuer="http://localhost:9000",
-        oauth_audience=PUBLICA,
+        oauth_audience=PUBLIC,
         mcp_allowed_hosts="localhost,127.0.0.1",
         mcp_allowed_origins="http://localhost:8080",
     )
@@ -57,7 +57,7 @@ def ctx_without_backend() -> ToolContext:
     return ToolContext(
         client=BackendClient("http://backend-inexistente"),
         auditor=Auditor(),
-        exigir_auth=True,
+        require_auth=True,
     )
 
 
@@ -79,7 +79,7 @@ def client_without_auth(
     the user's browser resolving to 127.0.0.1 and driving a server that trusts
     whoever reaches it. So the Host/Origin guard is asserted here.
     """
-    ctx_without_backend.exigir_auth = False
+    ctx_without_backend.require_auth = False
     app = build_app(ctx_without_backend, config=settings_, con_auth=False)
     with TestClient(app, base_url="http://localhost:8080") as c:
         yield c
@@ -115,9 +115,9 @@ class TestAuthentication:
         """A 401 without WWW-Authenticate leaves a compliant client with nowhere
         to go: it cannot discover the authorization server."""
         response = client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
-        cabecera = response.headers.get("www-authenticate", "")
-        assert cabecera.lower().startswith("bearer")
-        assert "resource_metadata" in cabecera
+        header = response.headers.get("www-authenticate", "")
+        assert header.lower().startswith("bearer")
+        assert "resource_metadata" in header
 
     def test_a_garbage_token_is_401_too(self, client: TestClient) -> None:
         response = client.post(
@@ -131,7 +131,7 @@ class TestAuthentication:
         response = client.get("/.well-known/oauth-protected-resource")
         assert response.status_code == 200
         body = response.json()
-        assert body["resource"].rstrip("/") == PUBLICA
+        assert body["resource"].rstrip("/") == PUBLIC
         assert "http://localhost:9000" in [s.rstrip("/") for s in body["authorization_servers"]]
 
     def test_the_metadata_does_not_require_authentication(self, client: TestClient) -> None:
@@ -146,7 +146,7 @@ class TestAuthentication:
 
 class TestTransportGuards:
     @pytest.mark.parametrize(
-        "origen",
+        "origin",
         [
             "http://evil.test",
             "https://atacante.example",
@@ -155,21 +155,21 @@ class TestTransportGuards:
         ],
     )
     def test_an_origin_that_is_not_allowed_is_refused(
-        self, client_without_auth: TestClient, origen: str
+        self, client_without_auth: TestClient, origin: str
     ) -> None:
         response = client_without_auth.post(
-            "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": origen}
+            "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": origin}
         )
         # A bad Origin is a forbidden *caller* (403); a bad Host is a request
         # that arrived at the wrong server (421). The SDK distinguishes them.
         assert response.status_code == 403, (
-            f"Origin '{origen}' no fue refused: una página web podría manejar "
+            f"Origin '{origin}' no fue refused: una página web podría manejar "
             "este servidor con las credenciales del usuario"
         )
 
     def test_an_allowed_origin_passes_the_guard(self, client_without_auth: TestClient) -> None:
         response = client_without_auth.post(
-            "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": PUBLICA}
+            "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": PUBLIC}
         )
         assert response.status_code == 200, (
             "el Origin permitido debería atravesar la guarda; si falla, la lista "
@@ -223,51 +223,51 @@ class TestTransportGuards:
 
 class TestSlidingWindow:
     def test_it_allows_up_to_the_limit(self) -> None:
-        ventana = SlidingWindow(limit=3, ventana=60)
-        assert [ventana.allow("a", now=0)[0] for _ in range(3)] == [True] * 3
-        assert ventana.allow("a", now=0)[0] is False
+        window = SlidingWindow(limit=3, window=60)
+        assert [window.allow("a", now=0)[0] for _ in range(3)] == [True] * 3
+        assert window.allow("a", now=0)[0] is False
 
     def test_the_suggested_wait_is_useful(self) -> None:
-        ventana = SlidingWindow(limit=1, ventana=60)
-        ventana.allow("a", now=100)
-        allowed, espera = ventana.allow("a", now=110)
+        window = SlidingWindow(limit=1, window=60)
+        window.allow("a", now=100)
+        allowed, wait = window.allow("a", now=110)
         assert allowed is False
-        assert 49 <= espera <= 50
+        assert 49 <= wait <= 50
 
     def test_it_slides_rather_than_using_a_fixed_window(self) -> None:
         """A fixed window lets a caller fire the whole budget at the seam and
         again immediately after: twice the intended rate."""
-        ventana = SlidingWindow(limit=2, ventana=10)
-        ventana.allow("a", now=0)
-        ventana.allow("a", now=9)
-        assert ventana.allow("a", now=9.5)[0] is False
-        assert ventana.allow("a", now=10.1)[0] is True
+        window = SlidingWindow(limit=2, window=10)
+        window.allow("a", now=0)
+        window.allow("a", now=9)
+        assert window.allow("a", now=9.5)[0] is False
+        assert window.allow("a", now=10.1)[0] is True
 
     def test_every_key_has_its_own_budget(self) -> None:
         """Limiting purely by IP would let one agent starve everyone behind the
         same NAT."""
-        ventana = SlidingWindow(limit=1, ventana=60)
-        assert ventana.allow("sub:ana", now=0)[0] is True
-        assert ventana.allow("sub:bruno", now=0)[0] is True
-        assert ventana.allow("sub:ana", now=0)[0] is False
+        window = SlidingWindow(limit=1, window=60)
+        assert window.allow("sub:ana", now=0)[0] is True
+        assert window.allow("sub:bruno", now=0)[0] is True
+        assert window.allow("sub:ana", now=0)[0] is False
 
 
 class TestRateLimitMiddleware:
     @pytest.fixture
     def rate_limited_app(self) -> Starlette:
-        reloj = itertools.count(0, 0)  # frozen clock: every call is "now"
+        clock = itertools.count(0, 0)  # frozen clock: every call is "now"
 
         async def ok(_: Request) -> PlainTextResponse:
             return PlainTextResponse("ok")
 
         app = Starlette(routes=[Route("/ping", ok)])
-        app.add_middleware(RequestLimiter, limit=3, ventana_segundos=60, reloj=lambda: next(reloj))
+        app.add_middleware(RequestLimiter, limit=3, window_seconds=60, clock=lambda: next(clock))
         return app
 
     def test_cuts_off_past_the_limit(self, rate_limited_app: Starlette) -> None:
         with TestClient(rate_limited_app) as c:
-            codigos = [c.get("/ping").status_code for _ in range(5)]
-        assert codigos == [200, 200, 200, 429, 429]
+            codes = [c.get("/ping").status_code for _ in range(5)]
+        assert codes == [200, 200, 200, 429, 429]
 
     def test_the_429_explains_how_long_to_wait(self, rate_limited_app: Starlette) -> None:
         with TestClient(rate_limited_app) as c:
@@ -279,7 +279,7 @@ class TestRateLimitMiddleware:
         body = response.json()
         assert body["code"] == "RATE_LIMIT_EXCEEDED"
         # It must tell an agent in a retry loop to stop looping.
-        assert "bucle de reintentos" in body["suggestion"]
+        assert "retry loop" in body["suggestion"]
 
     def test_the_error_uses_the_same_structured_envelope(self, rate_limited_app: Starlette) -> None:
         with TestClient(rate_limited_app) as c:
@@ -295,8 +295,8 @@ class TestRateLimitMiddleware:
         async def app(scope: Any, receive: Any, send: Any) -> None:
             visto.append(scope["type"])
 
-        limitador = RequestLimiter(app, limit=0, ventana_segundos=60)
-        await limitador({"type": "lifespan"}, None, None)  # type: ignore[arg-type]
+        limiter = RequestLimiter(app, limit=0, window_seconds=60)
+        await limiter({"type": "lifespan"}, None, None)  # type: ignore[arg-type]
         assert visto == ["lifespan"]
 
 
@@ -310,10 +310,10 @@ class TestBackendUnreachable:
 
 class TestBackendClientOnFailure:
     async def test_a_backend_that_is_down_gives_an_actionable_error(self) -> None:
-        transporte = httpx.MockTransport(
+        transport = httpx.MockTransport(
             lambda _: (_ for _ in ()).throw(httpx.ConnectError("sin ruta al host"))
         )
-        async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
+        async with httpx.AsyncClient(transport=transport, base_url="http://backend") as http:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
                 await client.get_object("/clinic")
@@ -322,18 +322,18 @@ class TestBackendClientOnFailure:
         assert "do not retry in a loop" in message
 
     async def test_a_response_with_an_unexpected_shape_is_detected(self) -> None:
-        transporte = httpx.MockTransport(
+        transport = httpx.MockTransport(
             lambda _: httpx.Response(200, json=["no", "es", "un", "objeto"])
         )
-        async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
+        async with httpx.AsyncClient(transport=transport, base_url="http://backend") as http:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
                 await client.get_object("/clinic")
         assert "RESPUESTA_INESPERADA" in str(exc.value)
 
     async def test_an_error_without_an_envelope_does_not_blow_up(self) -> None:
-        transporte = httpx.MockTransport(lambda _: httpx.Response(502, text="bad gateway"))
-        async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
+        transport = httpx.MockTransport(lambda _: httpx.Response(502, text="bad gateway"))
+        async with httpx.AsyncClient(transport=transport, base_url="http://backend") as http:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
                 await client.get_object("/clinic")
@@ -353,13 +353,13 @@ class TestProtectedResourceMetadata:
     def test_points_at_the_authorization_server(self, client: TestClient) -> None:
         body = client.get("/.well-known/oauth-protected-resource").json()
         assert body["authorization_servers"] == ["http://localhost:9000"]
-        assert body["resource"] == PUBLICA
+        assert body["resource"] == PUBLIC
 
     def test_the_documentation_points_at_something_that_exists(self, client: TestClient) -> None:
         """It must not point at a path on this server: the MCP surface is /mcp
         and the discovery documents, nothing else."""
         body = client.get("/.well-known/oauth-protected-resource").json()
-        assert not body["resource_documentation"].startswith(PUBLICA)
+        assert not body["resource_documentation"].startswith(PUBLIC)
         assert body["resource_documentation"].startswith("https://")
 
     def test_there_is_a_single_handler_on_that_route(
@@ -377,8 +377,8 @@ class TestProtectedResourceMetadata:
 
     def test_the_401_points_at_this_document(self, client: TestClient) -> None:
         response = client.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
-        cabecera = response.headers["www-authenticate"]
-        assert "/.well-known/oauth-protected-resource" in cabecera
+        header = response.headers["www-authenticate"]
+        assert "/.well-known/oauth-protected-resource" in header
 
 
 class TestStatelessTransport:
@@ -431,6 +431,6 @@ class TestStatelessTransport:
         resumability should not require a rewrite."""
         with_session = settings_.model_copy(update={"mcp_stateless": False})
         app = build_app(ctx_without_backend, config=with_session, con_auth=False)
-        with TestClient(app, base_url=PUBLICA) as c:
+        with TestClient(app, base_url=PUBLIC) as c:
             response = c.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
         assert "mcp-session-id" in {k.lower() for k in response.headers}

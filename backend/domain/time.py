@@ -86,10 +86,10 @@ def hours_until(occurred_at: datetime, *, since: datetime | None = None) -> floa
     return (to_utc(occurred_at) - to_utc(reference)).total_seconds() / 3600
 
 
-def within_confirmation_window(inicio_cita: datetime, *, now: datetime | None = None) -> bool:
+def within_confirmation_window(appointment_start: datetime, *, now: datetime | None = None) -> bool:
     """True when the appointment is close enough that confirmation is due."""
-    restantes = hours_until(inicio_cita, since=now)
-    return 0 <= restantes <= CONFIRMATION_WINDOW.total_seconds() / 3600
+    remaining = hours_until(appointment_start, since=now)
+    return 0 <= remaining <= CONFIRMATION_WINDOW.total_seconds() / 3600
 
 
 def slots_for_day(day: date) -> list[tuple[datetime, datetime]]:

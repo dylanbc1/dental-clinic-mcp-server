@@ -25,8 +25,8 @@ KEY_SIZE = 2048
 
 
 def _b64uint(value: int) -> str:
-    crudo = value.to_bytes((value.bit_length() + 7) // 8, "big")
-    return base64.urlsafe_b64encode(crudo).decode().rstrip("=")
+    raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +73,7 @@ def load_from_env() -> KeyPair | None:
         return None
     private = serialization.load_pem_private_key(pem.encode(), password=None)
     if not isinstance(private, rsa.RSAPrivateKey):
-        raise ValueError(f"{KEY_ENV_VAR} no contiene una llave RSA privada")
+        raise ValueError(f"{KEY_ENV_VAR} does not hold an RSA private key")
     return KeyPair(private=private, kid="environment", ephemeral=False)
 
 

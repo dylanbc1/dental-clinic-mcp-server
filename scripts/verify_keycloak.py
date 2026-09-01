@@ -21,7 +21,7 @@ from scripts.smoke import HEADERS, MCPTestClient
 
 KEYCLOAK = "http://localhost:9100/realms/clinic"
 MCP_KEYCLOAK = "http://localhost:8081/mcp"
-MCP_PROPIO = "http://localhost:8080/mcp"
+MCP_OWN = "http://localhost:8080/mcp"
 
 
 def keycloak_token(scope: str = "read") -> str:
@@ -39,8 +39,8 @@ def keycloak_token(scope: str = "read") -> str:
     return str(response.json()["access_token"])
 
 
-def step(titulo: str) -> None:
-    print(f"\n\033[1m▸ {titulo}\033[0m")
+def step(title: str) -> None:
+    print(f"\n\033[1m▸ {title}\033[0m")
 
 
 def rejected(url: str, token: str) -> bool:
@@ -66,12 +66,12 @@ def main() -> int:
     print(f"  a real read: free slot {slot['start_local']}")
 
     step("3 · The two issuers are not interchangeable by accident")
-    if not rejected(MCP_PROPIO, kc):
+    if not rejected(MCP_OWN, kc):
         raise SystemExit("FAILURE: the in-repo server accepted a Keycloak token")
     print("  Keycloak token → in-repo AS server: 401 ✓")
 
-    propio = get_token("http://localhost:9000", "read", "recepcion@clinica.local")
-    if not rejected(MCP_KEYCLOAK, propio):
+    own = get_token("http://localhost:9000", "read", "recepcion@clinica.local")
+    if not rejected(MCP_KEYCLOAK, own):
         raise SystemExit("FAILURE: the Keycloak server accepted an in-repo AS token")
     print("  in-repo AS token → Keycloak server: 401 ✓")
 

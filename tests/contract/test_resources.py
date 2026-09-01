@@ -22,9 +22,9 @@ pytestmark = pytest.mark.integration
 
 
 async def leer(server_: MCPServer[Any], uri: str) -> Any:
-    contenidos = list(await server_.read_resource(uri))
-    assert contenidos, f"{uri} returned no content"
-    return json.loads(contenidos[0].content)
+    contents = list(await server_.read_resource(uri))
+    assert contents, f"{uri} returned no content"
+    return json.loads(contents[0].content)
 
 
 class TestResources:
@@ -35,10 +35,10 @@ class TestResources:
     async def test_every_resource_has_a_name_and_a_description(
         self, server_: MCPServer[Any]
     ) -> None:
-        for recurso in await server_.list_resources():
-            assert recurso.name
-            assert recurso.description and len(recurso.description) > 40
-            assert recurso.mime_type == "application/json"
+        for resource in await server_.list_resources():
+            assert resource.name
+            assert resource.description and len(resource.description) > 40
+            assert resource.mime_type == "application/json"
 
     async def test_clinic_info_carries_the_real_professionals(
         self, server_: MCPServer[Any], scenario: Scenario
@@ -56,10 +56,10 @@ class TestResources:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            politicas = await leer(server_, "politicas://cartera")
-        assert politicas["particular_tariffs"]["endodontics"] == "350000"
-        assert politicas["no_show_amount"] == "40000"
-        assert "never a block" in politicas["note"]
+            policies = await leer(server_, "politicas://cartera")
+        assert policies["particular_tariffs"]["endodontics"] == "350000"
+        assert policies["no_show_amount"] == "40000"
+        assert "never a block" in policies["note"]
 
     async def test_todays_agenda_answers_even_with_no_appointments(
         self, server_: MCPServer[Any], scenario: Scenario
@@ -118,7 +118,7 @@ class TestPrompt:
         assert "Bogotá" in text_of
 
     @pytest.mark.parametrize(
-        "regla",
+        "rule",
         [
             "NUNCA le digas al paciente",
             "No das consejo clínico",
@@ -129,14 +129,14 @@ class TestPrompt:
         ],
     )
     async def test_the_prompt_states_the_agents_limits(
-        self, server_: MCPServer[Any], scenario: Scenario, regla: str
+        self, server_: MCPServer[Any], scenario: Scenario, rule: str
     ) -> None:
         """Every rule the domain enforces is also stated in the prompt, so the
         agent does not have to discover them by hitting errors."""
         with as_caller(SUBJECT, ["read"]):
             result = await server_.get_prompt("recepcionista_odontologia")
         text_of = "\n".join(getattr(m.content, "text", "") for m in result.messages)
-        assert regla in text_of
+        assert rule in text_of
 
     async def test_the_prompt_says_when_to_escalate(
         self, server_: MCPServer[Any], scenario: Scenario

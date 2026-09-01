@@ -112,22 +112,22 @@ class TestSearchPatients:
         assert "clinical_data_consent" not in body
 
 
-class TestAfiliacion:
+class TestAffiliation:
     def test_active(self, client: TestClient, scenario: Scenario) -> None:
-        body = client.get(f"/patients/{scenario.ana_id}/afiliacion").json()
+        body = client.get(f"/patients/{scenario.ana_id}/affiliation").json()
         assert body["active"] is True
         assert body["blocks_booking"] is False
 
     def test_inactive_falls_back_to_particular(
         self, client: TestClient, scenario: Scenario
     ) -> None:
-        body = client.get(f"/patients/{scenario.bruno_id}/afiliacion").json()
+        body = client.get(f"/patients/{scenario.bruno_id}/affiliation").json()
         assert body["regimen"] == "subsidiado"
         assert body["effective_regimen"] == "particular"
         assert body["suggestion"]
 
     def test_nonexistent_patient_is_404(self, client: TestClient, scenario: Scenario) -> None:
-        assert client.get("/patients/999999/afiliacion").status_code == 404
+        assert client.get("/patients/999999/affiliation").status_code == 404
 
 
 class TestCartera:
@@ -137,7 +137,7 @@ class TestCartera:
         assert body["charges"] == []
 
     def test_en_mora_with_detail(self, client: TestClient, scenario: Scenario) -> None:
-        body = client.get(f"/patients/{scenario.deudor_id}/cartera").json()
+        body = client.get(f"/patients/{scenario.debtor_id}/cartera").json()
         assert body["status"] == "en_mora"
         assert body["overdue_total"] == "180000"
         assert body["above_alert_threshold"] is True
@@ -155,7 +155,7 @@ class TestAvailability:
         """The model reasons in local time; the system stores UTC. Both ship."""
         slot = client.get("/availability").json()[0]
         assert slot["start_utc"].endswith("Z") or "+00:00" in slot["start_utc"]
-        assert slot["start_local"].startswith(str(scenario.fecha_futura))
+        assert slot["start_local"].startswith(str(scenario.future_date))
 
     def test_filters_by_specialty(self, client: TestClient, scenario: Scenario) -> None:
         body = client.get("/availability", params={"specialty": "orthodontics"}).json()
@@ -190,16 +190,16 @@ class TestAppointments:
     def test_the_listing_filters_by_range(
         self, client: TestClient, appointment_id: int, scenario: Scenario
     ) -> None:
-        lejos = (scenario.fecha_futura + timedelta(days=30)).isoformat()
+        far_off = (scenario.future_date + timedelta(days=30)).isoformat()
         body = client.get(
-            f"/patients/{scenario.ana_id}/appointments", params={"since": lejos}
+            f"/patients/{scenario.ana_id}/appointments", params={"since": far_off}
         ).json()
         assert body == []
 
     def test_the_day_agenda_summarises_by_status(
         self, client: TestClient, appointment_id: int, scenario: Scenario
     ) -> None:
-        body = client.get(f"/agenda/{scenario.fecha_futura}").json()
+        body = client.get(f"/agenda/{scenario.future_date}").json()
         assert body["total"] == 1
         assert body["by_status"] == {"scheduled": 1}
 
@@ -220,7 +220,7 @@ class TestBooking:
         body = response.json()
         assert body["appointment"]["status"] == "scheduled"
         assert body["appointment"]["created_by"] == ACTOR
-        assert body["afiliacion"]["active"] is True
+        assert body["affiliation"]["active"] is True
 
     def test_without_an_actor_header_it_uses_the_default(
         self, client: TestClient, scenario: Scenario
@@ -236,7 +236,7 @@ class TestBooking:
     ) -> None:
         response = client.post(
             "/appointments",
-            json={"patient_id": scenario.deudor_id, "slot_id": scenario.slots_general[0]},
+            json={"patient_id": scenario.debtor_id, "slot_id": scenario.slots_general[0]},
             headers=HEADERS,
         )
         assert response.status_code == 200
@@ -253,12 +253,12 @@ class TestBooking:
         assert response.status_code == 409
         body = response.json()
         assert body["code"] == "SLOT_UNAVAILABLE"
-        assert body["details"]["alternativas"]
+        assert body["details"]["alternatives"]
 
     def test_past_slot_answers_400(self, client: TestClient, scenario: Scenario) -> None:
         response = client.post(
             "/appointments",
-            json={"patient_id": scenario.ana_id, "slot_id": scenario.slot_pasado_id},
+            json={"patient_id": scenario.ana_id, "slot_id": scenario.past_slot_id},
             headers=HEADERS,
         )
         assert response.status_code == 400
@@ -408,7 +408,7 @@ class TestWaitingListApi:
         )
         body = client.post(
             "/waiting-list/offer",
-            json={"slot_id": scenario.slots_orto[0]},
+            json={"slot_id": scenario.ortho_slots[0]},
             headers=HEADERS,
         ).json()
         assert body["patient_id"] == scenario.ana_id
@@ -418,7 +418,7 @@ class TestWaitingListApi:
     def test_offering_with_an_empty_list_is_404(
         self, client: TestClient, scenario: Scenario
     ) -> None:
-        response = client.post("/waiting-list/offer", json={"slot_id": scenario.slots_orto[0]})
+        response = client.post("/waiting-list/offer", json={"slot_id": scenario.ortho_slots[0]})
         assert response.status_code == 404
         assert response.json()["code"] == "WAITING_LIST_EMPTY"
 
@@ -465,9 +465,9 @@ class TestErrorContract:
     """Every failure the API can produce shares one shape."""
 
     @pytest.mark.parametrize(
-        ("metodo", "path", "body"),
+        ("method", "path", "body"),
         [
-            ("get", "/patients/999999/afiliacion", None),
+            ("get", "/patients/999999/affiliation", None),
             ("get", "/patients/999999/cartera", None),
             ("get", "/appointments/999999", None),
             ("post", "/appointments/999999/confirm", None),
@@ -478,12 +478,12 @@ class TestErrorContract:
         self,
         client: TestClient,
         scenario: Scenario,
-        metodo: str,
+        method: str,
         path: str,
         body: dict[str, str] | None,
     ) -> None:
         response = (
-            getattr(client, metodo)(path, json=body) if body else getattr(client, metodo)(path)
+            getattr(client, method)(path, json=body) if body else getattr(client, method)(path)
         )
         assert response.status_code == 404
         payload = response.json()
@@ -511,9 +511,9 @@ class TestErrorContract:
     def test_no_error_response_leaks_internals(
         self, client: TestClient, scenario: Scenario
     ) -> None:
-        crudo = client.get("/appointments/999999").text
-        assert "Traceback" not in crudo
-        assert "sqlalchemy" not in crudo.lower()
+        raw = client.get("/appointments/999999").text
+        assert "Traceback" not in raw
+        assert "sqlalchemy" not in raw.lower()
 
 
 class TestFullFlow:
@@ -545,18 +545,18 @@ class TestFullFlow:
         assert cancelled["freed_slot"] is True
         assert cancelled["next_in_waiting_list"]["patient_id"] == scenario.carla_id
 
-        oferta = client.post(
+        offer = client.post(
             "/waiting-list/offer", json={"slot_id": slot["slot_id"]}, headers=HEADERS
         ).json()
-        assert oferta["patient_id"] == scenario.carla_id
+        assert offer["patient_id"] == scenario.carla_id
 
-        detalle = client.get(f"/appointments/{created['id']}").json()
-        assert [h["new_status"] for h in detalle["history"]] == [
+        detail = client.get(f"/appointments/{created['id']}").json()
+        assert [h["new_status"] for h in detail["history"]] == [
             "scheduled",
             "confirmed",
             "cancelled",
         ]
-        assert all(h["user"] in {"mcp-server", ACTOR} for h in detalle["history"])
+        assert all(h["user"] in {"mcp-server", ACTOR} for h in detail["history"])
 
 
 class TestBookableSlot:
@@ -567,7 +567,7 @@ class TestBookableSlot:
     ) -> None:
         body = client.get(f"/availability/{scenario.slots_general[0]}").json()
         assert body["slot_id"] == scenario.slots_general[0]
-        assert body["start_local"].startswith(str(scenario.fecha_futura))
+        assert body["start_local"].startswith(str(scenario.future_date))
         assert body["professional"] == "Dra. General"
 
     def test_a_taken_slot_is_409_with_alternatives(
@@ -577,10 +577,10 @@ class TestBookableSlot:
         assert response.status_code == 409
         body = response.json()
         assert body["code"] == "SLOT_UNAVAILABLE"
-        assert body["details"]["alternativas"]
+        assert body["details"]["alternatives"]
 
     def test_a_past_slot_is_400(self, client: TestClient, scenario: Scenario) -> None:
-        response = client.get(f"/availability/{scenario.slot_pasado_id}")
+        response = client.get(f"/availability/{scenario.past_slot_id}")
         assert response.status_code == 400
         assert response.json()["code"] == "SLOT_IN_THE_PAST"
 
@@ -592,15 +592,15 @@ class TestBookableSlot:
     ) -> None:
         """Both paths run the same validation, so a proposal that passes here
         cannot be rejected for a different reason on confirmation."""
-        for slot_id in (scenario.slot_pasado_id, 999999):
-            chequeo = client.get(f"/availability/{slot_id}")
+        for slot_id in (scenario.past_slot_id, 999999):
+            check = client.get(f"/availability/{slot_id}")
             booked = client.post(
                 "/appointments",
                 json={"patient_id": scenario.ana_id, "slot_id": slot_id},
                 headers=HEADERS,
             )
-            assert chequeo.status_code == booked.status_code
-            assert chequeo.json()["code"] == booked.json()["code"]
+            assert check.status_code == booked.status_code
+            assert check.json()["code"] == booked.json()["code"]
 
 
 class TestValidTransitions:
@@ -655,7 +655,7 @@ class TestFullBookingValidation:
         api_session.commit()
 
         response = client.get(
-            f"/availability/{scenario.slots_orto[0]}",
+            f"/availability/{scenario.ortho_slots[0]}",
             params={"patient_id": scenario.ana_id},
         )
         assert response.status_code == 409
@@ -671,7 +671,7 @@ class TestFullBookingValidation:
             user="setup",
         )
         api_session.commit()
-        assert client.get(f"/availability/{scenario.slots_orto[0]}").status_code == 200
+        assert client.get(f"/availability/{scenario.ortho_slots[0]}").status_code == 200
 
     def test_excluding_the_appointment_allows_rescheduling_onto_itself(
         self, client: TestClient, api_session: Session, scenario: Scenario
@@ -687,7 +687,7 @@ class TestFullBookingValidation:
         # The overlapping slot belongs to the appointment being moved, so with
         # the exclusion it must not count as a conflict.
         response = client.get(
-            f"/availability/{scenario.slots_orto[0]}",
+            f"/availability/{scenario.ortho_slots[0]}",
             params={"patient_id": scenario.ana_id, "exclude_appointment_id": appointment.id},
         )
         assert response.status_code == 200
@@ -713,14 +713,14 @@ class TestFullBookingValidation:
         )
         api_session.commit()
 
-        chequeo = client.get(
-            f"/availability/{scenario.slots_orto[0]}",
+        check = client.get(
+            f"/availability/{scenario.ortho_slots[0]}",
             params={"patient_id": scenario.ana_id},
         )
         booked = client.post(
             "/appointments",
-            json={"patient_id": scenario.ana_id, "slot_id": scenario.slots_orto[0]},
+            json={"patient_id": scenario.ana_id, "slot_id": scenario.ortho_slots[0]},
             headers=HEADERS,
         )
-        assert chequeo.status_code == booked.status_code == 409
-        assert chequeo.json()["code"] == booked.json()["code"]
+        assert check.status_code == booked.status_code == 409
+        assert check.json()["code"] == booked.json()["code"]

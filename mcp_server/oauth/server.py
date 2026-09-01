@@ -72,7 +72,7 @@ class AuthorizationCode:
     code_challenge: str
     scopes: list[str]
     subject: str
-    emitido_en: float
+    issued_at: float
     used: bool = False
 
 
@@ -87,13 +87,13 @@ class RegisteredClient:
 class AuthorizationServerState:
     """In-memory state. One process, development only, and said out loud."""
 
-    codigos: dict[str, AuthorizationCode] = field(default_factory=dict)
+    codes: dict[str, AuthorizationCode] = field(default_factory=dict)
     clientes: dict[str, RegisteredClient] = field(default_factory=dict)
 
     def purge(self, now: float) -> None:
-        overdue = [c for c, d in self.codigos.items() if now - d.emitido_en > CODE_TTL]
+        overdue = [c for c, d in self.codes.items() if now - d.issued_at > CODE_TTL]
         for code in overdue:
-            del self.codigos[code]
+            del self.codes[code]
 
 
 def _error(description: str, *, code: str = "invalid_request", status: int = 400) -> JSONResponse:
@@ -109,13 +109,13 @@ class AuthorizationServer:
         audience: str,
         scopes: list[str],
         ttl_token: int = 900,
-        par: KeyPair | None = None,
+        pair: KeyPair | None = None,
     ) -> None:
         self.issuer = issuer.rstrip("/")
         self.audience = audience
         self.scopes = scopes
         self.ttl_token = ttl_token
-        self.signing_keys = par or signing_keys()
+        self.signing_keys = pair or signing_keys()
         self.state = AuthorizationServerState()
         # A demo client so the quickstart and the MCP Inspector work with no
         # registration step. It is a *public* client: no secret, PKCE only.
@@ -125,7 +125,7 @@ class AuthorizationServer:
                 "http://localhost:6274/oauth/callback",
                 "http://localhost:8080/callback",
             ],
-            name="Cliente de demostración",
+            name="Demo client",
         )
 
     # --- discovery ---------------------------------------------------------
@@ -157,10 +157,10 @@ class AuthorizationServer:
         try:
             body = await request.json()
         except Exception:
-            return _error("El cuerpo debe ser JSON.")
+            return _error("The body must be JSON.")
         redirects = body.get("redirect_uris") or []
         if not isinstance(redirects, list) or not redirects:
-            return _error("redirect_uris es obligatorio y debe ser una lista no vacía.")
+            return _error("redirect_uris is required and must be a non-empty list.")
         client_id = f"c-{secrets.token_urlsafe(9)}"
         self.state.clientes[client_id] = RegisteredClient(
             client_id=client_id,
@@ -193,33 +193,33 @@ class AuthorizationServer:
         # Never redirect to an unregistered URI: that is an open redirect and an
         # authorization-code exfiltration path.
         if redirect_uri not in client.redirect_uris:
-            return _error("redirect_uri no registrada para este cliente.")
+            return _error("redirect_uri is not registered for this client.")
 
         if p.get("response_type") != "code":
             return self._redirect_error(
                 redirect_uri,
                 "unsupported_response_type",
-                "Solo se admite response_type=code.",
+                "Only response_type=code is supported.",
                 state,
             )
 
         challenge = p.get("code_challenge", "")
-        metodo = p.get("code_challenge_method", "")
-        if not challenge or metodo not in PKCE_METHODS:
+        method = p.get("code_challenge_method", "")
+        if not challenge or method not in PKCE_METHODS:
             return self._redirect_error(
                 redirect_uri,
                 "invalid_request",
-                "PKCE es obligatorio: envía code_challenge con code_challenge_method=S256.",
+                "PKCE is mandatory: send code_challenge with code_challenge_method=S256.",
                 state,
             )
 
-        solicitados = (p.get("scope") or "read").split()
-        desconocidos = [s for s in solicitados if s not in self.scopes]
-        if desconocidos:
+        requested = (p.get("scope") or "read").split()
+        unknown = [s for s in requested if s not in self.scopes]
+        if unknown:
             return self._redirect_error(
                 redirect_uri,
                 "invalid_scope",
-                f"Scopes no soportados: {', '.join(desconocidos)}.",
+                f"Unsupported scopes: {', '.join(unknown)}.",
                 state,
             )
 
@@ -230,14 +230,14 @@ class AuthorizationServer:
         code = secrets.token_urlsafe(24)
         now = time.time()
         self.state.purge(now)
-        self.state.codigos[code] = AuthorizationCode(
+        self.state.codes[code] = AuthorizationCode(
             code=code,
             client_id=client_id,
             redirect_uri=redirect_uri,
             code_challenge=challenge,
-            scopes=solicitados,
+            scopes=requested,
             subject=subject,
-            emitido_en=now,
+            issued_at=now,
         )
         target = f"{redirect_uri}?{urlencode({'code': code, 'state': state})}"
         return RedirectResponse(target, status_code=302)
@@ -252,35 +252,39 @@ class AuthorizationServer:
     # --- token -------------------------------------------------------------
 
     async def token(self, request: Request) -> JSONResponse:
-        formulario = await request.form()
-        if formulario.get("grant_type") != "authorization_code":
+        form = await request.form()
+        if form.get("grant_type") != "authorization_code":
             return _error(
-                "Solo se admite grant_type=authorization_code (OAuth 2.1).",
+                "Only grant_type=authorization_code is supported (OAuth 2.1).",
                 code="unsupported_grant_type",
             )
 
-        code = str(formulario.get("code", ""))
-        verifier = str(formulario.get("code_verifier", ""))
-        client_id = str(formulario.get("client_id", ""))
+        code = str(form.get("code", ""))
+        verifier = str(form.get("code_verifier", ""))
+        client_id = str(form.get("client_id", ""))
 
         now = time.time()
         self.state.purge(now)
-        issued = self.state.codigos.get(code)
+        issued = self.state.codes.get(code)
         if issued is None:
-            return _error("El código de autorización no existe o expiró.", code="invalid_grant")
+            return _error(
+                "The authorization code does not exist or has expired.", code="invalid_grant"
+            )
         if issued.used:
             # A replayed code means it leaked. Burn everything derived from it.
-            del self.state.codigos[code]
-            return _error("El código ya fue usado.", code="invalid_grant")
+            del self.state.codes[code]
+            return _error("The authorization code has already been used.", code="invalid_grant")
         if issued.client_id != client_id:
-            return _error("El código pertenece a otro cliente.", code="invalid_grant")
+            return _error(
+                "The authorization code belongs to a different client.", code="invalid_grant"
+            )
         if not verifier or not verify_pkce(verifier, issued.code_challenge):
             return _error(
-                "El code_verifier no corresponde al code_challenge.", code="invalid_grant"
+                "The code_verifier does not match the code_challenge.", code="invalid_grant"
             )
 
         issued.used = True
-        del self.state.codigos[code]
+        del self.state.codes[code]
 
         return JSONResponse(
             {
@@ -327,7 +331,7 @@ class AuthorizationServer:
     async def _start(self, _: Request) -> HTMLResponse:
         return HTMLResponse(
             "<h1>Authorization Server · dental-clinic-mcp</h1>"
-            "<p>Servidor de autorización de desarrollo. Metadata en "
+            "<p>Development authorization server. Metadata at "
             "<code>/.well-known/oauth-authorization-server</code>.</p>"
         )
 
@@ -367,8 +371,8 @@ def main() -> None:  # pragma: no cover - process entry point
     # The port comes from the public issuer so the two cannot drift apart; the
     # bind address is a deployment decision and stays loopback unless told
     # otherwise (docker-compose sets it explicitly).
-    puerto = int(settings_.oauth_issuer.rsplit(":", 1)[-1].split("/")[0] or 9000)
-    uvicorn.run(server_.app(), host=settings_.oauth_host, port=puerto)
+    port = int(settings_.oauth_issuer.rsplit(":", 1)[-1].split("/")[0] or 9000)
+    uvicorn.run(server_.app(), host=settings_.oauth_host, port=port)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -46,12 +46,12 @@ class Regimen(StrEnum):
 
 
 class DocumentType(StrEnum):
-    CC = "CC"  # cedula de ciudadania
-    TI = "TI"  # tarjeta de identidad (minors)
-    CE = "CE"  # cedula de extranjeria
-    PA = "PA"  # pasaporte
-    RC = "RC"  # registro civil
-    PPT = "PPT"  # permiso por proteccion temporal
+    CC = "CC"  # cedula de ciudadania: national ID, adults
+    TI = "TI"  # tarjeta de identidad: ID for minors
+    CE = "CE"  # cedula de extranjeria: foreign resident ID
+    PA = "PA"  # pasaporte: passport
+    RC = "RC"  # registro civil: birth record, under-7s
+    PPT = "PPT"  # permiso por proteccion temporal: Venezuelan migrant permit
 
 
 class Specialty(StrEnum):

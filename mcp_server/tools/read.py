@@ -59,21 +59,21 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="search_patients",
-        title="Buscar paciente",
+        title="Find a patient",
         description=(
-            "Finds a patient by documento (exact match) or by name (partial, "
+            "Finds a patient by document number (exact match) or by name (partial, "
             "case-insensitive). ALWAYS use it before booking or looking anything up: "
-            "every other tool works with the paciente_id this one returns. If the "
-            "documento does not turn up, do not invent an id, ask the patient for the "
-            "number again."
+            "every other tool works with the patient_id this one returns. If the "
+            "document number does not turn up, do not invent an id, ask the patient "
+            "for the number again."
         ),
     )
     async def search_patients(
         document_number: Annotated[
-            str | None, Field(description="Número de documento, sin puntos ni guiones.")
+            str | None, Field(description="Document number, no dots and no dashes.")
         ] = None,
         name: Annotated[
-            str | None, Field(description="Nombre o apellido, completo o parcial.")
+            str | None, Field(description="Given name or surname, whole or partial.")
         ] = None,
         limit: Annotated[int, Field(ge=1, le=25)] = 10,
     ) -> list[dict[str, Any]]:
@@ -87,7 +87,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="check_availability",
-        title="Consultar cupos disponibles",
+        title="Check available slots",
         description=(
             "Lists the FREE, future slots in the agenda. Filter by specialty, date "
             "(YYYY-MM-DD) or professional. Returns the time in the clinic's timezone "
@@ -106,7 +106,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 )
             ),
         ] = None,
-        day: Annotated[str | None, Field(description="AAAA-MM-DD")] = None,
+        day: Annotated[str | None, Field(description="YYYY-MM-DD")] = None,
         professional_id: int | None = None,
         limit: Annotated[int, Field(ge=1, le=25)] = 10,
     ) -> list[dict[str, Any]]:
@@ -129,7 +129,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="get_appointment",
-        title="Consultar una cita",
+        title="Look up an appointment",
         description=(
             "Full detail of one appointment: current state, patient, professional, "
             "time, and the change history with who did what and when. It also returns "
@@ -146,7 +146,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="list_patient_appointments",
-        title="Listar las citas de un paciente",
+        title="List a patient's appointments",
         description=(
             "A patient's appointment history, most recent first. Optionally filtered by "
             "date range (YYYY-MM-DD). It does not include the reason for consultation: "
@@ -155,8 +155,8 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
     )
     async def list_patient_appointments(
         patient_id: Annotated[int, Field(gt=0)],
-        since: Annotated[str | None, Field(description="AAAA-MM-DD")] = None,
-        until: Annotated[str | None, Field(description="AAAA-MM-DD")] = None,
+        since: Annotated[str | None, Field(description="YYYY-MM-DD")] = None,
+        until: Annotated[str | None, Field(description="YYYY-MM-DD")] = None,
         limit: Annotated[int, Field(ge=1, le=50)] = 20,
     ) -> list[dict[str, Any]]:
         return await _call(
@@ -169,7 +169,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="check_cartera",
-        title="Consultar la cartera del paciente",
+        title="Check the patient's cartera",
         description=(
             "The patient's outstanding cartera: what is overdue, how many days late, "
             "and the ageing breakdown. IMPORTANT: an overdue cartera does NOT prevent "
@@ -185,8 +185,8 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="validate_afiliacion",
-        title="Validar la afiliación del paciente",
+        name="validate_affiliation",
+        title="Validate the patient's affiliation",
         description=(
             "The patient's régimen de afiliación (contributivo, subsidiado, particular "
             "or SOAT) and whether it is active. It determines whether they pay a cuota "
@@ -195,9 +195,9 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "booking so you can tell the patient the cost."
         ),
     )
-    async def validate_afiliacion(patient_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
+    async def validate_affiliation(patient_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
         return await _call(
-            "validate_afiliacion",
+            "validate_affiliation",
             {"patient_id": patient_id},
-            lambda: ctx.client.get_object(f"/patients/{patient_id}/afiliacion"),
+            lambda: ctx.client.get_object(f"/patients/{patient_id}/affiliation"),
         )

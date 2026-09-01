@@ -29,10 +29,10 @@ from tests.conftest import (
 
 pytestmark = [pytest.mark.integration, pytest.mark.security]
 
-ESCRITURA = ["read", "write"]
+WRITE = ["read", "write"]
 
 
-def contar_citas(session_: Session) -> int:
+def count_appointments(session_: Session) -> int:
     return session_.scalar(select(func.count()).select_from(Appointment)) or 0
 
 
@@ -51,7 +51,7 @@ class TestConfidentiality:
         patient id and the operation in whatever the client logs. This one is
         encrypted, so it says nothing to anyone holding it.
         """
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             status = (await mcp.ask("book_appointment", args))["requestState"]
 
         # Only distinctive strings are worth asserting on: a bare id like "1"
@@ -60,51 +60,51 @@ class TestConfidentiality:
         assert "patient_id" not in status
         assert "slot_id" not in status
         assert SUBJECT not in status
-        assert scenario.ana_documento not in status
+        assert scenario.ana_document not in status
 
     async def test_the_state_is_versioned(self, mcp: MCPTestClient, args: dict[str, Any]) -> None:
         """A version prefix is what makes the format changeable later."""
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             status = (await mcp.ask("book_appointment", args))["requestState"]
         assert status.startswith("v1.")
 
     async def test_every_question_produces_a_distinct_state(
         self, mcp: MCPTestClient, args: dict[str, Any]
     ) -> None:
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             primero = (await mcp.ask("book_appointment", args))["requestState"]
-            segundo = (await mcp.ask("book_appointment", args))["requestState"]
-        assert primero != segundo
+            second_call = (await mcp.ask("book_appointment", args))["requestState"]
+        assert primero != second_call
 
 
 class TestIntegrity:
     async def test_a_tampered_state_is_refused(
         self, mcp: MCPTestClient, backend_session: Session, args: dict[str, Any]
     ) -> None:
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             question = await mcp.ask("book_appointment", args)
             tampered = {**question, "requestState": question["requestState"][:-4] + "AAAA"}
             with pytest.raises(ToolCallError):
                 await mcp.respond("book_appointment", args, tampered)
-        assert contar_citas(backend_session) == 0
+        assert count_appointments(backend_session) == 0
 
     async def test_an_invented_state_is_refused(
         self, mcp: MCPTestClient, args: dict[str, Any]
     ) -> None:
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             question = await mcp.ask("book_appointment", args)
-            falso = {**question, "requestState": "v1." + "A" * 300}
+            fake = {**question, "requestState": "v1." + "A" * 300}
             with pytest.raises(ToolCallError):
-                await mcp.respond("book_appointment", args, falso)
+                await mcp.respond("book_appointment", args, fake)
 
-    @pytest.mark.parametrize("basura", ["", "no-es-un-estado", "v1.", "v9.abc"])
+    @pytest.mark.parametrize("garbage", ["", "no-es-un-estado", "v1.", "v9.abc"])
     async def test_a_malformed_state_does_not_crash_the_server(
-        self, mcp: MCPTestClient, args: dict[str, Any], basura: str
+        self, mcp: MCPTestClient, args: dict[str, Any], garbage: str
     ) -> None:
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             question = await mcp.ask("book_appointment", args)
             with pytest.raises(ToolCallError):
-                await mcp.respond("book_appointment", args, {**question, "requestState": basura})
+                await mcp.respond("book_appointment", args, {**question, "requestState": garbage})
 
 
 class TestBoundToTheOperation:
@@ -123,24 +123,24 @@ class TestBoundToTheOperation:
         ).appointment
         backend_session.commit()
 
-        with as_caller(SUBJECT, ESCRITURA):
-            inocua = await mcp.ask("confirm_appointment", {"appointment_id": appointment.id})
+        with as_caller(SUBJECT, WRITE):
+            harmless = await mcp.ask("confirm_appointment", {"appointment_id": appointment.id})
             with pytest.raises(ToolCallError):
                 await mcp.respond(
                     "cancel_appointment",
                     {"appointment_id": appointment.id, "reason": "usando otra aprobación"},
-                    inocua,
+                    harmless,
                 )
 
     async def test_a_state_does_not_work_with_other_arguments(
         self, mcp: MCPTestClient, scenario: Scenario, args: dict[str, Any]
     ) -> None:
         """Approving a booking for one patient must not book another."""
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             question = await mcp.ask("book_appointment", args)
-            otros = {**args, "patient_id": scenario.carla_id}
+            others = {**args, "patient_id": scenario.carla_id}
             with pytest.raises(ToolCallError):
-                await mcp.respond("book_appointment", otros, question)
+                await mcp.respond("book_appointment", others, question)
 
 
 class TestBoundToThePrincipal:
@@ -149,12 +149,12 @@ class TestBoundToThePrincipal:
     ) -> None:
         """`bind_principal` ties the sealed state to the authenticated subject,
         so an approval is not transferable."""
-        with as_caller(SUBJECT, ESCRITURA):
+        with as_caller(SUBJECT, WRITE):
             question = await mcp.ask("book_appointment", args)
 
-        with as_caller("intruso@clinica.test", ESCRITURA), pytest.raises(ToolCallError):
+        with as_caller("intruso@clinica.test", WRITE), pytest.raises(ToolCallError):
             await mcp.respond("book_appointment", args, question)
-        assert contar_citas(backend_session) == 0
+        assert count_appointments(backend_session) == 0
 
 
 class TestExpiry:
@@ -168,22 +168,22 @@ class TestExpiry:
         """An approval granted a while ago does not authorise an action taken
         now. The TTL is what bounds "a while"."""
         breve = mcp_settings.model_copy(update={"request_state_ttl_seconds": 0.5})
-        async with http_server(ctx, breve) as corto:
-            with as_caller(SUBJECT, ESCRITURA):
-                question = await corto.ask("book_appointment", args)
+        async with http_server(ctx, breve) as short:
+            with as_caller(SUBJECT, WRITE):
+                question = await short.ask("book_appointment", args)
                 await asyncio.sleep(0.8)
                 with pytest.raises(ToolCallError):
-                    await corto.respond("book_appointment", args, question)
-        assert contar_citas(backend_session) == 0
+                    await short.respond("book_appointment", args, question)
+        assert count_appointments(backend_session) == 0
 
     async def test_within_the_window_it_still_works(
         self, ctx: ToolContext, mcp_settings: Settings, args: dict[str, Any]
     ) -> None:
         breve = mcp_settings.model_copy(update={"request_state_ttl_seconds": 30.0})
-        async with http_server(ctx, breve) as corto:
-            with as_caller(SUBJECT, ESCRITURA):
-                question = await corto.ask("book_appointment", args)
-                result = await corto.respond("book_appointment", args, question)
+        async with http_server(ctx, breve) as short:
+            with as_caller(SUBJECT, WRITE):
+                question = await short.ask("book_appointment", args)
+                result = await short.respond("book_appointment", args, question)
         assert result["appointment"]["status"] == "scheduled"
 
 
@@ -194,21 +194,21 @@ class TestKeyRotation:
     async def test_a_new_key_still_opens_what_the_old_one_sealed(
         self, ctx: ToolContext, mcp_settings: Settings, args: dict[str, Any]
     ) -> None:
-        vieja = "clave-vieja-de-treinta-y-dos-bytes-ok"
-        nueva = "clave-nueva-de-treinta-y-dos-bytes-ok"
+        old = "clave-vieja-de-treinta-y-dos-bytes-ok"
+        replacement = "clave-nueva-de-treinta-y-dos-bytes-ok"
 
         async with http_server(
-            ctx, mcp_settings.model_copy(update={"request_state_keys": [vieja]})
-        ) as antes:
-            with as_caller(SUBJECT, ESCRITURA):
-                question = await antes.ask("book_appointment", args)
+            ctx, mcp_settings.model_copy(update={"request_state_keys": [old]})
+        ) as before:
+            with as_caller(SUBJECT, WRITE):
+                question = await before.ask("book_appointment", args)
 
         # Mid-rotation: the new key seals, the old one still unseals.
         async with http_server(
-            ctx, mcp_settings.model_copy(update={"request_state_keys": [nueva, vieja]})
-        ) as durante:
-            with as_caller(SUBJECT, ESCRITURA):
-                result = await durante.respond("book_appointment", args, question)
+            ctx, mcp_settings.model_copy(update={"request_state_keys": [replacement, old]})
+        ) as during:
+            with as_caller(SUBJECT, WRITE):
+                result = await during.respond("book_appointment", args, question)
         assert result["appointment"]["status"] == "scheduled"
 
     async def test_once_the_old_key_is_withdrawn_its_state_stops_working(
@@ -218,21 +218,21 @@ class TestKeyRotation:
         args: dict[str, Any],
         backend_session: Session,
     ) -> None:
-        vieja = "clave-vieja-de-treinta-y-dos-bytes-ok"
-        nueva = "clave-nueva-de-treinta-y-dos-bytes-ok"
+        old = "clave-vieja-de-treinta-y-dos-bytes-ok"
+        replacement = "clave-nueva-de-treinta-y-dos-bytes-ok"
 
         async with http_server(
-            ctx, mcp_settings.model_copy(update={"request_state_keys": [vieja]})
-        ) as antes:
-            with as_caller(SUBJECT, ESCRITURA):
-                question = await antes.ask("book_appointment", args)
+            ctx, mcp_settings.model_copy(update={"request_state_keys": [old]})
+        ) as before:
+            with as_caller(SUBJECT, WRITE):
+                question = await before.ask("book_appointment", args)
 
         async with http_server(
-            ctx, mcp_settings.model_copy(update={"request_state_keys": [nueva]})
-        ) as despues:
-            with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError):
-                await despues.respond("book_appointment", args, question)
-        assert contar_citas(backend_session) == 0
+            ctx, mcp_settings.model_copy(update={"request_state_keys": [replacement]})
+        ) as after:
+            with as_caller(SUBJECT, WRITE), pytest.raises(ToolCallError):
+                await after.respond("book_appointment", args, question)
+        assert count_appointments(backend_session) == 0
 
 
 class TestNoStateOnTheServer:
@@ -244,11 +244,11 @@ class TestNoStateOnTheServer:
         executes. Two independent server instances stand in for two replicas.
         """
         async with http_server(ctx, mcp_settings) as replica_a:
-            with as_caller(SUBJECT, ESCRITURA):
+            with as_caller(SUBJECT, WRITE):
                 question = await replica_a.ask("book_appointment", args)
 
         async with http_server(ctx, mcp_settings) as replica_b:
-            with as_caller(SUBJECT, ESCRITURA):
+            with as_caller(SUBJECT, WRITE):
                 result = await replica_b.respond("book_appointment", args, question)
 
         assert result["appointment"]["status"] == "scheduled"

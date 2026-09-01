@@ -67,8 +67,10 @@ RENAMED_VALUES: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 #: Enum types whose name is itself generic. `regimen_enum`, `tipo_documento_enum`
-#: and `concepto_cargo_enum` keep theirs, matching the values they hold. There is
-#: no cartera type here: that state is computed per request, never stored.
+#: and `concepto_cargo_enum` are left alone at this revision; `a3f7c21b5e48`
+#: later moves the last two, on the grounds that a type name is structure even
+#: when the values inside it are Colombian legal terms. There is no cartera type
+#: here: that state is computed per request, never stored.
 RENAMED_TYPES: tuple[tuple[str, str], ...] = (
     ("estado_cita_enum", "appointment_state_enum"),
     ("estado_slot_enum", "slot_state_enum"),

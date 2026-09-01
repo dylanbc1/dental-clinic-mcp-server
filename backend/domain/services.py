@@ -25,7 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from backend.domain.afiliacion import AfiliacionResult, validate_afiliacion
+from backend.domain.affiliation import AffiliationResult, validate_affiliation
 from backend.domain.cartera import (
     DEFAULT_POLICY,
     CarteraPolicy,
@@ -105,7 +105,7 @@ class AvailableSlot:
 @dataclass(frozen=True, slots=True)
 class BookingResult:
     appointment: Appointment
-    afiliacion: AfiliacionResult
+    affiliation: AffiliationResult
     cartera_alert: str | None
     #: True when an identical idempotency key had already created this
     #: appointment. The caller reports success, not a duplicate.
@@ -117,7 +117,7 @@ class TransitionResult:
     appointment: Appointment
     effects: TransitionEffects
     created_charge: Charge | None = None
-    siguiente_en_espera: WaitingList | None = None
+    next_in_queue: WaitingList | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +239,7 @@ def list_available_slots(
         get_professional(session, professional_id)
         query = query.where(AgendaSlot.professional_id == professional_id)
 
-    filas = session.execute(query.order_by(AgendaSlot.start).limit(limit)).all()
+    rows = session.execute(query.order_by(AgendaSlot.start).limit(limit)).all()
     return [
         AvailableSlot(
             slot_id=slot.id,
@@ -249,7 +249,7 @@ def list_available_slots(
             start=slot.start,
             end=slot.end,
         )
-        for slot, professional in filas
+        for slot, professional in rows
     ]
 
 
@@ -275,17 +275,17 @@ def list_patient_appointments(
     return list(session.scalars(query.order_by(AgendaSlot.start.desc()).limit(limit)))
 
 
-def validate_patient_afiliacion(session: Session, patient_id: int) -> AfiliacionResult:
+def validate_patient_affiliation(session: Session, patient_id: int) -> AffiliationResult:
     patient = get_patient(session, patient_id)
-    return validate_afiliacion(
+    return validate_affiliation(
         patient.regimen,
-        patient.afiliacion_active,
+        patient.affiliation_active,
         cuota_moderadora_level=patient.cuota_moderadora_level,
     )
 
 
 def _pending_charges(session: Session, patient_id: int) -> list[PendingCharge]:
-    filas = session.scalars(
+    rows = session.scalars(
         select(Charge).where(Charge.patient_id == patient_id, Charge.status == ChargeState.PENDING)
     )
     return [
@@ -296,7 +296,7 @@ def _pending_charges(session: Session, patient_id: int) -> list[PendingCharge]:
             due_date=c.due_date,
             status=c.status,
         )
-        for c in filas
+        for c in rows
     ]
 
 
@@ -388,7 +388,7 @@ def bookable_slot(session: Session, slot_id: int, *, now: datetime | None = None
             details={"slot_id": slot_id, "start": slot.start.isoformat()},
         )
     if slot.status is not SlotState.FREE:
-        alternativas = list_available_slots(
+        alternatives = list_available_slots(
             session,
             specialty=slot.professional.specialty,
             limit=SUGGESTED_ALTERNATIVES,
@@ -397,14 +397,14 @@ def bookable_slot(session: Session, slot_id: int, *, now: datetime | None = None
         raise SlotUnavailable(
             f"The slot at {to_clinic_time(slot.start):%Y-%m-%d %H:%M} is no longer free.",
             suggestion=(
-                "The closest free slots are: " + ", ".join(a.label for a in alternativas) + "."
-                if alternativas
+                "The closest free slots are: " + ", ".join(a.label for a in alternatives) + "."
+                if alternatives
                 else "There are no free slots coming up for that specialty."
             ),
             details={
                 "slot_id": slot_id,
-                "alternativas": [
-                    {"slot_id": a.slot_id, "start": a.start.isoformat()} for a in alternativas
+                "alternatives": [
+                    {"slot_id": a.slot_id, "start": a.start.isoformat()} for a in alternatives
                 ],
             },
         )
@@ -437,7 +437,7 @@ def validate_booking(
                 f"Ask for availability with especialidad='{expected_specialty}' and book again."
             ),
             details={
-                "especialidad_del_cupo": str(slot.professional.specialty),
+                "slot_specialty": str(slot.professional.specialty),
                 "requested_specialty": str(expected_specialty),
             },
         )
@@ -463,7 +463,7 @@ def validate_booking(
                     f"Cancel or reschedule appointment {overlapping.id} before booking "
                     "another one at the same time."
                 ),
-                details={"cita_existente_id": overlapping.id},
+                details={"existing_appointment_id": overlapping.id},
             )
 
     return slot
@@ -494,7 +494,7 @@ def book_appointment(
             # The retry of a call that already succeeded is a success.
             return BookingResult(
                 appointment=existing,
-                afiliacion=validate_patient_afiliacion(session, existing.patient_id),
+                affiliation=validate_patient_affiliation(session, existing.patient_id),
                 cartera_alert=None,
                 reused=True,
             )
@@ -508,12 +508,12 @@ def book_appointment(
         now=reference,
     )
 
-    afiliacion = validate_afiliacion(
+    affiliation = validate_affiliation(
         patient.regimen,
-        patient.afiliacion_active,
+        patient.affiliation_active,
         cuota_moderadora_level=patient.cuota_moderadora_level,
     )
-    alerta = booking_warning(get_cartera(session, patient_id))
+    warning = booking_warning(get_cartera(session, patient_id))
 
     appointment = Appointment(
         patient_id=patient_id,
@@ -546,7 +546,7 @@ def book_appointment(
         user=user,
     )
     session.flush()
-    return BookingResult(appointment=appointment, afiliacion=afiliacion, cartera_alert=alerta)
+    return BookingResult(appointment=appointment, affiliation=affiliation, cartera_alert=warning)
 
 
 def _create_charge(
@@ -594,7 +594,7 @@ def change_state(
     if new_state is AppointmentState.CANCELLED:
         appointment.cancellation_reason = reason
 
-    if effects.libera_slot:
+    if effects.releases_slot:
         appointment.slot.status = SlotState.FREE
 
     _audit(
@@ -611,13 +611,13 @@ def change_state(
         charge_date = hoy or to_clinic_time(appointment.slot.start).date()
         calculated = None
         if new_state is AppointmentState.ATTENDED:
-            afiliacion = validate_afiliacion(
+            affiliation = validate_affiliation(
                 appointment.patient.regimen,
-                appointment.patient.afiliacion_active,
+                appointment.patient.affiliation_active,
                 cuota_moderadora_level=appointment.patient.cuota_moderadora_level,
             )
             calculated = charge_for_visit(
-                afiliacion,
+                affiliation,
                 str(appointment.professional.specialty),
                 cuota_moderadora_level=appointment.patient.cuota_moderadora_level,
             )
@@ -636,19 +636,19 @@ def change_state(
             )
 
     next_up: WaitingList | None = None
-    if effects.dispara_lista_espera:
+    if effects.triggers_waiting_list:
         next_up = _next_candidate(
-            session, appointment.professional.specialty, excluir=appointment.patient_id
+            session, appointment.professional.specialty, exclude=appointment.patient_id
         )
 
     session.flush()
     return TransitionResult(
-        appointment=appointment, effects=effects, created_charge=charge, siguiente_en_espera=next_up
+        appointment=appointment, effects=effects, created_charge=charge, next_in_queue=next_up
     )
 
 
 def _next_candidate(
-    session: Session, specialty: Specialty, *, excluir: int | None = None
+    session: Session, specialty: Specialty, *, exclude: int | None = None
 ) -> WaitingList | None:
     """Peek at the head of the waiting list. Returns ``None`` when empty.
 
@@ -663,22 +663,22 @@ def _next_candidate(
         chosen = next_in_queue(
             as_entries,
             specialty,
-            excluir_pacientes=frozenset({excluir}) if excluir is not None else frozenset(),
+            exclude_patients=frozenset({exclude}) if exclude is not None else frozenset(),
         )
     except WaitingListEmpty:
         return None
     return next(e for e in entries if e.id == chosen.entry_id)
 
 
-def to_queue_entry(fila: WaitingList) -> WaitingListEntry:
+def to_queue_entry(row: WaitingList) -> WaitingListEntry:
     """Adapt a persisted row to the pure ordering type of `lista_espera`."""
     return WaitingListEntry(
-        entry_id=fila.id,
-        patient_id=fila.patient_id,
-        specialty=fila.specialty,
-        priority=fila.priority,
-        created_at=fila.created_at,
-        status=fila.status,
+        entry_id=row.id,
+        patient_id=row.patient_id,
+        specialty=row.specialty,
+        priority=row.priority,
+        created_at=row.created_at,
+        status=row.status,
     )
 
 
@@ -717,7 +717,7 @@ def reschedule_appointment(
     """
     reference = now or now_utc()
     original = get_appointment(session, appointment_id)
-    nuevo_slot = validate_booking(
+    new_slot = validate_booking(
         session,
         new_slot_id,
         patient_id=original.patient_id,
@@ -733,21 +733,21 @@ def reschedule_appointment(
         reason=reason or "Reschedule requested",
     )
 
-    nueva = Appointment(
+    replacement = Appointment(
         patient_id=original.patient_id,
-        professional_id=nuevo_slot.professional_id,
-        slot_id=nuevo_slot.id,
+        professional_id=new_slot.professional_id,
+        slot_id=new_slot.id,
         status=AppointmentState.SCHEDULED,
         created_by=user,
         source_appointment_id=original.id,
     )
-    nuevo_slot.status = SlotState.BUSY
-    session.add(nueva)
+    new_slot.status = SlotState.BUSY
+    session.add(replacement)
     session.flush()
 
     _audit(
         session,
-        nueva,
+        replacement,
         previous_status=None,
         new_status=AppointmentState.SCHEDULED,
         user=user,
@@ -755,7 +755,7 @@ def reschedule_appointment(
     )
     session.flush()
     return TransitionResult(
-        appointment=nueva, effects=result.effects, siguiente_en_espera=result.siguiente_en_espera
+        appointment=replacement, effects=result.effects, next_in_queue=result.next_in_queue
     )
 
 
@@ -774,19 +774,19 @@ def offer_slot_to_waiting_list(
     entries = waiting_list_entries(session, specialty)
     as_entries = [to_queue_entry(e) for e in entries]
     chosen = next_in_queue(as_entries, specialty)
-    fila = next(e for e in entries if e.id == chosen.entry_id)
+    row = next(e for e in entries if e.id == chosen.entry_id)
     position = [d.entry_id for d in sorted(as_entries, key=lambda d: d.sort_key)].index(
         chosen.entry_id
     ) + 1
 
-    fila.status = WaitingListState.OFFERED
-    fila.offered_at = reference
-    fila.offered_slot_id = slot.id
+    row.status = WaitingListState.OFFERED
+    row.offered_at = reference
+    row.offered_slot_id = slot.id
     session.flush()
 
     return SlotOffer(
-        entry=fila,
-        patient=fila.patient,
+        entry=row,
+        patient=row.patient,
         slot=slot,
         original_position=position,
     )

@@ -29,7 +29,7 @@ REQUIRED_SCOPE: dict[str, Scope] = {
     "get_appointment": Scope.READ,
     "list_patient_appointments": Scope.READ,
     "check_cartera": Scope.READ,
-    "validate_afiliacion": Scope.READ,
+    "validate_affiliation": Scope.READ,
     "book_appointment": Scope.WRITE,
     "confirm_appointment": Scope.WRITE,
     "cancel_appointment": Scope.WRITE,
@@ -42,13 +42,13 @@ REQUIRED_SCOPE: dict[str, Scope] = {
 #: Minimal valid-shaped arguments per tool. The values point at rows that do not
 #: exist, which is deliberate: the scope check must happen before any lookup, so
 #: a denial cannot depend on the data, and cannot leak whether it exists.
-ARGUMENTOS: dict[str, dict[str, Any]] = {
+ARGUMENTS: dict[str, dict[str, Any]] = {
     "search_patients": {"document_number": "11111111"},
     "check_availability": {},
     "get_appointment": {"appointment_id": 424242},
     "list_patient_appointments": {"patient_id": 424242},
     "check_cartera": {"patient_id": 424242},
-    "validate_afiliacion": {"patient_id": 424242},
+    "validate_affiliation": {"patient_id": 424242},
     "book_appointment": {"patient_id": 424242, "slot_id": 424242},
     "confirm_appointment": {"appointment_id": 424242},
     "cancel_appointment": {"appointment_id": 424242, "reason": "motivo de prueba"},
@@ -58,7 +58,7 @@ ARGUMENTOS: dict[str, dict[str, Any]] = {
     "record_visit_reason": {"appointment_id": 424242, "reason": "dolor de muela"},
 }
 
-MATRIZ = list(itertools.product(sorted(REQUIRED_SCOPE), list(Scope)))
+MATRIX = list(itertools.product(sorted(REQUIRED_SCOPE), list(Scope)))
 
 
 async def error_from(mcp: MCPTestClient, name: str, arguments: dict[str, Any]) -> str:
@@ -77,13 +77,13 @@ async def error_from(mcp: MCPTestClient, name: str, arguments: dict[str, Any]) -
 
 
 class TestScopeMatrix:
-    @pytest.mark.parametrize(("tool_name", "scope"), MATRIZ, ids=lambda v: str(v))
+    @pytest.mark.parametrize(("tool_name", "scope"), MATRIX, ids=lambda v: str(v))
     async def test_every_tool_and_scope_combination(
         self, mcp: MCPTestClient, scenario: Scenario, tool_name: str, scope: Scope
     ) -> None:
         required = REQUIRED_SCOPE[tool_name]
         with as_caller(SUBJECT, [str(scope)]):
-            message = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
+            message = await error_from(mcp, tool_name, ARGUMENTS[tool_name])
 
         if scope is required:
             # It may still fail on the data, since the ids do not exist, but
@@ -95,13 +95,13 @@ class TestScopeMatrix:
             )
 
     def test_the_matrix_covers_every_combination(self) -> None:
-        assert len(MATRIZ) == 13 * 3 == 39
+        assert len(MATRIX) == 13 * 3 == 39
 
     async def test_the_matrix_leaves_no_tool_out(self, server_: Any) -> None:
         """A tool added later without a scope decision fails this test rather
         than shipping ungated."""
-        declaradas = {t.name for t in await server_.list_tools()}
-        assert declaradas == set(REQUIRED_SCOPE)
+        declared = {t.name for t in await server_.list_tools()}
+        assert declared == set(REQUIRED_SCOPE)
 
 
 class TestScopesDoNotNest:
@@ -168,7 +168,7 @@ class TestWithoutToken:
     ) -> None:
         """No token means no identity. Never a permissive default."""
         for tool_name in REQUIRED_SCOPE:
-            message = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
+            message = await error_from(mcp, tool_name, ARGUMENTS[tool_name])
             assert "NOT_AUTHENTICATED" in message, f"{tool_name} answered without a token"
 
     async def test_a_token_without_scopes_opens_nothing(
@@ -176,7 +176,7 @@ class TestWithoutToken:
     ) -> None:
         with as_caller(SUBJECT, []):
             for tool_name in REQUIRED_SCOPE:
-                message = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
+                message = await error_from(mcp, tool_name, ARGUMENTS[tool_name])
                 assert "INSUFFICIENT_SCOPE" in message
 
 
@@ -270,9 +270,9 @@ class TestTheOrderOfTheChecks:
                 "cancel_appointment",
                 {"appointment_id": 1, "reason": "prueba manual"},
             )
-        evento = ctx.auditor.events[-1]
-        assert evento["result"] == "error"
-        assert evento["error_code"] == "INSUFFICIENT_SCOPE"
+        event = ctx.auditor.events[-1]
+        assert event["result"] == "error"
+        assert event["error_code"] == "INSUFFICIENT_SCOPE"
 
     async def test_with_the_right_scope_it_does_warn_about_the_client(
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario

@@ -67,10 +67,10 @@ class TransitionEffects:
 
     previous_status: AppointmentState
     new_status: AppointmentState
-    libera_slot: bool
+    releases_slot: bool
     genera_cargo: bool
-    dispara_lista_espera: bool
-    requiere_auditoria: bool = True
+    triggers_waiting_list: bool
+    requires_audit: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +82,7 @@ class HistoryRecord:
     user: str
     occurred_at: datetime
     reason: str | None = None
-    metadatos: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 def reachable_states(status: AppointmentState) -> frozenset[AppointmentState]:
@@ -119,7 +119,7 @@ def validate_transition(
                 suggestion=(
                     "If the patient needs another visit, book a new one with book_appointment."
                 ),
-                details={"estado_actual": str(current), "requested_state": str(new_state)},
+                details={"current_state": str(current), "requested_state": str(new_state)},
                 code=ErrorCode.APPOINTMENT_IN_FINAL_STATE,
             )
         raise InvalidTransition(
@@ -128,7 +128,7 @@ def validate_transition(
                 "From this state only these are valid: " + ", ".join(str(e) for e in allowed) + "."
             ),
             details={
-                "estado_actual": str(current),
+                "current_state": str(current),
                 "requested_state": str(new_state),
                 "valid_transitions": [str(e) for e in allowed],
             },
@@ -144,14 +144,14 @@ def validate_transition(
             details={"requested_state": str(new_state)},
         )
 
-    libera = new_state in TRANSITIONS_FREEING_SLOT
+    releases = new_state in TRANSITIONS_FREEING_SLOT
     return TransitionEffects(
         previous_status=current,
         new_status=new_state,
-        libera_slot=libera,
+        releases_slot=releases,
         genera_cargo=new_state in TRANSITIONS_CREATING_CHARGE,
         # Only a cancellation frees a slot someone on the waiting list could
         # take. A reschedule moves the same patient; a no-show happens once the
         # slot has already elapsed.
-        dispara_lista_espera=new_state is AppointmentState.CANCELLED,
+        triggers_waiting_list=new_state is AppointmentState.CANCELLED,
     )

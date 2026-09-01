@@ -28,11 +28,11 @@ def cli(sessions: Callable[[], Session], monkeypatch: pytest.MonkeyPatch) -> Cal
     session_ = sessions()
 
     @contextmanager
-    def scope_falso() -> Iterator[Session]:
+    def fake_scope() -> Iterator[Session]:
         yield session_
         session_.commit()
 
-    monkeypatch.setattr(mod, "session_scope", scope_falso)
+    monkeypatch.setattr(mod, "session_scope", fake_scope)
     return lambda: session_
 
 
@@ -60,7 +60,7 @@ class TestArguments:
 
 
 class TestExecution:
-    ARGUMENTOS: ClassVar[list[str]] = [
+    ARGUMENTS: ClassVar[list[str]] = [
         "--patients",
         "8",
         "--agenda-days",
@@ -72,7 +72,7 @@ class TestExecution:
     def test_it_seeds_and_reports(
         self, cli: Callable[[], Session], capsys: pytest.CaptureFixture[str]
     ) -> None:
-        assert main(self.ARGUMENTOS) == 0
+        assert main(self.ARGUMENTS) == 0
         output = capsys.readouterr().out
         assert "Seed done" in output
         assert "patient" in output
@@ -81,18 +81,18 @@ class TestExecution:
     def test_if_empty_does_not_touch_a_database_with_data(
         self, cli: Callable[[], Session], capsys: pytest.CaptureFixture[str]
     ) -> None:
-        main(self.ARGUMENTOS)
+        main(self.ARGUMENTS)
         session_ = cli()
-        documentos_antes = sorted(session_.scalars(select(Patient.document_number)))
+        documents_before = sorted(session_.scalars(select(Patient.document_number)))
 
-        assert main([*self.ARGUMENTOS, "--if-empty"]) == 0
+        assert main([*self.ARGUMENTS, "--if-empty"]) == 0
         assert "skipped" in capsys.readouterr().out
-        assert sorted(session_.scalars(select(Patient.document_number))) == documentos_antes
+        assert sorted(session_.scalars(select(Patient.document_number))) == documents_before
 
     def test_if_empty_does_seed_an_empty_database(
         self, cli: Callable[[], Session], empty_tables: Session
     ) -> None:
-        assert main([*self.ARGUMENTOS, "--if-empty"]) == 0
+        assert main([*self.ARGUMENTS, "--if-empty"]) == 0
         assert cli().scalar(select(func.count()).select_from(Patient)) == 8
 
 

@@ -33,11 +33,11 @@ class TestIdentity:
         assert all(OPEN_IDENTITY.has(s) for s in Scope)
 
     def test_without_a_token_and_without_requiring_auth_it_returns_the_open_one(self) -> None:
-        assert current_identity(exigir_auth=False) is OPEN_IDENTITY
+        assert current_identity(require_auth=False) is OPEN_IDENTITY
 
     def test_without_a_token_and_requiring_auth_it_fails(self) -> None:
         with pytest.raises(StructuredToolError) as exc:
-            current_identity(exigir_auth=True)
+            current_identity(require_auth=True)
         assert exc.value.code == "NOT_AUTHENTICATED"
 
 
@@ -51,7 +51,7 @@ class TestRequireScope:
         with pytest.raises(StructuredToolError) as exc:
             require_scope(identity, Scope.CLINICAL, tool_name="record_visit_reason")
         assert exc.value.code == "INSUFFICIENT_SCOPE"
-        assert exc.value.details["herramienta"] == "record_visit_reason"
+        assert exc.value.details["tool"] == "record_visit_reason"
 
 
 class TestScopesFromClaims:
@@ -74,7 +74,7 @@ class TestValidateRequestedScopes:
         a permission it never got."""
         with pytest.raises(StructuredToolError) as exc:
             validate_requested_scopes(["read", "admin"])
-        assert exc.value.details["desconocidos"] == ["admin"]
+        assert exc.value.details["unknown"] == ["admin"]
         assert "read" in (exc.value.suggestion or "")
 
     def test_an_empty_list_is_valid(self) -> None:

@@ -52,7 +52,7 @@ class TestAvailability:
             result = await server_.call_tool("check_availability", {})
         slots = payload(result)
         assert slots
-        assert slots[0]["start_local"].startswith(str(scenario.fecha_futura))
+        assert slots[0]["start_local"].startswith(str(scenario.future_date))
 
     async def test_filters_by_specialty(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -70,7 +70,7 @@ class TestAvailability:
         assert "specialty" in message
 
 
-class TestCarteraAndAfiliacion:
+class TestCarteraAndAffiliation:
     async def test_cartera_al_dia(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool("check_cartera", {"patient_id": scenario.ana_id})
@@ -80,17 +80,17 @@ class TestCarteraAndAfiliacion:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool("check_cartera", {"patient_id": scenario.deudor_id})
+            result = await server_.call_tool("check_cartera", {"patient_id": scenario.debtor_id})
         body = payload(result)
         assert body["status"] == "en_mora"
         assert body["above_alert_threshold"] is True
 
-    async def test_inactive_afiliacion_explains_the_consequence(
+    async def test_inactive_affiliation_explains_the_consequence(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool(
-                "validate_afiliacion", {"patient_id": scenario.bruno_id}
+                "validate_affiliation", {"patient_id": scenario.bruno_id}
             )
         body = payload(result)
         assert body["effective_regimen"] == "particular"
@@ -128,11 +128,11 @@ class TestReadAudit:
     ) -> None:
         with as_caller("auditor@clinica.test", ["read"]):
             await server_.call_tool("search_patients", {"document_number": "11111111"})
-        evento = ctx.auditor.events[-1]
-        assert evento["event"] == "tool.invocation"
-        assert evento["tool"] == "search_patients"
-        assert evento["subject"] == "auditor@clinica.test"
-        assert evento["result"] == "ok"
+        event = ctx.auditor.events[-1]
+        assert event["event"] == "tool.invocation"
+        assert event["tool"] == "search_patients"
+        assert event["subject"] == "auditor@clinica.test"
+        assert event["result"] == "ok"
 
     async def test_failed_reads_are_recorded_too(
         self, server_: MCPServer[Any], ctx: Any, scenario: Scenario
@@ -141,9 +141,9 @@ class TestReadAudit:
         hour failing."""
         with as_caller(SUBJECT, ["read"]):
             await error_from(server_, "get_appointment", {"appointment_id": 999999})
-        evento = ctx.auditor.events[-1]
-        assert evento["result"] == "error"
-        assert evento["error_code"] == "APPOINTMENT_NOT_FOUND"
+        event = ctx.auditor.events[-1]
+        assert event["result"] == "error"
+        assert event["error_code"] == "APPOINTMENT_NOT_FOUND"
 
     async def test_the_document_is_not_copied_into_the_log(
         self, server_: MCPServer[Any], ctx: Any, scenario: Scenario
@@ -152,6 +152,6 @@ class TestReadAudit:
         protected."""
         with as_caller(SUBJECT, ["read"]):
             await server_.call_tool("search_patients", {"document_number": "11111111"})
-        evento = ctx.auditor.events[-1]
-        assert evento["arguments"]["document_number"] == "«redacted»"
-        assert "11111111" not in str(evento)
+        event = ctx.auditor.events[-1]
+        assert event["arguments"]["document_number"] == "«redacted»"
+        assert "11111111" not in str(event)

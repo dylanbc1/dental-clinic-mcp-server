@@ -82,22 +82,22 @@ class JWTVerifier(TokenVerifier):
         issuer: str,
         audience: str,
         jwks_uri: str,
-        obtener_jwks: Any | None = None,
+        fetch_jwks: Any | None = None,
     ) -> None:
         self.issuer = issuer
         self.audience = audience
         self.jwks_uri = jwks_uri
-        self._obtener_jwks = obtener_jwks
-        self._cliente_jwks: jwt.PyJWKClient | None = None
+        self._fetch_jwks = fetch_jwks
+        self._jwks_client: jwt.PyJWKClient | None = None
 
     def _jwks(self) -> jwt.PyJWKClient:
-        if self._cliente_jwks is None:
-            self._cliente_jwks = jwt.PyJWKClient(self.jwks_uri, cache_keys=True)
-        return self._cliente_jwks
+        if self._jwks_client is None:
+            self._jwks_client = jwt.PyJWKClient(self.jwks_uri, cache_keys=True)
+        return self._jwks_client
 
     def _key(self, token: str) -> Any:
-        if self._obtener_jwks is not None:
-            return self._obtener_jwks(token)
+        if self._fetch_jwks is not None:
+            return self._fetch_jwks(token)
         return self._jwks().get_signing_key_from_jwt(token).key
 
     async def verify_token(self, token: str) -> AccessToken | None:
@@ -115,8 +115,8 @@ class JWTVerifier(TokenVerifier):
             # token expired or the signature failed is free reconnaissance.
             return None
 
-        alcance = claims.get("scope", "")
-        scopes = alcance.split() if isinstance(alcance, str) else list(alcance)
+        scope = claims.get("scope", "")
+        scopes = scope.split() if isinstance(scope, str) else list(scope)
         return AccessToken(
             token=token,
             client_id=str(claims.get("client_id", claims["sub"])),
@@ -128,7 +128,7 @@ class JWTVerifier(TokenVerifier):
         )
 
 
-def current_identity(*, exigir_auth: bool) -> Identity:
+def current_identity(*, require_auth: bool) -> Identity:
     """The caller's identity for this request.
 
     With authentication disabled the open identity is returned, so local work
@@ -137,7 +137,7 @@ def current_identity(*, exigir_auth: bool) -> Identity:
     """
     token = get_access_token()
     if token is None:
-        if exigir_auth:
+        if require_auth:
             raise unauthenticated_error("")
         return OPEN_IDENTITY
     return Identity(
@@ -155,22 +155,22 @@ def require_scope(identity: Identity, required: Scope, *, tool_name: str) -> Ide
 
 
 def scopes_from(claims: dict[str, Any]) -> frozenset[str]:
-    alcance = claims.get("scope", "")
-    if isinstance(alcance, str):
-        return frozenset(alcance.split())
-    return frozenset(alcance)
+    scope = claims.get("scope", "")
+    if isinstance(scope, str):
+        return frozenset(scope.split())
+    return frozenset(scope)
 
 
-def validate_requested_scopes(solicitados: Sequence[str]) -> list[str]:
+def validate_requested_scopes(requested: Sequence[str]) -> list[str]:
     """Reject an undefined scope instead of dropping it silently. A client that
     asks for `admin` should learn it does not exist."""
-    conocidos = {str(s) for s in Scope}
-    desconocidos = [s for s in solicitados if s not in conocidos]
-    if desconocidos:
+    known = {str(s) for s in Scope}
+    unknown = [s for s in requested if s not in known]
+    if unknown:
         raise StructuredToolError(
-            "SCOPE_DESCONOCIDO",
-            f"Scopes no reconocidos: {', '.join(desconocidos)}.",
-            suggestion=f"Los scopes válidos son: {', '.join(sorted(conocidos))}.",
-            details={"desconocidos": desconocidos},
+            "UNKNOWN_SCOPE",
+            f"Unrecognised scopes: {', '.join(unknown)}.",
+            suggestion=f"The valid scopes are: {', '.join(sorted(known))}.",
+            details={"unknown": unknown},
         )
-    return list(solicitados)
+    return list(requested)

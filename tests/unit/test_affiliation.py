@@ -12,19 +12,19 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from backend.domain.afiliacion import (
+from backend.domain.affiliation import (
     CUOTA_MODERADORA_BY_BRACKET,
     DEFAULT_PRIVATE_TARIFF,
     PRIVATE_TARIFF,
     base_tariff,
-    validate_afiliacion,
+    validate_affiliation,
 )
 from backend.enums import ChargeConcept, Regimen, Specialty
 
 
 class TestRegimenContributivo:
     def test_active_applies_cuota_moderadora(self) -> None:
-        r = validate_afiliacion(Regimen.CONTRIBUTIVO, afiliacion_active=True)
+        r = validate_affiliation(Regimen.CONTRIBUTIVO, affiliation_active=True)
         assert r.active
         assert r.covered
         assert r.requires_copago
@@ -33,22 +33,22 @@ class TestRegimenContributivo:
 
     @pytest.mark.parametrize("level", [1, 2, 3])
     def test_the_level_changes_the_reported_amount(self, level: int) -> None:
-        r = validate_afiliacion(
-            Regimen.CONTRIBUTIVO, afiliacion_active=True, cuota_moderadora_level=level
+        r = validate_affiliation(
+            Regimen.CONTRIBUTIVO, affiliation_active=True, cuota_moderadora_level=level
         )
         expected = CUOTA_MODERADORA_BY_BRACKET[level]
         assert f"{expected:,.0f}" in r.message
 
     def test_an_unknown_level_falls_back_to_level_1(self) -> None:
-        r = validate_afiliacion(
-            Regimen.CONTRIBUTIVO, afiliacion_active=True, cuota_moderadora_level=99
+        r = validate_affiliation(
+            Regimen.CONTRIBUTIVO, affiliation_active=True, cuota_moderadora_level=99
         )
         assert f"{CUOTA_MODERADORA_BY_BRACKET[1]:,.0f}" in r.message
 
 
 class TestRegimenSubsidiado:
     def test_active_applies_copago(self) -> None:
-        r = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_active=True)
+        r = validate_affiliation(Regimen.SUBSIDIADO, affiliation_active=True)
         assert r.charge_concept is ChargeConcept.COPAGO
         assert r.requires_copago
         assert r.covered
@@ -56,31 +56,31 @@ class TestRegimenSubsidiado:
 
 class TestParticular:
     def test_it_never_has_a_copago(self) -> None:
-        r = validate_afiliacion(Regimen.PARTICULAR, afiliacion_active=True)
+        r = validate_affiliation(Regimen.PARTICULAR, affiliation_active=True)
         assert not r.requires_copago
         assert not r.covered
         assert r.charge_concept is ChargeConcept.PARTICULAR
 
-    def test_the_afiliacion_flag_is_irrelevant_for_a_particular(self) -> None:
+    def test_the_affiliation_flag_is_irrelevant_for_a_particular(self) -> None:
         """A private patient has nothing to be affiliated to."""
-        active = validate_afiliacion(Regimen.PARTICULAR, afiliacion_active=True)
-        inactivo = validate_afiliacion(Regimen.PARTICULAR, afiliacion_active=False)
-        assert active == inactivo
-        assert inactivo.active is True
+        active = validate_affiliation(Regimen.PARTICULAR, affiliation_active=True)
+        inactive = validate_affiliation(Regimen.PARTICULAR, affiliation_active=False)
+        assert active == inactive
+        assert inactive.active is True
 
 
 class TestSoat:
     def test_fully_covered_creates_no_copago(self) -> None:
-        r = validate_afiliacion(Regimen.SOAT, afiliacion_active=True)
+        r = validate_affiliation(Regimen.SOAT, affiliation_active=True)
         assert r.covered
         assert not r.requires_copago
         assert r.effective_regimen is Regimen.SOAT
 
 
-class TestInactiveAfiliacion:
+class TestInactiveAffiliation:
     @pytest.mark.parametrize("regimen", [Regimen.CONTRIBUTIVO, Regimen.SUBSIDIADO, Regimen.SOAT])
     def test_falls_back_to_the_particular_tariff(self, regimen: Regimen) -> None:
-        r = validate_afiliacion(regimen, afiliacion_active=False)
+        r = validate_affiliation(regimen, affiliation_active=False)
         assert not r.active
         assert r.effective_regimen is Regimen.PARTICULAR
         assert r.charge_concept is ChargeConcept.PARTICULAR
@@ -88,12 +88,12 @@ class TestInactiveAfiliacion:
         assert not r.requires_copago
 
     def test_keeps_the_original_regimen_to_report_it(self) -> None:
-        r = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_active=False)
+        r = validate_affiliation(Regimen.SUBSIDIADO, affiliation_active=False)
         assert r.regimen is Regimen.SUBSIDIADO
         assert "is inactive" in r.message
 
     def test_gives_an_actionable_suggestion(self) -> None:
-        r = validate_afiliacion(Regimen.CONTRIBUTIVO, afiliacion_active=False)
+        r = validate_affiliation(Regimen.CONTRIBUTIVO, affiliation_active=False)
         assert r.suggestion is not None
         assert "EPS" in r.suggestion
 
@@ -109,7 +109,7 @@ class TestDoesNotBlockBooking:
     def test_no_combination_prevents_booking(
         self, regimen: Regimen, active: bool, level: int
     ) -> None:
-        r = validate_afiliacion(regimen, active, cuota_moderadora_level=level)
+        r = validate_affiliation(regimen, active, cuota_moderadora_level=level)
         assert r.blocks_booking is False
 
 
@@ -135,7 +135,7 @@ class TestInvariants:
     def test_the_result_is_always_well_formed(
         self, regimen: Regimen, active: bool, level: int
     ) -> None:
-        r = validate_afiliacion(regimen, active, cuota_moderadora_level=level)
+        r = validate_affiliation(regimen, active, cuota_moderadora_level=level)
         assert r.message
         assert r.regimen is regimen
         assert isinstance(r.charge_concept, ChargeConcept)

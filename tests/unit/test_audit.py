@@ -18,12 +18,12 @@ from mcp_server.audit import (
 pytestmark = pytest.mark.security
 
 
-class LoggerFalso:
+class FakeLogger:
     def __init__(self) -> None:
-        self.llamadas: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def info(self, evento: str, **payload: Any) -> None:
-        self.llamadas.append((evento, payload))
+    def info(self, event: str, **payload: Any) -> None:
+        self.calls.append((event, payload))
 
 
 class TestRedaction:
@@ -52,7 +52,7 @@ class TestRedaction:
 
 class TestAuditor:
     def test_it_records_a_successful_invocation(self) -> None:
-        logger = LoggerFalso()
+        logger = FakeLogger()
         auditor = Auditor(logger)
         auditor.tool_call(
             "search_patients",
@@ -61,13 +61,13 @@ class TestAuditor:
             arguments={"document_number": "123"},
             result="ok",
         )
-        evento, payload = logger.llamadas[-1]
-        assert evento == "tool.invocation"
+        event, payload = logger.calls[-1]
+        assert event == "tool.invocation"
         assert payload["subject"] == "ana@clinica.test"
         assert payload["arguments"]["document_number"] == REDACTED
 
     def test_it_records_the_error_code_when_there_is_one(self) -> None:
-        auditor = Auditor(LoggerFalso())
+        auditor = Auditor(FakeLogger())
         auditor.tool_call(
             "x",
             subject="a",
@@ -79,12 +79,12 @@ class TestAuditor:
         assert auditor.events[-1]["error_code"] == "APPOINTMENT_NOT_FOUND"
 
     def test_marks_the_execution_as_approved(self) -> None:
-        auditor = Auditor(LoggerFalso())
+        auditor = Auditor(FakeLogger())
         auditor.tool_call("x", subject="a", scope="write", arguments={}, result="ok", approved=True)
         assert auditor.events[-1]["with_human_approval"] is True
 
     def test_proposal_and_confirmation_are_distinct_events(self) -> None:
-        auditor = Auditor(LoggerFalso())
+        auditor = Auditor(FakeLogger())
         auditor.question_asked("cancel_appointment", subject="a", nonce="n1")
         auditor.question_answered("cancel_appointment", subject="a", nonce="n1")
         assert [e["event"] for e in auditor.events] == [
@@ -93,7 +93,7 @@ class TestAuditor:
         ]
 
     def test_clinical_access_is_its_own_event_type(self) -> None:
-        auditor = Auditor(LoggerFalso())
+        auditor = Auditor(FakeLogger())
         auditor.clinical_access(subject="a", appointment_id=7, result="recorded")
         assert auditor.events[-1] == {
             "event": "clinical.access",
@@ -105,7 +105,7 @@ class TestAuditor:
     def test_the_memory_is_bounded(self) -> None:
         """An audit log is a log, not a data store: the in-memory mirror must
         not grow without bound in a long-running process."""
-        auditor = Auditor(LoggerFalso())
+        auditor = Auditor(FakeLogger())
         auditor.memory_limit = 10
         for i in range(50):
             auditor.clinical_access(subject="a", appointment_id=i, result="x")
@@ -115,7 +115,7 @@ class TestAuditor:
     def test_the_events_are_json_serialisable(self) -> None:
         """They are shipped to a log pipeline; an unserialisable value would be
         discovered in production rather than here."""
-        auditor = Auditor(LoggerFalso())
+        auditor = Auditor(FakeLogger())
         auditor.tool_call(
             "x", subject="a", scope="read", arguments={"appointment_id": 1}, result="ok"
         )

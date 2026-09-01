@@ -26,14 +26,14 @@ def test_scope(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(database, "get_sessionmaker", lambda: factory)
 
 
-def _paciente(document_number: str) -> Patient:
+def _patient(document_number: str) -> Patient:
     return Patient(
         document_type=DocumentType.CC,
         document_number=document_number,
         name="Persona de prueba",
         phone="+57 3001234567",
         regimen=Regimen.PARTICULAR,
-        afiliacion_active=True,
+        affiliation_active=True,
     )
 
 
@@ -48,14 +48,14 @@ class TestConnectionCache:
 class TestSessionScope:
     def test_commits_on_exit_without_error(self, test_scope: None) -> None:
         with session_scope() as session_:
-            session_.add(_paciente("9000001"))
+            session_.add(_patient("9000001"))
 
         with session_scope() as check:
             assert check.scalar(select(Patient).where(Patient.document_number == "9000001"))
 
     def test_it_rolls_back_on_an_exception(self, test_scope: None) -> None:
         with pytest.raises(RuntimeError, match="algo falló"), session_scope() as session_:
-            session_.add(_paciente("9000002"))
+            session_.add(_patient("9000002"))
             session_.flush()
             raise RuntimeError("algo falló")
 
@@ -66,9 +66,9 @@ class TestSessionScope:
         """The property the audit trail depends on: either both rows land or
         neither does."""
         with pytest.raises(RuntimeError), session_scope() as session_:
-            session_.add(_paciente("9000003"))
+            session_.add(_patient("9000003"))
             session_.flush()
-            session_.add(_paciente("9000004"))
+            session_.add(_patient("9000004"))
             session_.flush()
             raise RuntimeError("interrupción a mitad de camino")
 
@@ -86,19 +86,19 @@ class TestSessionScope:
 
 class TestFastapiDependency:
     def test_get_session_hands_over_a_usable_session(self, test_scope: None) -> None:
-        generador = get_session()
-        session_ = next(generador)
+        generator = get_session()
+        session_ = next(generator)
         try:
-            session_.add(_paciente("9000005"))
+            session_.add(_patient("9000005"))
         finally:
-            generador.close()
+            generator.close()
 
     def test_get_session_commits_when_exhausted(self, test_scope: None) -> None:
-        generador = get_session()
-        session_ = next(generador)
-        session_.add(_paciente("9000006"))
+        generator = get_session()
+        session_ = next(generator)
+        session_.add(_patient("9000006"))
         with pytest.raises(StopIteration):
-            next(generador)
+            next(generator)
 
         with session_scope() as check:
             assert check.scalar(select(Patient).where(Patient.document_number == "9000006"))

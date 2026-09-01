@@ -93,8 +93,8 @@ class TestPrebuiltErrors:
 
     def test_the_scope_error_names_what_is_missing_and_what_is_held(self) -> None:
         error = scope_error("cancel_appointment", "write", ["read"])
-        assert error.details["scope_requerido"] == "write"
-        assert error.details["scopes_del_token"] == ["read"]
+        assert error.details["required_scope"] == "write"
+        assert error.details["token_scopes"] == ["read"]
         assert "do not call this tool again" in (error.suggestion or "").lower()
 
     def test_the_scope_error_with_no_scopes_says_so_explicitly(self) -> None:

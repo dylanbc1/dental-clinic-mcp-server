@@ -6,6 +6,9 @@ the English names the code now uses. Domain vocabulary keeps its Spanish:
 things Colombian health law defines, and an English word for them would be a
 worse name, not a more readable one.
 
+(`afiliacion` was reclassified later and moved to `affiliation` in
+`a3f7c21b5e48`: English carries it faithfully, which is the test.)
+
 Everything here is a catalogue rename. No row is rewritten, no index is
 dropped, and the partial unique index that prevents double-booking follows its
 table and column automatically, so there is never a window in which two agents

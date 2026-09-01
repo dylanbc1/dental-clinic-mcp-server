@@ -54,17 +54,17 @@ def candidates_for_slot(
     entries: list[WaitingListEntry],
     specialty: Specialty,
     *,
-    excluir_pacientes: frozenset[int] = frozenset(),
+    exclude_patients: frozenset[int] = frozenset(),
 ) -> list[WaitingListEntry]:
     """Ordered candidates for a freed slot of a given specialty.
 
-    `excluir_pacientes` stops the patient whose cancellation freed the slot from
+    `exclude_patients` stops the patient whose cancellation freed the slot from
     being offered it straight back.
     """
     return [
         e
         for e in in_queue_order(entries)
-        if e.specialty is specialty and e.patient_id not in excluir_pacientes
+        if e.specialty is specialty and e.patient_id not in exclude_patients
     ]
 
 
@@ -72,14 +72,14 @@ def next_in_queue(
     entries: list[WaitingListEntry],
     specialty: Specialty,
     *,
-    excluir_pacientes: frozenset[int] = frozenset(),
+    exclude_patients: frozenset[int] = frozenset(),
 ) -> WaitingListEntry:
     """The single patient to offer the slot to.
 
     Raises :class:`ListaEsperaVacia` with a suggestion instead of returning
     ``None``: an LLM handles a typed error better than a null.
     """
-    candidates = candidates_for_slot(entries, specialty, excluir_pacientes=excluir_pacientes)
+    candidates = candidates_for_slot(entries, specialty, exclude_patients=exclude_patients)
     if not candidates:
         raise WaitingListEmpty(
             f"No patients are on the waiting list for {specialty}.",
@@ -98,7 +98,7 @@ def position_in_queue(
     specialty: Specialty,
 ) -> int | None:
     """1-based position of a patient in the queue, or ``None`` if not enrolled."""
-    for indice, entry in enumerate(candidates_for_slot(entries, specialty), start=1):
+    for index, entry in enumerate(candidates_for_slot(entries, specialty), start=1):
         if entry.patient_id == patient_id:
-            return indice
+            return index
     return None

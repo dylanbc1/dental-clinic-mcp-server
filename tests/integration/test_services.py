@@ -48,7 +48,7 @@ from backend.domain.services import (
     record_visit_reason,
     reschedule_appointment,
     search_patients,
-    validate_patient_afiliacion,
+    validate_patient_affiliation,
 )
 from backend.enums import (
     AppointmentState,
@@ -140,7 +140,7 @@ class TestAvailability:
     ) -> None:
         free_slots = list_available_slots(sessions())
         ids = {s.slot_id for s in free_slots}
-        assert scenario.slot_pasado_id not in ids
+        assert scenario.past_slot_id not in ids
         assert ids >= set(scenario.slots_general[:3])
 
     def test_filters_by_specialty(
@@ -151,14 +151,14 @@ class TestAvailability:
         assert all(s.specialty is Specialty.ORTHODONTICS for s in free_slots)
 
     def test_filters_by_date(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
-        assert list_available_slots(sessions(), day=scenario.fecha_futura)
+        assert list_available_slots(sessions(), day=scenario.future_date)
         assert list_available_slots(sessions(), day=date(2000, 1, 3)) == []
 
     def test_filters_by_professional(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
-        free_slots = list_available_slots(sessions(), professional_id=scenario.orto_id)
-        assert all(s.professional_id == scenario.orto_id for s in free_slots)
+        free_slots = list_available_slots(sessions(), professional_id=scenario.ortho_id)
+        assert all(s.professional_id == scenario.ortho_id for s in free_slots)
 
     def test_a_nonexistent_professional_is_an_error_not_an_empty_list(
         self, sessions: Callable[[], Session], scenario: Scenario
@@ -176,18 +176,18 @@ class TestAvailability:
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         label = list_available_slots(sessions())[0].label
-        assert label.startswith(str(scenario.fecha_futura))
+        assert label.startswith(str(scenario.future_date))
 
 
-class TestAfiliacionAndCartera:
-    def test_active_afiliacion(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
-        r = validate_patient_afiliacion(sessions(), scenario.ana_id)
+class TestAffiliationAndCartera:
+    def test_active_affiliation(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
+        r = validate_patient_affiliation(sessions(), scenario.ana_id)
         assert r.active and r.requires_copago
 
-    def test_inactive_afiliacion_falls_back_to_particular(
+    def test_inactive_affiliation_falls_back_to_particular(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
-        r = validate_patient_afiliacion(sessions(), scenario.bruno_id)
+        r = validate_patient_affiliation(sessions(), scenario.bruno_id)
         assert not r.active
         assert r.effective_regimen is Regimen.PARTICULAR
 
@@ -195,7 +195,7 @@ class TestAfiliacionAndCartera:
         assert get_cartera(sessions(), scenario.ana_id).status is CarteraState.AL_DIA
 
     def test_cartera_en_mora(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
-        summary = get_cartera(sessions(), scenario.deudor_id)
+        summary = get_cartera(sessions(), scenario.debtor_id)
         assert summary.status is CarteraState.EN_MORA
         assert summary.overdue_total == Decimal("180000")
         assert summary.max_overdue_days >= 74
@@ -226,7 +226,7 @@ class TestBooking:
         assert history[0].new_status is AppointmentState.SCHEDULED
         assert history[0].user == ACTOR
 
-    def test_returns_the_afiliacion_to_report_the_tariff(
+    def test_returns_the_affiliation_to_report_the_tariff(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         result = book_appointment(
@@ -235,7 +235,7 @@ class TestBooking:
             slot_id=scenario.slots_general[0],
             user=ACTOR,
         )
-        assert result.afiliacion.effective_regimen is Regimen.PARTICULAR
+        assert result.affiliation.effective_regimen is Regimen.PARTICULAR
 
     def test_mora_alerts_but_does_not_block(
         self, sessions: Callable[[], Session], scenario: Scenario
@@ -243,7 +243,7 @@ class TestBooking:
         """The rule from §2.3 that a naive implementation gets wrong."""
         result = book_appointment(
             sessions(),
-            patient_id=scenario.deudor_id,
+            patient_id=scenario.debtor_id,
             slot_id=scenario.slots_general[0],
             user=ACTOR,
         )
@@ -279,7 +279,7 @@ class TestBooking:
                 user=ACTOR,
             )
         # An LLM that receives named alternatives recovers on its own turn.
-        assert exc.value.details["alternativas"]
+        assert exc.value.details["alternatives"]
         assert "closest free slots" in (exc.value.suggestion or "")
 
     def test_a_past_slot_is_refused(
@@ -289,7 +289,7 @@ class TestBooking:
             book_appointment(
                 sessions(),
                 patient_id=scenario.ana_id,
-                slot_id=scenario.slot_pasado_id,
+                slot_id=scenario.past_slot_id,
                 user=ACTOR,
             )
 
@@ -311,7 +311,7 @@ class TestBooking:
                 user=ACTOR,
                 expected_specialty=Specialty.ORTHODONTICS,
             )
-        assert exc.value.details["especialidad_del_cupo"] == "general_dentistry"
+        assert exc.value.details["slot_specialty"] == "general_dentistry"
 
     def test_the_right_specialty_passes(
         self, sessions: Callable[[], Session], scenario: Scenario
@@ -319,7 +319,7 @@ class TestBooking:
         book_appointment(
             sessions(),
             patient_id=scenario.ana_id,
-            slot_id=scenario.slots_orto[0],
+            slot_id=scenario.ortho_slots[0],
             user=ACTOR,
             expected_specialty=Specialty.ORTHODONTICS,
         )
@@ -335,9 +335,9 @@ class TestBooking:
         s.commit()
         with pytest.raises(PatientAlreadyBooked) as exc:
             book_appointment(
-                s, patient_id=scenario.ana_id, slot_id=scenario.slots_orto[0], user=ACTOR
+                s, patient_id=scenario.ana_id, slot_id=scenario.ortho_slots[0], user=ACTOR
             )
-        assert "cita_existente_id" in exc.value.details
+        assert "existing_appointment_id" in exc.value.details
 
     def test_different_times_are_allowed(
         self, sessions: Callable[[], Session], scenario: Scenario
@@ -423,7 +423,7 @@ class TestConfirming:
     ) -> None:
         s, appointment_id = booked_appointment
         result = confirm_appointment(s, appointment_id, user=ACTOR)
-        assert not result.effects.libera_slot
+        assert not result.effects.releases_slot
         assert result.created_charge is None
 
     def test_confirming_twice_fails_with_a_typed_error(
@@ -446,7 +446,7 @@ class TestCancelling:
 
         assert result.appointment.status is AppointmentState.CANCELLED
         assert result.appointment.cancellation_reason == "El paciente viajó"
-        assert result.effects.libera_slot
+        assert result.effects.releases_slot
         assert s.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
         assert historial_de(s, appointment_id)[-1].reason == "El paciente viajó"
 
@@ -470,7 +470,7 @@ class TestCancelling:
         """Cancelling with an empty queue is normal, not an error."""
         s, appointment_id = booked_appointment
         result = cancel_appointment(s, appointment_id, reason="x", user=ACTOR)
-        assert result.siguiente_en_espera is None
+        assert result.next_in_queue is None
 
     def test_with_a_waiting_list_it_returns_the_next_one(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
@@ -483,17 +483,17 @@ class TestCancelling:
         )
         s.commit()
         result = cancel_appointment(s, appointment_id, reason="x", user=ACTOR)
-        assert result.siguiente_en_espera is not None
-        assert result.siguiente_en_espera.patient_id == scenario.carla_id
+        assert result.next_in_queue is not None
+        assert result.next_in_queue.patient_id == scenario.carla_id
 
-    def test_no_se_ofrece_el_cupo_a_quien_lo_liberó(
+    def test_the_slot_is_not_offered_to_whoever_freed_it(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
         join_waiting_list(s, patient_id=scenario.ana_id, specialty=Specialty.GENERAL_DENTISTRY)
         s.commit()
         result = cancel_appointment(s, appointment_id, reason="x", user=ACTOR)
-        assert result.siguiente_en_espera is None
+        assert result.next_in_queue is None
 
 
 class TestAttendance:
@@ -523,7 +523,7 @@ class TestAttendance:
         expected = appointment.slot.start.date() + timedelta(days=30)
         assert abs((result.created_charge.due_date - expected).days) <= 1
 
-    def test_inactive_afiliacion_charges_the_particular_tariff(
+    def test_inactive_affiliation_charges_the_particular_tariff(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -600,20 +600,20 @@ class TestRescheduling:
         assert s.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
         assert s.get(AgendaSlot, scenario.slots_general[2]).status is SlotState.BUSY
 
-        nueva = result.appointment
-        assert nueva.id != appointment_id
-        assert nueva.status is AppointmentState.SCHEDULED
-        assert nueva.source_appointment_id == appointment_id
+        replacement = result.appointment
+        assert replacement.id != appointment_id
+        assert replacement.status is AppointmentState.SCHEDULED
+        assert replacement.source_appointment_id == appointment_id
 
     def test_the_new_appointment_has_its_own_history(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
-        nueva = reschedule_appointment(
+        replacement = reschedule_appointment(
             s, appointment_id, scenario.slots_general[2], user=ACTOR
         ).appointment
         s.commit()
-        history = historial_de(s, nueva.id)
+        history = historial_de(s, replacement.id)
         assert len(history) == 1
         assert "Rescheduled from" in (history[0].reason or "")
 
@@ -633,7 +633,7 @@ class TestRescheduling:
     ) -> None:
         s, appointment_id = booked_appointment
         with pytest.raises(SlotInThePast):
-            reschedule_appointment(s, appointment_id, scenario.slot_pasado_id, user=ACTOR)
+            reschedule_appointment(s, appointment_id, scenario.past_slot_id, user=ACTOR)
 
     def test_a_rescheduled_appointment_is_final(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
@@ -679,13 +679,13 @@ class TestWaitingList:
         )
         s.commit()
 
-        oferta = offer_slot_to_waiting_list(s, scenario.slots_orto[0], user=ACTOR)
+        offer = offer_slot_to_waiting_list(s, scenario.ortho_slots[0], user=ACTOR)
         s.commit()
         # Urgency jumps the queue even though Ana enrolled first.
-        assert oferta.patient.id == scenario.carla_id
-        assert oferta.original_position == 1
-        assert oferta.entry.status is WaitingListState.OFFERED
-        assert oferta.entry.offered_slot_id == scenario.slots_orto[0]
+        assert offer.patient.id == scenario.carla_id
+        assert offer.original_position == 1
+        assert offer.entry.status is WaitingListState.OFFERED
+        assert offer.entry.offered_slot_id == scenario.ortho_slots[0]
 
     def test_offering_books_nothing(
         self, sessions: Callable[[], Session], scenario: Scenario
@@ -695,16 +695,16 @@ class TestWaitingList:
         s = sessions()
         join_waiting_list(s, patient_id=scenario.ana_id, specialty=Specialty.ORTHODONTICS)
         s.commit()
-        offer_slot_to_waiting_list(s, scenario.slots_orto[0], user=ACTOR)
+        offer_slot_to_waiting_list(s, scenario.ortho_slots[0], user=ACTOR)
         s.commit()
         assert s.scalar(select(func.count()).select_from(Appointment)) == 0
-        assert s.get(AgendaSlot, scenario.slots_orto[0]).status is SlotState.FREE
+        assert s.get(AgendaSlot, scenario.ortho_slots[0]).status is SlotState.FREE
 
     def test_an_empty_list_gives_an_actionable_error(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(WaitingListEmpty) as exc:
-            offer_slot_to_waiting_list(sessions(), scenario.slots_orto[0], user=ACTOR)
+            offer_slot_to_waiting_list(sessions(), scenario.ortho_slots[0], user=ACTOR)
         assert "check_availability" in (exc.value.suggestion or "")
 
     def test_it_does_not_offer_from_another_specialty(
@@ -714,7 +714,7 @@ class TestWaitingList:
         join_waiting_list(s, patient_id=scenario.ana_id, specialty=Specialty.ENDODONTICS)
         s.commit()
         with pytest.raises(WaitingListEmpty):
-            offer_slot_to_waiting_list(s, scenario.slots_orto[0], user=ACTOR)
+            offer_slot_to_waiting_list(s, scenario.ortho_slots[0], user=ACTOR)
 
     def test_an_offered_entry_leaves_the_queue(
         self, sessions: Callable[[], Session], scenario: Scenario
@@ -722,7 +722,7 @@ class TestWaitingList:
         s = sessions()
         join_waiting_list(s, patient_id=scenario.ana_id, specialty=Specialty.ORTHODONTICS)
         s.commit()
-        offer_slot_to_waiting_list(s, scenario.slots_orto[0], user=ACTOR)
+        offer_slot_to_waiting_list(s, scenario.ortho_slots[0], user=ACTOR)
         s.commit()
         active = s.scalars(
             select(WaitingList).where(WaitingList.status == WaitingListState.ACTIVE)
@@ -784,10 +784,10 @@ class TestVisitReason:
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
-        antes = get_appointment(s, appointment_id).status
+        before = get_appointment(s, appointment_id).status
         record_visit_reason(s, appointment_id, "Control de rutina", user=ACTOR)
         s.commit()
-        assert get_appointment(s, appointment_id).status is antes
+        assert get_appointment(s, appointment_id).status is before
 
 
 # --------------------------------------------------------------------------- #
@@ -807,7 +807,7 @@ class TestDayAgenda:
             s, patient_id=scenario.carla_id, slot_id=scenario.slots_general[0], user=ACTOR
         )
         s.commit()
-        appointments = agenda_for_day(s, scenario.fecha_futura)
+        appointments = agenda_for_day(s, scenario.future_date)
         assert [c.slot.start for c in appointments] == sorted(c.slot.start for c in appointments)
         assert len(appointments) == 2
 
@@ -823,7 +823,7 @@ class TestDayAgenda:
         s, appointment_id = booked_appointment
         cancel_appointment(s, appointment_id, reason="x", user=ACTOR)
         s.commit()
-        appointments = agenda_for_day(s, scenario.fecha_futura)
+        appointments = agenda_for_day(s, scenario.future_date)
         assert [c.status for c in appointments] == [AppointmentState.CANCELLED]
 
 
@@ -850,11 +850,11 @@ class TestCompleteAudit:
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
-        antes = len(historial_de(s, appointment_id))
+        before = len(historial_de(s, appointment_id))
         with pytest.raises(InvalidTransition):
             record_attendance(s, appointment_id, AppointmentState.ATTENDED, user=ACTOR)
         s.rollback()
-        assert len(historial_de(s, appointment_id)) == antes
+        assert len(historial_de(s, appointment_id)) == before
 
     def test_the_actor_is_recorded_per_operation(
         self, booked_appointment: tuple[Session, int]
@@ -864,8 +864,8 @@ class TestCompleteAudit:
         confirm_appointment(s, appointment_id, user="ana@clinica.test")
         cancel_appointment(s, appointment_id, reason="x", user="jefe@clinica.test")
         s.commit()
-        usuarios = [h.user for h in historial_de(s, appointment_id)]
-        assert usuarios == [ACTOR, "ana@clinica.test", "jefe@clinica.test"]
+        users = [h.user for h in historial_de(s, appointment_id)]
+        assert users == [ACTOR, "ana@clinica.test", "jefe@clinica.test"]
 
     def test_every_charge_from_an_appointment_stays_linked_to_it(
         self, booked_appointment: tuple[Session, int]

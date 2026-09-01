@@ -22,7 +22,7 @@ from backend.domain.errors import (
     SlotUnavailable,
 )
 
-CLASES_CONCRETAS = [
+CONCRETE_CLASSES = [
     obj
     for _, obj in inspect.getmembers(mod, inspect.isclass)
     if issubclass(obj, DomainError) and obj not in {DomainError, NotFound}
@@ -42,7 +42,7 @@ class TestErrorShape:
         error = SlotUnavailable(
             "El cupo ya fue tomado.",
             suggestion="Los más cercanos son 09:00, 09:30 y 11:00.",
-            details={"slot_id": 88, "alternativas": [12, 13]},
+            details={"slot_id": 88, "alternatives": [12, 13]},
         )
         payload = error.to_dict()
         assert payload["suggestion"].startswith("Los más cercanos")
@@ -63,18 +63,18 @@ class TestErrorShape:
 
 
 class TestHierarchyContract:
-    @pytest.mark.parametrize("klass", CLASES_CONCRETAS, ids=lambda c: c.__name__)
+    @pytest.mark.parametrize("klass", CONCRETE_CLASSES, ids=lambda c: c.__name__)
     def test_every_class_pins_its_own_code(self, klass: type[DomainError]) -> None:
         assert klass.code is not DomainError.code or klass is DomainError
 
-    @pytest.mark.parametrize("klass", CLASES_CONCRETAS, ids=lambda c: c.__name__)
+    @pytest.mark.parametrize("klass", CONCRETE_CLASSES, ids=lambda c: c.__name__)
     def test_every_error_serialises_without_blowing_up(self, klass: type[DomainError]) -> None:
         payload = klass("mensaje de prueba").to_dict()
         assert payload["error"] is True
         assert payload["message"] == "mensaje de prueba"
         assert payload["code"] in set(ErrorCode)
 
-    @pytest.mark.parametrize("klass", CLASES_CONCRETAS, ids=lambda c: c.__name__)
+    @pytest.mark.parametrize("klass", CONCRETE_CLASSES, ids=lambda c: c.__name__)
     def test_the_http_status_is_a_client_error_code(self, klass: type[DomainError]) -> None:
         # Every modelled failure is the caller's to fix. A domain error that
         # mapped to 5xx would mean the server broke, which is a different thing.
@@ -89,11 +89,11 @@ class TestHierarchyContract:
         assert InvalidTransition.http_status == 409
 
     def test_there_are_no_duplicate_codes_across_classes(self) -> None:
-        vistos: dict[ErrorCode, str] = {}
-        for klass in CLASES_CONCRETAS:
-            previous = vistos.get(klass.code)
+        seen: dict[ErrorCode, str] = {}
+        for klass in CONCRETE_CLASSES:
+            previous = seen.get(klass.code)
             assert previous is None, f"{klass.__name__} repeats the code of {previous}"
-            vistos[klass.code] = klass.__name__
+            seen[klass.code] = klass.__name__
 
 
 class TestCodeSpace:

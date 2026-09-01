@@ -141,7 +141,7 @@ class Patient(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     document_type: Mapped[DocumentType] = mapped_column(
-        _enum(DocumentType, "tipo_documento_enum"),
+        _enum(DocumentType, "document_type_enum"),
         default=DocumentType.CC,
         nullable=False,
     )
@@ -154,7 +154,7 @@ class Patient(Base, TimestampMixin):
     regimen: Mapped[Regimen] = mapped_column(
         _enum(Regimen, "regimen_enum"), nullable=False, index=True
     )
-    afiliacion_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    affiliation_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     eps: Mapped[str | None] = mapped_column(String(120))
     #: Income bracket driving the cuota moderadora (1-3).
     cuota_moderadora_level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -313,7 +313,7 @@ class Charge(Base, TimestampMixin):
         ForeignKey("appointment.id", ondelete="SET NULL")
     )
     concept: Mapped[ChargeConcept] = mapped_column(
-        _enum(ChargeConcept, "concepto_cargo_enum"), nullable=False
+        _enum(ChargeConcept, "charge_concept_enum"), nullable=False
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     description: Mapped[str | None] = mapped_column(String(200))

@@ -45,25 +45,25 @@ class MCPTestClient:
         )
         self.id = 0
 
-    def _rpc(self, metodo: str, params: dict[str, Any]) -> Any:
+    def _rpc(self, method: str, params: dict[str, Any]) -> Any:
         self.id += 1
-        cabeceras = {"mcp-method": metodo}
+        headers = {"mcp-method": method}
         if "name" in params:
-            cabeceras["mcp-name"] = str(params["name"])
+            headers["mcp-name"] = str(params["name"])
         response = self.http.post(
             self.url,
             json={
                 "jsonrpc": "2.0",
                 "id": self.id,
-                "method": metodo,
+                "method": method,
                 "params": {**params, **ENVELOPE},
             },
-            headers=cabeceras,
+            headers=headers,
         )
         if response.status_code >= 400:
             # A malformed or tampered requestState is refused at the protocol
             # layer, before any tool runs, so it arrives as a plain HTTP error.
-            raise SystemExit(f"{metodo} refused ({response.status_code}): {response.text[:160]}")
+            raise SystemExit(f"{method} refused ({response.status_code}): {response.text[:160]}")
         body = response.text
         # Streamable HTTP answers as SSE; pull the single data frame out.
         for line in body.splitlines():
@@ -72,7 +72,7 @@ class MCPTestClient:
                 break
         payload = json.loads(body)
         if "error" in payload:
-            raise SystemExit(f"{metodo} failed: {payload['error']}")
+            raise SystemExit(f"{method} failed: {payload['error']}")
         return payload["result"]
 
     @staticmethod
@@ -94,7 +94,7 @@ class MCPTestClient:
         return result
 
     def respond(
-        self, name: str, arguments: dict[str, Any], question: dict[str, Any], *, si: bool
+        self, name: str, arguments: dict[str, Any], question: dict[str, Any], *, yes: bool
     ) -> Any:
         key = next(iter(question["inputRequests"]))
         return self._payload(
@@ -103,7 +103,7 @@ class MCPTestClient:
                 {
                     "name": name,
                     "arguments": arguments,
-                    "inputResponses": {key: {"action": "accept", "content": {"confirmed": si}}},
+                    "inputResponses": {key: {"action": "accept", "content": {"confirmed": yes}}},
                     "requestState": question["requestState"],
                 },
             )
@@ -115,8 +115,8 @@ class MCPTestClient:
         return str(question["inputRequests"][key]["params"]["message"])
 
 
-def step(titulo: str) -> None:
-    print(f"\n\033[1m▸ {titulo}\033[0m")
+def step(title: str) -> None:
+    print(f"\n\033[1m▸ {title}\033[0m")
 
 
 def main() -> int:
@@ -126,15 +126,15 @@ def main() -> int:
     args = parser.parse_args()
 
     step("1 · The server requires authentication")
-    anonima = httpx.post(
+    anonymous = httpx.post(
         args.mcp,
         json={"jsonrpc": "2.0", "id": 0, "method": "tools/list"},
         headers=HEADERS,
         timeout=10,
     )
-    if anonima.status_code != 401:
-        raise SystemExit(f"expected 401 with no token, got {anonima.status_code}")
-    print(f"  401 · WWW-Authenticate: {anonima.headers.get('www-authenticate', '')[:80]}…")
+    if anonymous.status_code != 401:
+        raise SystemExit(f"expected 401 with no token, got {anonymous.status_code}")
+    print(f"  401 · WWW-Authenticate: {anonymous.headers.get('www-authenticate', '')[:80]}…")
 
     step("2 · Protected-resource discovery")
     metadata = httpx.get(
@@ -160,12 +160,12 @@ def main() -> int:
     # Pick a slot at an hour the patient is not already booked for. A patient
     # cannot be in two chairs at once, and the domain says so, so the client
     # picks properly instead of discovering it in an error.
-    ocupadas = {
+    taken = {
         c["start_local"]
         for c in client.call_tool("list_patient_appointments", {"patient_id": patient["id"]})
     }
     free_slots = client.call_tool("check_availability", {"limit": 25})
-    slot = next((s for s in free_slots if s["start_local"] not in ocupadas), None)
+    slot = next((s for s in free_slots if s["start_local"] not in taken), None)
     if slot is None:
         raise SystemExit("no free slot at an hour the patient has available")
     print(f"  free slot: {slot['start_local']} with {slot['professional']}")
@@ -178,8 +178,8 @@ def main() -> int:
     print(f"  requestState: {len(question['requestState'])} bytes, sealed")
 
     step("7 · Round 2: the person approves, and now it executes")
-    hecho = client.respond("book_appointment", arguments, question, si=True)
-    appointment = hecho["appointment"]
+    done = client.respond("book_appointment", arguments, question, yes=True)
+    appointment = done["appointment"]
     print(
         f"  appointment {appointment['id']} · state {appointment['status']} · "
         f"{appointment['start_local']}"
@@ -188,7 +188,7 @@ def main() -> int:
     step("8 · The sealed state cannot be reused or tampered with")
     tampered = {**question, "requestState": question["requestState"][:-4] + "AAAA"}
     try:
-        client.respond("book_appointment", arguments, tampered, si=True)
+        client.respond("book_appointment", arguments, tampered, yes=True)
     except SystemExit:
         print("  tampered state: refused ✓")
     else:

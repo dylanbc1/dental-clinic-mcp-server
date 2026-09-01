@@ -2,7 +2,7 @@
 
 Two separate things are recorded, and conflating them is a common mistake:
 
-* **State changes** live in `cita_historial`, written by the backend inside the
+* **State changes** live in `appointment_history`, written by the backend inside the
   same transaction as the change. That is the record a regulator would ask for.
 * **Tool invocations** live here. Who called what, with which scope, whether it
   was approved, and whether it succeeded, including the calls that were
@@ -67,11 +67,11 @@ class Auditor:
         self.events: list[dict[str, Any]] = []
         self.memory_limit = 500
 
-    def _record(self, evento: str, payload: dict[str, Any]) -> None:
-        self.events.append({"event": evento, **payload})
+    def _record(self, event: str, payload: dict[str, Any]) -> None:
+        self.events.append({"event": event, **payload})
         if len(self.events) > self.memory_limit:
             del self.events[: len(self.events) - self.memory_limit]
-        self._log.info(evento, **payload)
+        self._log.info(event, **payload)
 
     def tool_call(
         self,

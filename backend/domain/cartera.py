@@ -18,10 +18,10 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from backend.domain.afiliacion import (
+from backend.domain.affiliation import (
     CUOTA_MODERADORA_BY_BRACKET,
     SUBSIDIADO_COPAGO_RATE,
-    AfiliacionResult,
+    AffiliationResult,
     base_tariff,
 )
 from backend.enums import CarteraState, ChargeConcept, ChargeState, Regimen
@@ -98,7 +98,7 @@ def _round(amount: Decimal) -> Decimal:
 
 
 def charge_for_visit(
-    afiliacion: AfiliacionResult,
+    affiliation: AffiliationResult,
     specialty: str,
     *,
     cuota_moderadora_level: int = 1,
@@ -110,17 +110,17 @@ def charge_for_visit(
     """
     tariff = base_tariff(specialty)
 
-    if afiliacion.effective_regimen is Regimen.SOAT:
+    if affiliation.effective_regimen is Regimen.SOAT:
         return None
 
-    if afiliacion.effective_regimen is Regimen.PARTICULAR:
+    if affiliation.effective_regimen is Regimen.PARTICULAR:
         return CalculatedCharge(
             concept=ChargeConcept.PARTICULAR,
             amount=_round(tariff),
             description=f"Private tariff · {specialty}",
         )
 
-    if afiliacion.effective_regimen is Regimen.CONTRIBUTIVO:
+    if affiliation.effective_regimen is Regimen.CONTRIBUTIVO:
         fee = CUOTA_MODERADORA_BY_BRACKET.get(
             cuota_moderadora_level, CUOTA_MODERADORA_BY_BRACKET[1]
         )
@@ -155,9 +155,9 @@ def charge_for_no_show(
     )
 
 
-def _bucket(dias: int) -> str:
+def _bucket(days: int) -> str:
     for name, since, until in AGEING_BUCKETS:
-        if dias >= since and (until is None or dias <= until):
+        if days >= since and (until is None or days <= until):
             return name
     return "corriente"
 

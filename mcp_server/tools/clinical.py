@@ -75,7 +75,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="record_visit_reason",
-        title="Registrar el motivo de consulta (dato clínico)",
+        title="Record the reason for consultation (clinical data)",
         description=(
             "Records the reason for consultation, or a relevant history note, on an "
             "appointment. This is CLINICAL DATA and it is regulated (Resolución "

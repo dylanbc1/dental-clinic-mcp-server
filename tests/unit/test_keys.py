@@ -13,9 +13,9 @@ pytestmark = pytest.mark.security
 
 class TestGeneration:
     def test_generates_a_usable_rsa_key(self) -> None:
-        par = generate()
-        assert isinstance(par.private, rsa.RSAPrivateKey)
-        assert par.ephemeral is True
+        pair = generate()
+        assert isinstance(pair.private, rsa.RSAPrivateKey)
+        assert pair.ephemeral is True
 
     def test_the_pem_is_unencrypted_pkcs8(self) -> None:
         pem = generate().private_pem()
@@ -34,10 +34,10 @@ class TestLoadingFromEnv:
 
     def test_loads_a_supplied_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(KEY_ENV_VAR, generate().private_pem())
-        par = load_from_env()
-        assert par is not None
-        assert par.ephemeral is False
-        assert par.kid == "environment"
+        pair = load_from_env()
+        assert pair is not None
+        assert pair.ephemeral is False
+        assert pair.kid == "environment"
 
     def test_a_key_that_is_not_rsa_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from cryptography.hazmat.primitives import serialization

@@ -28,27 +28,27 @@ class BackendClient:
 
     def __init__(self, base_url: str, *, client: httpx.AsyncClient | None = None) -> None:
         self._base_url = base_url.rstrip("/")
-        self._propio = client is None
-        self._cliente = client or httpx.AsyncClient(base_url=self._base_url, timeout=TIMEOUT)
+        self._owned = client is None
+        self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=TIMEOUT)
 
     async def aclose(self) -> None:
-        if self._propio:
-            await self._cliente.aclose()
+        if self._owned:
+            await self._client.aclose()
 
     async def _send(
         self,
-        metodo: str,
+        method: str,
         path: str,
         *,
         actor: str | None = None,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> Any:
-        cabeceras = {"X-Actor": actor} if actor else None
-        limpios = {k: v for k, v in (params or {}).items() if v is not None}
+        headers = {"X-Actor": actor} if actor else None
+        clean = {k: v for k, v in (params or {}).items() if v is not None}
         try:
-            response = await self._cliente.request(
-                metodo, path, params=limpios or None, json=json, headers=cabeceras
+            response = await self._client.request(
+                method, path, params=clean or None, json=json, headers=headers
             )
         except httpx.HTTPError as exc:
             raise backend_down_error(str(exc)) from exc
@@ -70,17 +70,17 @@ class BackendClient:
         )
 
     @staticmethod
-    def _require(payload: Any, tipo: type, path: str) -> Any:
+    def _require(payload: Any, expected: type, path: str) -> Any:
         """Assert the response shape before handing it to a tool.
 
         Not paranoia: the tools declare typed return values, and a backend that
         answers with an unexpected shape should fail here, where the error names
         the endpoint, rather than three frames later inside a formatter.
         """
-        if not isinstance(payload, tipo):
+        if not isinstance(payload, expected):
             raise StructuredToolError(
                 "RESPUESTA_INESPERADA",
-                f"{path} returned {type(payload).__name__} instead of {tipo.__name__}.",
+                f"{path} returned {type(payload).__name__} instead of {expected.__name__}.",
                 suggestion="This is a backend fault, not a problem with your request.",
             )
         return payload

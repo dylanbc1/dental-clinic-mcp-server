@@ -33,7 +33,7 @@ from backend.domain.time import (
 
 LUNES = date(2026, 8, 31)
 SATURDAY = date(2026, 9, 5)
-DOMINGO = date(2026, 9, 6)
+SUNDAY = date(2026, 9, 6)
 
 
 class TestConversions:
@@ -63,11 +63,11 @@ class TestConversions:
 
 class TestWorkingDays:
     @pytest.mark.parametrize(
-        ("day", "habil"),
-        [(LUNES, True), (date(2026, 9, 4), True), (SATURDAY, True), (DOMINGO, False)],
+        ("day", "working"),
+        [(LUNES, True), (date(2026, 9, 4), True), (SATURDAY, True), (SUNDAY, False)],
     )
-    def test_sunday_is_not_a_working_day(self, day: date, habil: bool) -> None:
-        assert is_working_day(day) is habil
+    def test_sunday_is_not_a_working_day(self, day: date, working: bool) -> None:
+        assert is_working_day(day) is working
 
 
 class TestWorkingHours:
@@ -93,12 +93,12 @@ class TestWorkingHours:
         assert not is_within_hours(local(SATURDAY, time(15, 0)))
 
     def test_never_on_sunday(self) -> None:
-        assert not is_within_hours(local(DOMINGO, time(10, 0)))
+        assert not is_within_hours(local(SUNDAY, time(10, 0)))
 
     def test_it_evaluates_in_local_time_not_utc(self) -> None:
         """14:00 UTC is 09:00 in Bogota: business hours. The naive check fails."""
-        momento_utc = datetime(2026, 8, 31, 14, 0, tzinfo=UTC)
-        assert is_within_hours(momento_utc)
+        moment_utc = datetime(2026, 8, 31, 14, 0, tzinfo=UTC)
+        assert is_within_hours(moment_utc)
         # And 02:00 UTC is 21:00 the previous day locally: closed.
         assert not is_within_hours(datetime(2026, 9, 1, 2, 0, tzinfo=UTC))
 
@@ -112,7 +112,7 @@ class TestSlotsOfTheDay:
         assert len(slots_for_day(SATURDAY)) == 8
 
     def test_sunday_has_no_slots(self) -> None:
-        assert slots_for_day(DOMINGO) == []
+        assert slots_for_day(SUNDAY) == []
 
     def test_the_slots_are_returned_in_utc(self) -> None:
         for start, end in slots_for_day(LUNES):
@@ -143,19 +143,19 @@ class TestSlotsOfTheDay:
 
 
 class TestConfirmationWindow:
-    AHORA = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+    NOW = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
 
     @pytest.mark.parametrize(
         ("hours", "within"),
         [(-1, False), (0, True), (1, True), (24, True), (48, True), (49, False), (72, False)],
     )
     def test_the_window_is_48_hours(self, hours: float, within: bool) -> None:
-        appointment = self.AHORA + timedelta(hours=hours)
-        assert within_confirmation_window(appointment, now=self.AHORA) is within
+        appointment = self.NOW + timedelta(hours=hours)
+        assert within_confirmation_window(appointment, now=self.NOW) is within
 
     def test_a_past_appointment_is_left_out(self) -> None:
-        past = self.AHORA - timedelta(days=3)
-        assert not within_confirmation_window(past, now=self.AHORA)
+        past = self.NOW - timedelta(days=3)
+        assert not within_confirmation_window(past, now=self.NOW)
 
 
 class TestHoursUntil:

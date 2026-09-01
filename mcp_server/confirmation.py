@@ -41,8 +41,8 @@ def require_client_that_can_confirm(context: Context) -> None:
     A client that cannot elicit is not a broken client, it is an older one, and
     it deserves to be told which half of this server it can still use.
     """
-    capacidades = context.client_capabilities
-    if capacidades is not None and capacidades.elicitation is not None:
+    capabilities = context.client_capabilities
+    if capabilities is not None and capabilities.elicitation is not None:
         return
     raise StructuredToolError(
         "CLIENT_CANNOT_CONFIRM",

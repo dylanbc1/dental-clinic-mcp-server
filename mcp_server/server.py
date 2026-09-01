@@ -63,7 +63,7 @@ def build_context(
     settings_: Settings | None = None,
     *,
     client: BackendClient | None = None,
-    exigir_auth: bool | None = None,
+    require_auth: bool | None = None,
 ) -> ToolContext:
     config = settings_ or get_settings()
     return ToolContext(
@@ -72,7 +72,7 @@ def build_context(
         # One switch drives both the HTTP middleware and the per-tool identity
         # check, and it defaults to on. Deriving it from the environment name
         # would mean a misconfigured APP_ENV silently disables authentication.
-        exigir_auth=config.mcp_auth_enabled if exigir_auth is None else exigir_auth,
+        require_auth=config.mcp_auth_enabled if require_auth is None else require_auth,
     )
 
 
@@ -88,12 +88,12 @@ def build_auth(config: Settings) -> tuple[AuthSettings, JWTVerifier]:
         resource_server_url=AnyHttpUrl(config.mcp_public_url),
         required_scopes=[],
     )
-    verificador = JWTVerifier(
+    verifier = JWTVerifier(
         issuer=config.oauth_issuer,
         audience=config.oauth_audience,
         jwks_uri=config.jwks_url,
     )
-    return settings_, verificador
+    return settings_, verifier
 
 
 def build_server(
@@ -104,17 +104,17 @@ def build_server(
 ) -> MCPServer[Any]:
     settings_ = config or get_settings()
     auth_settings: AuthSettings | None = None
-    verificador: JWTVerifier | None = None
+    verifier: JWTVerifier | None = None
     if con_auth:
-        auth_settings, verificador = build_auth(settings_)
+        auth_settings, verifier = build_auth(settings_)
 
     server_: MCPServer[Any] = MCPServer(
-        name="clinica-odontologica",
-        title="Clínica Odontológica · MCP",
+        name="dental-clinic",
+        title="Dental clinic · MCP",
         version="0.1.0",
         instructions=INSTRUCTIONS,
         auth=auth_settings,
-        token_verifier=verificador,
+        token_verifier=verifier,
         website_url=REPOSITORY,
         # Seals the paused operation a client carries back with the human's
         # answer. AES-256-GCM, bound to the request, the audience and the
@@ -174,16 +174,16 @@ def _prefer_our_metadata(app: Starlette) -> None:
     Starlette matches the first route that fits, and the SDK's was registered
     first, so without this the corrected document is unreachable.
     """
-    nuestras = [
+    ours = [
         r
         for r in app.routes
         if getattr(r, "path", None) == RESOURCE_METADATA_PATH
         and getattr(r, "name", None) == METADATA_ROUTE_NAME
     ]
-    if not nuestras:
+    if not ours:
         return
-    resto = [r for r in app.routes if getattr(r, "path", None) != RESOURCE_METADATA_PATH]
-    app.router.routes[:] = nuestras + resto
+    rest = [r for r in app.routes if getattr(r, "path", None) != RESOURCE_METADATA_PATH]
+    app.router.routes[:] = ours + rest
 
 
 def build_app(
@@ -216,8 +216,8 @@ def build_app(
         _prefer_our_metadata(app)
     app.add_middleware(
         RequestLimiter,
-        limit=settings_.mcp_rate_limite,
-        ventana_segundos=settings_.mcp_rate_ventana_segundos,
+        limit=settings_.mcp_rate_limit,
+        window_seconds=settings_.mcp_rate_window_seconds,
     )
     return app
 

@@ -58,10 +58,10 @@ from mcp_server.client import BackendClient
 from mcp_server.context import ToolContext
 from mcp_server.server import build_app, build_server
 
-FECHA_BASE_TESTS = date(2026, 8, 31)
+BASE_DATE_TESTS = date(2026, 8, 31)
 
 
-def _url_desde_contenedor() -> tuple[str, object] | None:
+def _url_from_container() -> tuple[str, object] | None:
     """Start a disposable PostgreSQL, or return None if Docker is unavailable."""
     try:
         # Moved package in testcontainers 4.x; keep the old path as a fallback
@@ -73,11 +73,11 @@ def _url_desde_contenedor() -> tuple[str, object] | None:
         except ImportError:  # pragma: no cover - dev extra missing
             return None
     try:
-        contenedor = PostgresContainer("postgres:16-alpine", driver="psycopg")
-        contenedor.start()
+        container = PostgresContainer("postgres:16-alpine", driver="psycopg")
+        container.start()
     except Exception:  # pragma: no cover - no docker daemon on this machine
         return None
-    return contenedor.get_connection_url(), contenedor
+    return container.get_connection_url(), container
 
 
 @pytest.fixture(scope="session")
@@ -87,18 +87,18 @@ def database_url() -> Iterator[str]:
         yield url
         return
 
-    result = _url_desde_contenedor()
+    result = _url_from_container()
     if result is None:
         pytest.skip(
             "No hay PostgreSQL para pruebas de integración. "
             "Define TEST_DATABASE_URL o levanta Docker.",
             allow_module_level=False,
         )
-    url, contenedor = result
+    url, container = result
     try:
         yield url
     finally:
-        contenedor.stop()  # type: ignore[attr-defined]
+        container.stop()  # type: ignore[attr-defined]
 
 
 @pytest.fixture(scope="session")
@@ -108,7 +108,7 @@ def alembic_config(database_url: str) -> Config:
     return config
 
 
-def _es_base_de_pruebas(url: str) -> bool:
+def _is_a_test_database(url: str) -> bool:
     """Guard for the schema drop below.
 
     The engine fixture wipes `public`. Accept only a database whose name marks
@@ -116,7 +116,7 @@ def _es_base_de_pruebas(url: str) -> bool:
     far worse, a production database.
     """
     name = urlsplit(url).path.lstrip("/").lower()
-    return any(marca in name for marca in ("test", "_ci", "pytest")) or name.startswith("tc-")
+    return any(mark in name for mark in ("test", "_ci", "pytest")) or name.startswith("tc-")
 
 
 @pytest.fixture(scope="session")
@@ -126,7 +126,7 @@ def engine(database_url: str, alembic_config: Config) -> Iterator[Engine]:
     Testing against ``create_all`` would let the migrations rot silently; here a
     broken migration fails the whole suite.
     """
-    if not _es_base_de_pruebas(database_url):
+    if not _is_a_test_database(database_url):
         pytest.fail(
             "TEST_DATABASE_URL apunta a una base que no parece de pruebas "
             f"({urlsplit(database_url).path}). El fixture borra el esquema público: "
@@ -180,17 +180,17 @@ def sessions(engine: Engine) -> Iterator[Callable[[], Session]]:
     here is wiped on teardown.
     """
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
-    abiertas: list[Session] = []
+    opened: list[Session] = []
 
-    def abrir() -> Session:
+    def open_one() -> Session:
         session_ = factory()
-        abiertas.append(session_)
+        opened.append(session_)
         return session_
 
     try:
-        yield abrir
+        yield open_one
     finally:
-        for session_ in abiertas:
+        for session_ in opened:
             session_.rollback()
             session_.close()
         cleanup = factory()
@@ -226,7 +226,7 @@ def minimal_data(sessions: Callable[[], Session]) -> dict[str, int]:
             name=f"Paciente {i}",
             phone="+57 3001112233",
             regimen=Regimen.CONTRIBUTIVO,
-            afiliacion_active=True,
+            affiliation_active=True,
         )
         for i in (1, 2)
     ]
@@ -234,10 +234,10 @@ def minimal_data(sessions: Callable[[], Session]) -> dict[str, int]:
     session_.flush()
 
     # The clinic's calendar, not the runner's: they differ for five hours a day.
-    manana = now_at_clinic().date() + timedelta(days=1)
-    while not slots_for_day(manana):
-        manana += timedelta(days=1)
-    start, end = slots_for_day(manana)[0]
+    tomorrow = now_at_clinic().date() + timedelta(days=1)
+    while not slots_for_day(tomorrow):
+        tomorrow += timedelta(days=1)
+    start, end = slots_for_day(tomorrow)[0]
     slot = AgendaSlot(
         professional_id=professional.id,
         day=start.astimezone(UTC).date(),
@@ -266,20 +266,20 @@ class Scenario:
 
     clinic_id: int
     general_id: int
-    orto_id: int
+    ortho_id: int
     #: Contributory regime, active affiliation, consent on file.
     ana_id: int
-    ana_documento: str
+    ana_document: str
     #: Subsidised regime, affiliation lapsed → private tariff.
     bruno_id: int
     #: Private patient, no consent recorded → clinical tool must refuse.
     carla_id: int
     #: In arrears well above the alert threshold.
-    deudor_id: int
+    debtor_id: int
     slots_general: list[int]
-    slots_orto: list[int]
-    slot_pasado_id: int
-    fecha_futura: date
+    ortho_slots: list[int]
+    past_slot_id: int
+    future_date: date
 
 
 @pytest.fixture
@@ -295,13 +295,13 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
         license_number="RM-ESC-1",
         specialty=Specialty.GENERAL_DENTISTRY,
     )
-    orto = Professional(
+    ortho = Professional(
         clinic_id=clinic.id,
         name="Dr. Ortodoncia",
         license_number="RM-ESC-2",
         specialty=Specialty.ORTHODONTICS,
     )
-    session_.add_all([general, orto])
+    session_.add_all([general, ortho])
     session_.flush()
 
     def patient(
@@ -319,7 +319,7 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
             phone="+57 3001112233",
             email=f"{document_number}@ejemplo.test",
             regimen=regimen,
-            afiliacion_active=active,
+            affiliation_active=active,
             cuota_moderadora_level=1,
             clinical_data_consent=consent,
         )
@@ -327,14 +327,14 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
     ana = patient("11111111", "Ana Gómez Ruiz", Regimen.CONTRIBUTIVO)
     bruno = patient("22222222", "Bruno Díaz Peña", Regimen.SUBSIDIADO, active=False)
     carla = patient("33333333", "Carla Ríos Mora", Regimen.PARTICULAR, consent=False)
-    deudor = patient("44444444", "Diego Mora Ruiz", Regimen.CONTRIBUTIVO)
-    session_.add_all([ana, bruno, carla, deudor])
+    debtor = patient("44444444", "Diego Mora Ruiz", Regimen.CONTRIBUTIVO)
+    session_.add_all([ana, bruno, carla, debtor])
     session_.flush()
 
     # A debt large enough and old enough to trip the alert threshold.
     session_.add(
         Charge(
-            patient_id=deudor.id,
+            patient_id=debtor.id,
             concept=ChargeConcept.PARTICULAR,
             amount=Decimal("180000"),
             description="Tarifa particular vencida",
@@ -344,15 +344,15 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
     )
 
     # A future working day with free slots for both professionals.
-    futura = now_at_clinic().date() + timedelta(days=3)
-    while not slots_for_day(futura):
-        futura += timedelta(days=1)
-    rangos = slots_for_day(futura)
+    future = now_at_clinic().date() + timedelta(days=3)
+    while not slots_for_day(future):
+        future += timedelta(days=1)
+    ranges = slots_for_day(future)
 
     slots_general: list[AgendaSlot] = []
-    slots_orto: list[AgendaSlot] = []
-    for start, end in rangos[:6]:
-        for professional, target in ((general, slots_general), (orto, slots_orto)):
+    ortho_slots: list[AgendaSlot] = []
+    for start, end in ranges[:6]:
+        for professional, target in ((general, slots_general), (ortho, ortho_slots)):
             slot = AgendaSlot(
                 professional_id=professional.id,
                 day=to_clinic_time(start).date(),
@@ -379,16 +379,16 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
     return Scenario(
         clinic_id=clinic.id,
         general_id=general.id,
-        orto_id=orto.id,
+        ortho_id=ortho.id,
         ana_id=ana.id,
-        ana_documento=ana.document_number,
+        ana_document=ana.document_number,
         bruno_id=bruno.id,
         carla_id=carla.id,
-        deudor_id=deudor.id,
+        debtor_id=debtor.id,
         slots_general=[s.id for s in slots_general],
-        slots_orto=[s.id for s in slots_orto],
-        slot_pasado_id=past_slot.id,
-        fecha_futura=futura,
+        ortho_slots=[s.id for s in ortho_slots],
+        past_slot_id=past_slot.id,
+        future_date=future,
     )
 
 
@@ -443,15 +443,15 @@ async def backend_client(backend_session: Session) -> AsyncIterator[BackendClien
         backend_session.commit()
 
     backend_app.dependency_overrides[get_session] = override
-    transporte = httpx.ASGITransport(app=backend_app, raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
+    transport = httpx.ASGITransport(app=backend_app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://backend") as http:
         yield BackendClient("http://backend", client=http)
     backend_app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def ctx(backend_client: BackendClient) -> ToolContext:
-    return ToolContext(client=backend_client, auditor=Auditor(), exigir_auth=True)
+    return ToolContext(client=backend_client, auditor=Auditor(), require_auth=True)
 
 
 @pytest.fixture
@@ -477,27 +477,27 @@ class MCPTestClient:
     testing.
     """
 
-    def __init__(self, http: httpx.AsyncClient, *, puede_confirmar: bool = True) -> None:
+    def __init__(self, http: httpx.AsyncClient, *, can_confirm: bool = True) -> None:
         self.http = http
         self.id = 0
         #: A client that does not declare `elicitation` stands in for one on an
         #: older spec, which cannot answer an `input_required`.
-        self.puede_confirmar = puede_confirmar
+        self.can_confirm = can_confirm
 
-    async def _rpc(self, metodo: str, params: dict[str, Any]) -> Any:
+    async def _rpc(self, method: str, params: dict[str, Any]) -> Any:
         self.id += 1
-        cabeceras = {**BASE_HEADERS, "mcp-method": metodo}
+        headers = {**BASE_HEADERS, "mcp-method": method}
         if "name" in params:
-            cabeceras["mcp-name"] = str(params["name"])
+            headers["mcp-name"] = str(params["name"])
         response = await self.http.post(
             "/mcp",
             json={
                 "jsonrpc": "2.0",
                 "id": self.id,
-                "method": metodo,
-                "params": {**params, **self._sobre()},
+                "method": method,
+                "params": {**params, **self._envelope()},
             },
-            headers=cabeceras,
+            headers=headers,
         )
         body = response.text
         for line in body.splitlines():
@@ -509,20 +509,20 @@ class MCPTestClient:
             raise ToolCallError(json.dumps(payload["error"], ensure_ascii=False))
         return payload["result"]
 
-    def _sobre(self) -> dict[str, Any]:
-        capacidades: dict[str, Any] = {"elicitation": {}} if self.puede_confirmar else {}
+    def _envelope(self) -> dict[str, Any]:
+        capabilities: dict[str, Any] = {"elicitation": {}} if self.can_confirm else {}
         return {
             "_meta": {
                 "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                "io.modelcontextprotocol/clientCapabilities": capacidades,
+                "io.modelcontextprotocol/clientCapabilities": capabilities,
             }
         }
 
     @staticmethod
-    def _desenvolver(result: dict[str, Any]) -> Any:
+    def _unwrap(result: dict[str, Any]) -> Any:
         if result.get("isError"):
-            textos = [c.get("text", "") for c in result.get("content", [])]
-            raise ToolCallError("\n".join(t for t in textos if t))
+            texts = [c.get("text", "") for c in result.get("content", [])]
+            raise ToolCallError("\n".join(t for t in texts if t))
         content = result.get("structuredContent")
         if isinstance(content, dict) and set(content) == {"result"}:
             return content["result"]
@@ -532,15 +532,13 @@ class MCPTestClient:
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Call a tool that needs no human answer."""
-        return self._desenvolver(
-            await self._rpc("tools/call", {"name": name, "arguments": arguments})
-        )
+        return self._unwrap(await self._rpc("tools/call", {"name": name, "arguments": arguments}))
 
     async def ask(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Call a tool expecting `input_required`, and return what it asks."""
         result = await self._rpc("tools/call", {"name": name, "arguments": arguments})
         if result.get("resultType") != "input_required":
-            self._desenvolver(result)  # raises if it was an error
+            self._unwrap(result)  # raises if it was an error
             raise AssertionError(f"{name} no pidió confirmación: {result}")
         return result
 
@@ -558,7 +556,7 @@ class MCPTestClient:
         response: dict[str, Any] = {"action": action}
         if action == "accept":
             response["content"] = {"confirmed": confirmed}
-        return self._desenvolver(
+        return self._unwrap(
             await self._rpc(
                 "tools/call",
                 {
@@ -570,7 +568,7 @@ class MCPTestClient:
             )
         )
 
-    async def aprobar(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def approve(self, name: str, arguments: dict[str, Any]) -> Any:
         """The whole round trip: ask, approve, execute."""
         question = await self.ask(name, arguments)
         return await self.respond(name, arguments, question)
@@ -585,10 +583,8 @@ async def http_server(ctx: ToolContext, settings_: Settings) -> AsyncIterator[MC
     """A running server over HTTP, for tests that need custom settings."""
     app = build_app(ctx, config=settings_, con_auth=False)
     async with LifespanManager(app):
-        transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-        async with httpx.AsyncClient(
-            transport=transporte, base_url="http://localhost:8080"
-        ) as http:
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8080") as http:
             yield MCPTestClient(http)
 
 
@@ -599,11 +595,9 @@ async def mcp_without_elicitation(
     """A client that cannot ask a person anything, like an older one."""
     app = build_app(ctx, config=mcp_settings, con_auth=False)
     async with LifespanManager(app):
-        transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-        async with httpx.AsyncClient(
-            transport=transporte, base_url="http://localhost:8080"
-        ) as http:
-            yield MCPTestClient(http, puede_confirmar=False)
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8080") as http:
+            yield MCPTestClient(http, can_confirm=False)
 
 
 @pytest.fixture
@@ -611,10 +605,8 @@ async def mcp(ctx: ToolContext, mcp_settings: Settings) -> AsyncIterator[MCPTest
     """The server over HTTP, with the lifespan running."""
     app = build_app(ctx, config=mcp_settings, con_auth=False)
     async with LifespanManager(app):
-        transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-        async with httpx.AsyncClient(
-            transport=transporte, base_url="http://localhost:8080"
-        ) as http:
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8080") as http:
             # No handshake: stateless means every call stands alone, carrying
             # its own protocol version and capabilities in `_meta`.
             yield MCPTestClient(http)
@@ -639,7 +631,7 @@ def as_caller(subject: str, scopes: list[str]) -> Iterator[None]:
 
 def text_of(result: CallToolResult) -> str:
     """Flatten a tool result to the text the model would actually read."""
-    parts = [getattr(bloque, "text", "") for bloque in result.content]
+    parts = [getattr(block, "text", "") for block in result.content]
     return "\n".join(p for p in parts if p)
 
 

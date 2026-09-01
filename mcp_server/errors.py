@@ -57,14 +57,14 @@ class StructuredToolError(ToolError):
     def render(self) -> str:
         parts = [f"[{self.code}] {self.message}"]
         if self.suggestion:
-            prefijo = (
+            prefix = (
                 "Action required"
                 if self.code in {str(c) for c in CODES_REQUIRING_ESCALATION}
                 else "Suggestion"
             )
-            parts.append(f"{prefijo}: {self.suggestion}")
+            parts.append(f"{prefix}: {self.suggestion}")
         if self.details:
-            parts.append(f"Datos: {json.dumps(self.details, ensure_ascii=False, default=str)}")
+            parts.append(f"Details: {json.dumps(self.details, ensure_ascii=False, default=str)}")
         return "\n".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
@@ -90,13 +90,13 @@ class StructuredToolError(ToolError):
         return cls.from_envelope(error.to_dict())
 
 
-def unauthenticated_error(recurso: str) -> StructuredToolError:
+def unauthenticated_error(resource: str) -> StructuredToolError:
     return StructuredToolError(
         str(ErrorCode.NOT_AUTHENTICATED),
         "The request carries no valid access token.",
         suggestion=(
             "Authenticate with the authorization server (OAuth 2.1 + PKCE) described at "
-            f"{recurso}/.well-known/oauth-protected-resource and try again."
+            f"{resource}/.well-known/oauth-protected-resource and try again."
         ),
     )
 
@@ -111,14 +111,14 @@ def scope_error(tool_name: str, required: str, presentes: list[str]) -> Structur
             "the current token: the result will be the same."
         ),
         details={
-            "herramienta": tool_name,
-            "scope_requerido": required,
-            "scopes_del_token": presentes,
+            "tool": tool_name,
+            "required_scope": required,
+            "token_scopes": presentes,
         },
     )
 
 
-def backend_down_error(detalle: str) -> StructuredToolError:
+def backend_down_error(detail: str) -> StructuredToolError:
     """The backend is unreachable. Not the caller's fault, so say so."""
     return StructuredToolError(
         "BACKEND_UNAVAILABLE",
@@ -127,5 +127,5 @@ def backend_down_error(detalle: str) -> StructuredToolError:
             "This is not a problem with your request. Tell the user the system is "
             "temporarily unavailable, and do not retry in a loop."
         ),
-        details={"detalle": detalle},
+        details={"detail": detail},
     )

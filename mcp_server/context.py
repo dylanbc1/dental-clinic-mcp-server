@@ -25,10 +25,10 @@ class ToolContext:
     #: When False the server runs without an authorization server, which is only
     #: appropriate locally. Production sets it True and the tools refuse an
     #: anonymous call.
-    exigir_auth: bool = True
+    require_auth: bool = True
 
     def identity(self) -> Identity:
-        return current_identity(exigir_auth=self.exigir_auth)
+        return current_identity(require_auth=self.require_auth)
 
     def authorize(self, tool_name: str, scope: Scope) -> Identity:
         """Layers 1 and 2 in one call: authenticate, then check least privilege."""

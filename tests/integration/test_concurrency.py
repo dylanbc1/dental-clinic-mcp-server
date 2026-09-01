@@ -20,7 +20,7 @@ from backend.models import AgendaSlot, Appointment
 pytestmark = pytest.mark.integration
 
 
-def _cita(payload: dict[str, int], patient: str, **extra: object) -> Appointment:
+def _appointment(payload: dict[str, int], patient: str, **extra: object) -> Appointment:
     fields: dict[str, object] = {
         "patient_id": payload[patient],
         "professional_id": payload["professional_id"],
@@ -39,15 +39,15 @@ class TestDoubleBooking:
     def test_two_agents_on_the_same_slot_only_one_wins(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
-        agente_a, agente_b = sessions(), sessions()
+        agent_a, agent_b = sessions(), sessions()
 
-        agente_a.add(_cita(minimal_data, "paciente_a"))
-        agente_a.commit()  # A gets there first
+        agent_a.add(_appointment(minimal_data, "paciente_a"))
+        agent_a.commit()  # A gets there first
 
-        agente_b.add(_cita(minimal_data, "paciente_b"))
+        agent_b.add(_appointment(minimal_data, "paciente_b"))
         with pytest.raises(IntegrityError):
-            agente_b.commit()
-        agente_b.rollback()
+            agent_b.commit()
+        agent_b.rollback()
 
         # Exactly one appointment survives. Not two, not zero.
         session_ = sessions()
@@ -61,7 +61,7 @@ class TestDoubleBooking:
         """The uniqueness is partial: a cancelled appointment must not keep the
         slot hostage, otherwise cancellation would be pointless."""
         session_ = sessions()
-        first = _cita(minimal_data, "paciente_a")
+        first = _appointment(minimal_data, "paciente_a")
         session_.add(first)
         session_.commit()
 
@@ -69,7 +69,7 @@ class TestDoubleBooking:
         first.cancellation_reason = "El paciente viajó"
         session_.commit()
 
-        session_.add(_cita(minimal_data, "paciente_b"))
+        session_.add(_appointment(minimal_data, "paciente_b"))
         session_.commit()  # must not raise
 
         active = (
@@ -98,14 +98,14 @@ class TestDoubleBooking:
         status: AppointmentState,
     ) -> None:
         session_ = sessions()
-        session_.add(_cita(minimal_data, "paciente_a", status=status))
+        session_.add(_appointment(minimal_data, "paciente_a", status=status))
         session_.commit()
 
-        otra = sessions()
-        otra.add(_cita(minimal_data, "paciente_b"))
+        another = sessions()
+        another.add(_appointment(minimal_data, "paciente_b"))
         with pytest.raises(IntegrityError):
-            otra.commit()
-        otra.rollback()
+            another.commit()
+        another.rollback()
 
     @pytest.mark.parametrize(
         "status",
@@ -118,12 +118,12 @@ class TestDoubleBooking:
         status: AppointmentState,
     ) -> None:
         session_ = sessions()
-        session_.add(_cita(minimal_data, "paciente_a", status=status))
+        session_.add(_appointment(minimal_data, "paciente_a", status=status))
         session_.commit()
 
-        otra = sessions()
-        otra.add(_cita(minimal_data, "paciente_b"))
-        otra.commit()  # must not raise
+        another = sessions()
+        another.add(_appointment(minimal_data, "paciente_b"))
+        another.commit()  # must not raise
 
 
 class TestIdempotency:
@@ -133,27 +133,27 @@ class TestIdempotency:
         """An agent that retries a timed-out booking must not end up with two
         appointments. The database is what makes that a guarantee."""
         session_ = sessions()
-        session_.add(_cita(minimal_data, "paciente_a", idempotency_key="req-abc-123"))
+        session_.add(_appointment(minimal_data, "paciente_a", idempotency_key="req-abc-123"))
         session_.commit()
 
-        reintento = sessions()
-        reintento.add(_cita(minimal_data, "paciente_b", idempotency_key="req-abc-123"))
+        retry = sessions()
+        retry.add(_appointment(minimal_data, "paciente_b", idempotency_key="req-abc-123"))
         with pytest.raises(IntegrityError):
-            reintento.commit()
-        reintento.rollback()
+            retry.commit()
+        retry.rollback()
 
     def test_different_keys_do_not_interfere(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         session_ = sessions()
-        first = _cita(minimal_data, "paciente_a", idempotency_key="req-1")
+        first = _appointment(minimal_data, "paciente_a", idempotency_key="req-1")
         session_.add(first)
         session_.commit()
         first.status = AppointmentState.CANCELLED
         first.cancellation_reason = "cambio de plan"
         session_.commit()
 
-        session_.add(_cita(minimal_data, "paciente_b", idempotency_key="req-2"))
+        session_.add(_appointment(minimal_data, "paciente_b", idempotency_key="req-2"))
         session_.commit()
 
     def test_several_appointments_may_have_no_key(
@@ -162,14 +162,14 @@ class TestIdempotency:
         """NULL is not equal to NULL in SQL: appointments created without an
         idempotency key must not collide with each other."""
         session_ = sessions()
-        first = _cita(minimal_data, "paciente_a")
+        first = _appointment(minimal_data, "paciente_a")
         session_.add(first)
         session_.commit()
         first.status = AppointmentState.CANCELLED
         first.cancellation_reason = "x"
         session_.commit()
 
-        session_.add(_cita(minimal_data, "paciente_b"))
+        session_.add(_appointment(minimal_data, "paciente_b"))
         session_.commit()
 
 
@@ -177,19 +177,19 @@ class TestOptimisticLocking:
     def test_two_writes_on_the_same_slot_detect_the_conflict(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
-        agente_a, agente_b = sessions(), sessions()
-        slot_a = agente_a.get(AgendaSlot, minimal_data["slot_id"])
-        slot_b = agente_b.get(AgendaSlot, minimal_data["slot_id"])
+        agent_a, agent_b = sessions(), sessions()
+        slot_a = agent_a.get(AgendaSlot, minimal_data["slot_id"])
+        slot_b = agent_b.get(AgendaSlot, minimal_data["slot_id"])
         assert slot_a is not None and slot_b is not None
         assert slot_a.version_id == slot_b.version_id  # both read the same version
 
         slot_a.status = SlotState.BUSY
-        agente_a.commit()
+        agent_a.commit()
 
         slot_b.status = SlotState.BLOCKED
         with pytest.raises(StaleDataError):
-            agente_b.commit()
-        agente_b.rollback()
+            agent_b.commit()
+        agent_b.rollback()
 
     def test_the_version_advances_on_every_write(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
@@ -197,15 +197,15 @@ class TestOptimisticLocking:
         session_ = sessions()
         slot = session_.get(AgendaSlot, minimal_data["slot_id"])
         assert slot is not None
-        inicial = slot.version_id
+        initial = slot.version_id
 
         slot.status = SlotState.BUSY
         session_.commit()
-        assert slot.version_id == inicial + 1
+        assert slot.version_id == initial + 1
 
         slot.status = SlotState.FREE
         session_.commit()
-        assert slot.version_id == inicial + 2
+        assert slot.version_id == initial + 2
 
 
 class TestSlotUniqueness:
@@ -216,8 +216,8 @@ class TestSlotUniqueness:
         original = session_.get(AgendaSlot, minimal_data["slot_id"])
         assert original is not None
 
-        otra = sessions()
-        otra.add(
+        another = sessions()
+        another.add(
             AgendaSlot(
                 professional_id=original.professional_id,
                 day=original.day,
@@ -226,5 +226,5 @@ class TestSlotUniqueness:
             )
         )
         with pytest.raises(IntegrityError):
-            otra.commit()
-        otra.rollback()
+            another.commit()
+        another.rollback()

@@ -37,14 +37,14 @@ class TestContext:
         """Fail closed. Deriving this from the environment name would mean a
         typo in APP_ENV silently disables authentication."""
         assert Settings(_env_file=None).mcp_auth_enabled is True  # type: ignore[call-arg]
-        assert build_context(Settings(_env_file=None)).exigir_auth is True  # type: ignore[call-arg]
+        assert build_context(Settings(_env_file=None)).require_auth is True  # type: ignore[call-arg]
 
     def test_it_can_be_turned_off_explicitly(self) -> None:
-        abierto = Settings(_env_file=None, mcp_auth_enabled=False)  # type: ignore[call-arg]
-        assert build_context(abierto).exigir_auth is False
+        open_settings = Settings(_env_file=None, mcp_auth_enabled=False)  # type: ignore[call-arg]
+        assert build_context(open_settings).require_auth is False
 
     def test_the_parameter_wins_over_the_configuration(self, settings_: Settings) -> None:
-        assert build_context(settings_, exigir_auth=False).exigir_auth is False
+        assert build_context(settings_, require_auth=False).require_auth is False
 
     def test_the_managed_context_hands_over_a_usable_one(self, settings_: Settings) -> None:
         with managed_context(settings_=settings_) as ctx:
@@ -53,10 +53,10 @@ class TestContext:
 
 class TestAuth:
     def test_builds_the_resource_server_settings(self, settings_: Settings) -> None:
-        settings, verificador = build_auth(settings_)
+        settings, verifier = build_auth(settings_)
         assert str(settings.issuer_url).rstrip("/") == settings_.oauth_issuer
         assert str(settings.resource_server_url).rstrip("/") == settings_.mcp_public_url
-        assert verificador.jwks_uri == f"{settings_.oauth_issuer}/jwks.json"
+        assert verifier.jwks_uri == f"{settings_.oauth_issuer}/jwks.json"
 
     def test_the_internal_jwks_can_differ_from_the_public_issuer(self) -> None:
         """In Docker the issuer is only resolvable from the host, so the URL the
@@ -66,9 +66,9 @@ class TestAuth:
             oauth_issuer="http://localhost:9000",
             oauth_jwks_url="http://oauth:9000/jwks.json",
         )
-        _, verificador = build_auth(settings_)
-        assert verificador.issuer == "http://localhost:9000"
-        assert verificador.jwks_uri == "http://oauth:9000/jwks.json"
+        _, verifier = build_auth(settings_)
+        assert verifier.issuer == "http://localhost:9000"
+        assert verifier.jwks_uri == "http://oauth:9000/jwks.json"
 
     def test_by_default_the_jwks_comes_from_the_issuer(self, settings_: Settings) -> None:
         assert settings_.jwks_url == "http://localhost:9000/jwks.json"
@@ -80,8 +80,8 @@ class TestAuth:
         assert settings.required_scopes == []
 
     def test_the_verifier_binds_the_audience(self, settings_: Settings) -> None:
-        _, verificador = build_auth(settings_)
-        assert verificador.audience == settings_.oauth_audience
+        _, verifier = build_auth(settings_)
+        assert verifier.audience == settings_.oauth_audience
 
 
 class TestRequestState:
@@ -118,16 +118,16 @@ class TestServer:
         server_ = build_server(
             ToolContext(client=BackendClient("http://x")), config=settings_, con_auth=True
         )
-        assert server_.name == "clinica-odontologica"
+        assert server_.name == "dental-clinic"
         assert server_.version == "0.1.0"
 
     def test_the_instructions_name_both_rules(self, settings_: Settings) -> None:
-        instrucciones = (
+        instructions = (
             build_server(
                 ToolContext(client=BackendClient("http://x")), config=settings_
             ).instructions
             or ""
         ).lower()
-        assert "confirmación" in instrucciones
-        assert "retries the same call" in instrucciones
-        assert "consent" in instrucciones
+        assert "confirmación" in instructions
+        assert "retries the same call" in instructions
+        assert "consent" in instructions

@@ -81,7 +81,7 @@ async def require_valid_transition(
             ),
             details={
                 "appointment_id": appointment_id,
-                "estado_actual": appointment["status"],
+                "current_state": appointment["status"],
                 "valid_transitions": valid,
             },
         )
@@ -147,13 +147,13 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 patient_id=patient_id,
                 expected_specialty=expected_specialty,
             )
-            afiliacion = await ctx.client.get_object(f"/patients/{patient_id}/afiliacion")
+            affiliation = await ctx.client.get_object(f"/patients/{patient_id}/affiliation")
             cartera = await ctx.client.get_object(f"/patients/{patient_id}/cartera")
 
         warnings: list[str] = []
-        if not afiliacion["active"]:
+        if not affiliation["active"]:
             warnings.append(
-                f"La afiliación al régimen {afiliacion['regimen']} está inactiva: "
+                f"La afiliación al régimen {affiliation['regimen']} está inactiva: "
                 "se liquidará a tarifa particular."
             )
         if cartera["status"] == "en_mora":
@@ -172,14 +172,14 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             effects=[
                 "Se creará la cita, pendiente de confirmar.",
                 f"El cupo del {slot['start_local']} quedará ocupado.",
-                f"El cobro aplicable será: {afiliacion['charge_concept']}.",
+                f"El cobro aplicable será: {affiliation['charge_concept']}.",
             ],
             warnings=warnings,
         )
 
     @server_.tool(
         name="book_appointment",
-        title="Agendar una cita",
+        title="Book an appointment",
         description=(
             "Books an appointment in a free slot. It does NOT book straight away: it "
             "first asks a person for confirmation, describing what will happen. Until "
@@ -242,7 +242,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="confirm_appointment",
-        title="Confirmar asistencia",
+        title="Confirm an appointment",
         description=(
             "Marks an appointment as confirmed by the patient, ideally 48 hours ahead. "
             "Asks a person for confirmation before applying it. Confirming protects the "
@@ -290,7 +290,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="cancel_appointment",
-        title="Cancelar una cita",
+        title="Cancel an appointment",
         description=(
             "Cancels an appointment. The motivo is MANDATORY: without it the clinic "
             "cannot audit its own cancellations. Asks a person for confirmation before "
@@ -355,7 +355,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="reschedule_appointment",
-        title="Reprogramar una cita",
+        title="Reschedule an appointment",
         description=(
             "Moves an appointment to a different slot. It has two effects at once, "
             "freeing the current slot and taking the new one, which is why it asks a "
@@ -394,7 +394,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                     "INVALID_INPUT",
                     f"'{status}' is not an attendance state.",
                     suggestion=f"Use one of: {', '.join(ATTENDANCE_STATES)}.",
-                    details={"estados_validos": list(ATTENDANCE_STATES)},
+                    details={"valid_states": list(ATTENDANCE_STATES)},
                 )
             appointment = await require_valid_transition(ctx, appointment_id, status)
 
@@ -421,7 +421,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="record_attendance",
-        title="Registrar asistencia",
+        title="Record attendance",
         description=(
             "Records what happened with the appointment: 'waiting' (the patient "
             "arrived and is in the waiting room), 'attended' (it took place) or "
@@ -466,7 +466,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
     @server_.tool(
         name="offer_slot_to_waiting_list",
-        title="Ofrecer un cupo liberado",
+        title="Offer a freed slot",
         description=(
             "Offers a free slot to the next patient on the waiting list for that "
             "specialty. Urgent cases jump the queue; within the same priority it is "

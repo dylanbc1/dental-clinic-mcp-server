@@ -27,7 +27,7 @@ from backend.domain.states import (
 )
 from backend.enums import FINAL_STATES, AppointmentState
 
-TODOS = list(AppointmentState)
+ALL_STATES = list(AppointmentState)
 
 #: The transitions the sector standard (§2.1) declares legal, written out by
 #: hand so the test does not simply mirror the implementation's table.
@@ -44,7 +44,7 @@ LEGAL: set[tuple[AppointmentState, AppointmentState]] = {
     (AppointmentState.WAITING, AppointmentState.CANCELLED),
 }
 
-ILLEGAL = {par for par in itertools.product(TODOS, TODOS) if par not in LEGAL}
+ILLEGAL = {pair for pair in itertools.product(ALL_STATES, ALL_STATES) if pair not in LEGAL}
 
 
 # --------------------------------------------------------------------- table
@@ -52,13 +52,13 @@ ILLEGAL = {par for par in itertools.product(TODOS, TODOS) if par not in LEGAL}
 
 class TestTransitionTable:
     def test_the_table_covers_every_state(self) -> None:
-        assert set(TRANSITIONS) == set(TODOS)
+        assert set(TRANSITIONS) == set(ALL_STATES)
 
     def test_the_table_matches_the_sector_standard(self) -> None:
-        derivadas = {
-            (origen, target) for origen, destinos in TRANSITIONS.items() for target in destinos
+        derived = {
+            (origin, target) for origin, targets in TRANSITIONS.items() for target in targets
         }
-        assert derivadas == LEGAL
+        assert derived == LEGAL
 
     def test_final_states_have_no_exit(self) -> None:
         for status in FINAL_STATES:
@@ -66,51 +66,51 @@ class TestTransitionTable:
             assert is_final(status)
 
     def test_non_final_states_do_have_an_exit(self) -> None:
-        for status in set(TODOS) - FINAL_STATES:
+        for status in set(ALL_STATES) - FINAL_STATES:
             assert reachable_states(status), f"{status} was left with no exits"
 
     def test_no_transition_points_at_itself(self) -> None:
-        for origen, destinos in TRANSITIONS.items():
-            assert origen not in destinos
+        for origin, targets in TRANSITIONS.items():
+            assert origin not in targets
 
     def test_every_state_is_reachable_from_scheduled(self) -> None:
         """No unreachable state: a state nothing can reach is dead code."""
-        alcanzables = {AppointmentState.SCHEDULED}
-        frontera = [AppointmentState.SCHEDULED]
-        while frontera:
-            current = frontera.pop()
+        reachable = {AppointmentState.SCHEDULED}
+        boundary = [AppointmentState.SCHEDULED]
+        while boundary:
+            current = boundary.pop()
             for next_up in TRANSITIONS[current]:
-                if next_up not in alcanzables:
-                    alcanzables.add(next_up)
-                    frontera.append(next_up)
-        assert alcanzables == set(TODOS)
+                if next_up not in reachable:
+                    reachable.add(next_up)
+                    boundary.append(next_up)
+        assert reachable == set(ALL_STATES)
 
 
 # ---------------------------------------------------------------- exhaustive
 
 
-@pytest.mark.parametrize(("origen", "target"), sorted(LEGAL))
+@pytest.mark.parametrize(("origin", "target"), sorted(LEGAL))
 def test_every_legal_transition_is_accepted(
-    origen: AppointmentState, target: AppointmentState
+    origin: AppointmentState, target: AppointmentState
 ) -> None:
-    assert is_valid_transition(origen, target)
-    effects = validate_transition(origen, target, reason="motivo de prueba")
-    assert effects.previous_status is origen
+    assert is_valid_transition(origin, target)
+    effects = validate_transition(origin, target, reason="motivo de prueba")
+    assert effects.previous_status is origin
     assert effects.new_status is target
-    assert effects.requiere_auditoria is True
+    assert effects.requires_audit is True
 
 
-@pytest.mark.parametrize(("origen", "target"), sorted(ILLEGAL))
+@pytest.mark.parametrize(("origin", "target"), sorted(ILLEGAL))
 def test_every_illegal_transition_is_refused(
-    origen: AppointmentState, target: AppointmentState
+    origin: AppointmentState, target: AppointmentState
 ) -> None:
-    assert not is_valid_transition(origen, target)
+    assert not is_valid_transition(origin, target)
     with pytest.raises(InvalidTransition):
-        validate_transition(origen, target, reason="motivo de prueba")
+        validate_transition(origin, target, reason="motivo de prueba")
 
 
 def test_the_legal_illegal_partition_covers_the_whole_space() -> None:
-    assert len(LEGAL) + len(ILLEGAL) == len(TODOS) ** 2 == 49
+    assert len(LEGAL) + len(ILLEGAL) == len(ALL_STATES) ** 2 == 49
 
 
 # ------------------------------------------------------------------- errores
@@ -127,7 +127,7 @@ class TestActionableErrors:
         # model has to guess, which is what layer 4 exists to prevent.
         for valid in TRANSITIONS[AppointmentState.SCHEDULED]:
             assert str(valid) in error.suggestion
-        assert error.details["estado_actual"] == "scheduled"
+        assert error.details["current_state"] == "scheduled"
         assert error.details["requested_state"] == "attended"
 
     def test_a_final_state_returns_its_own_code(self) -> None:
@@ -149,11 +149,11 @@ class TestActionableErrors:
 
 class TestReasonIsMandatory:
     @pytest.mark.parametrize(
-        "origen", [AppointmentState.SCHEDULED, AppointmentState.CONFIRMED, AppointmentState.WAITING]
+        "origin", [AppointmentState.SCHEDULED, AppointmentState.CONFIRMED, AppointmentState.WAITING]
     )
-    def test_cancelling_without_a_reason_fails(self, origen: AppointmentState) -> None:
+    def test_cancelling_without_a_reason_fails(self, origin: AppointmentState) -> None:
         with pytest.raises(ReasonRequired) as exc:
-            validate_transition(origen, AppointmentState.CANCELLED)
+            validate_transition(origin, AppointmentState.CANCELLED)
         assert exc.value.code is ErrorCode.REASON_REQUIRED
         assert "reason" in (exc.value.suggestion or "")
 
@@ -168,27 +168,27 @@ class TestReasonIsMandatory:
         effects = validate_transition(
             AppointmentState.CONFIRMED, AppointmentState.CANCELLED, reason="El paciente viajó"
         )
-        assert effects.libera_slot
+        assert effects.releases_slot
 
     def test_only_cancelling_requires_a_reason(self) -> None:
         assert {AppointmentState.CANCELLED} == TRANSITIONS_REQUIRING_REASON
         # Every other legal transition must go through without one.
-        for origen, target in LEGAL:
+        for origin, target in LEGAL:
             if target is AppointmentState.CANCELLED:
                 continue
-            validate_transition(origen, target)
+            validate_transition(origin, target)
 
 
 # ------------------------------------------------------------------- efectos
 
 
 class TestEffects:
-    @pytest.mark.parametrize(("origen", "target"), sorted(LEGAL))
+    @pytest.mark.parametrize(("origin", "target"), sorted(LEGAL))
     def test_the_effects_agree_with_the_tables(
-        self, origen: AppointmentState, target: AppointmentState
+        self, origin: AppointmentState, target: AppointmentState
     ) -> None:
-        effects = validate_transition(origen, target, reason="x")
-        assert effects.libera_slot is (target in TRANSITIONS_FREEING_SLOT)
+        effects = validate_transition(origin, target, reason="x")
+        assert effects.releases_slot is (target in TRANSITIONS_FREEING_SLOT)
         assert effects.genera_cargo is (target in TRANSITIONS_CREATING_CHARGE)
 
     def test_only_cancelling_triggers_the_waiting_list(self) -> None:
@@ -196,49 +196,49 @@ class TestEffects:
         # slot has already elapsed: neither leaves a slot someone can take.
         assert validate_transition(
             AppointmentState.SCHEDULED, AppointmentState.CANCELLED, reason="x"
-        ).dispara_lista_espera
+        ).triggers_waiting_list
         assert not validate_transition(
             AppointmentState.SCHEDULED, AppointmentState.RESCHEDULED
-        ).dispara_lista_espera
+        ).triggers_waiting_list
         assert not validate_transition(
             AppointmentState.CONFIRMED, AppointmentState.NO_SHOW
-        ).dispara_lista_espera
+        ).triggers_waiting_list
 
     def test_attending_creates_a_charge_and_holds_the_slot(self) -> None:
         effects = validate_transition(AppointmentState.WAITING, AppointmentState.ATTENDED)
         assert effects.genera_cargo
-        assert not effects.libera_slot
+        assert not effects.releases_slot
 
     def test_the_effects_are_immutable(self) -> None:
         effects = validate_transition(AppointmentState.SCHEDULED, AppointmentState.CONFIRMED)
         with pytest.raises((AttributeError, TypeError)):
-            effects.libera_slot = True  # type: ignore[misc]
+            effects.releases_slot = True  # type: ignore[misc]
 
 
 # ------------------------------------------------------------ property-based
 
-states = st.sampled_from(TODOS)
+states = st.sampled_from(ALL_STATES)
 
 
 class TestProperties:
-    @given(origen=states, target=states)
+    @given(origin=states, target=states)
     def test_the_validator_and_the_predicate_never_disagree(
-        self, origen: AppointmentState, target: AppointmentState
+        self, origin: AppointmentState, target: AppointmentState
     ) -> None:
         """The pure predicate and the raising validator must agree, always."""
-        if is_valid_transition(origen, target):
-            validate_transition(origen, target, reason="reason")
+        if is_valid_transition(origin, target):
+            validate_transition(origin, target, reason="reason")
         else:
             with pytest.raises(InvalidTransition):
-                validate_transition(origen, target, reason="reason")
+                validate_transition(origin, target, reason="reason")
 
-    @given(origen=states, target=states)
+    @given(origin=states, target=states)
     def test_no_input_produces_an_unexpected_exception(
-        self, origen: AppointmentState, target: AppointmentState
+        self, origin: AppointmentState, target: AppointmentState
     ) -> None:
         """Whatever happens, it is a typed domain error, never a bare crash."""
         try:
-            validate_transition(origen, target)
+            validate_transition(origin, target)
         except (InvalidTransition, ReasonRequired) as error:
             assert error.code in {
                 ErrorCode.INVALID_TRANSITION,
@@ -247,8 +247,8 @@ class TestProperties:
             }
             assert error.to_dict()["message"]
 
-    @given(origen=states)
-    def test_from_a_final_state_nothing_is_possible(self, origen: AppointmentState) -> None:
-        if is_final(origen):
-            for target in TODOS:
-                assert not is_valid_transition(origen, target)
+    @given(origin=states)
+    def test_from_a_final_state_nothing_is_possible(self, origin: AppointmentState) -> None:
+        if is_final(origin):
+            for target in ALL_STATES:
+                assert not is_valid_transition(origin, target)

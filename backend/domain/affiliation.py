@@ -37,8 +37,8 @@ SUBSIDIADO_COPAGO_RATE = Decimal("0.10")
 
 
 @dataclass(frozen=True, slots=True)
-class AfiliacionResult:
-    """The verdict returned by :func:`validate_afiliacion`."""
+class AffiliationResult:
+    """The verdict returned by :func:`validate_affiliation`."""
 
     regimen: Regimen
     active: bool
@@ -61,15 +61,15 @@ class AfiliacionResult:
         return False
 
 
-def validate_afiliacion(
+def validate_affiliation(
     regimen: Regimen,
-    afiliacion_active: bool,
+    affiliation_active: bool,
     *,
     cuota_moderadora_level: int = 1,
-) -> AfiliacionResult:
+) -> AffiliationResult:
     """Resolve the billing consequences of a patient's affiliation status."""
     if regimen is Regimen.PARTICULAR:
-        return AfiliacionResult(
+        return AffiliationResult(
             regimen=regimen,
             active=True,  # a private patient is by definition "active"
             effective_regimen=Regimen.PARTICULAR,
@@ -79,8 +79,8 @@ def validate_afiliacion(
             message="Private patient: pays the full tariff, no copago and no cuota moderadora.",
         )
 
-    if not afiliacion_active:
-        return AfiliacionResult(
+    if not affiliation_active:
+        return AffiliationResult(
             regimen=regimen,
             active=False,
             effective_regimen=Regimen.PARTICULAR,
@@ -98,7 +98,7 @@ def validate_afiliacion(
         )
 
     if regimen is Regimen.SOAT:
-        return AfiliacionResult(
+        return AffiliationResult(
             regimen=regimen,
             active=True,
             effective_regimen=Regimen.SOAT,
@@ -112,7 +112,7 @@ def validate_afiliacion(
         fee = CUOTA_MODERADORA_BY_BRACKET.get(
             cuota_moderadora_level, CUOTA_MODERADORA_BY_BRACKET[1]
         )
-        return AfiliacionResult(
+        return AffiliationResult(
             regimen=regimen,
             active=True,
             effective_regimen=Regimen.CONTRIBUTIVO,
@@ -125,7 +125,7 @@ def validate_afiliacion(
         )
 
     # Regimen.SUBSIDIADO
-    return AfiliacionResult(
+    return AffiliationResult(
         regimen=regimen,
         active=True,
         effective_regimen=Regimen.SUBSIDIADO,

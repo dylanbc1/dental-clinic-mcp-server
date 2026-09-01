@@ -39,7 +39,7 @@ class ErrorCode(StrEnum):
     ALREADY_ON_WAITING_LIST = "ALREADY_ON_WAITING_LIST"
 
     # --- accounts receivable / affiliation --------------------------------
-    AFILIACION_INACTIVE = "AFILIACION_INACTIVE"
+    AFFILIATION_INACTIVE = "AFFILIATION_INACTIVE"
     CARTERA_OVERDUE = "CARTERA_OVERDUE"
 
     # --- validation & concurrency -----------------------------------------
@@ -167,8 +167,8 @@ class AlreadyOnWaitingList(DomainError):
     http_status = 409
 
 
-class AfiliacionInactive(DomainError):
-    code = ErrorCode.AFILIACION_INACTIVE
+class AffiliationInactive(DomainError):
+    code = ErrorCode.AFFILIATION_INACTIVE
 
 
 class ConsentRequired(DomainError):

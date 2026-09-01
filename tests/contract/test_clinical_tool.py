@@ -15,7 +15,7 @@ from tests.conftest import SUBJECT, MCPTestClient, Scenario, ToolCallError, as_c
 
 pytestmark = [pytest.mark.integration, pytest.mark.security]
 
-CLINICO = ["read", "write", "clinical"]
+CLINICAL = ["read", "write", "clinical"]
 
 
 @pytest.fixture
@@ -49,8 +49,8 @@ class TestWithConsent:
         self, mcp: MCPTestClient, backend_session: Session, appointment_with_consent: int
     ) -> None:
         args = {"appointment_id": appointment_with_consent, "reason": "Dolor en molar inferior"}
-        with as_caller(SUBJECT, CLINICO):
-            result = await mcp.aprobar("record_visit_reason", args)
+        with as_caller(SUBJECT, CLINICAL):
+            result = await mcp.approve("record_visit_reason", args)
 
         assert result["reason"] == "Dolor en molar inferior"
         backend_session.expire_all()
@@ -62,7 +62,7 @@ class TestWithConsent:
         self, mcp: MCPTestClient, appointment_with_consent: int
     ) -> None:
         args = {"appointment_id": appointment_with_consent, "reason": "Dolor"}
-        with as_caller(SUBJECT, CLINICO):
+        with as_caller(SUBJECT, CLINICAL):
             message = mcp.question_text(await mcp.ask("record_visit_reason", args))
         assert "2654" in message
         assert "1581" in message
@@ -71,7 +71,7 @@ class TestWithConsent:
         self, mcp: MCPTestClient, backend_session: Session, appointment_with_consent: int
     ) -> None:
         args = {"appointment_id": appointment_with_consent, "reason": "Dolor agudo"}
-        with as_caller(SUBJECT, CLINICO):
+        with as_caller(SUBJECT, CLINICAL):
             await mcp.ask("record_visit_reason", args)
         backend_session.expire_all()
         assert get_appointment(backend_session, appointment_with_consent).reason is None
@@ -84,8 +84,8 @@ class TestWithoutConsent:
         """Every gate open except the patient's own authorisation, and that is
         the one that must still stop it."""
         args = {"appointment_id": appointment_without_consent, "reason": "Dolor"}
-        with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError) as exc:
-            await mcp.aprobar("record_visit_reason", args)
+        with as_caller(SUBJECT, CLINICAL), pytest.raises(ToolCallError) as exc:
+            await mcp.approve("record_visit_reason", args)
         assert "CONSENT_REQUIRED" in exc.value.text_of
         assert "2654" in exc.value.text_of
         assert "Action required" in exc.value.text_of
@@ -94,8 +94,8 @@ class TestWithoutConsent:
         self, mcp: MCPTestClient, backend_session: Session, appointment_without_consent: int
     ) -> None:
         args = {"appointment_id": appointment_without_consent, "reason": "Dolor severo"}
-        with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError):
-            await mcp.aprobar("record_visit_reason", args)
+        with as_caller(SUBJECT, CLINICAL), pytest.raises(ToolCallError):
+            await mcp.approve("record_visit_reason", args)
         backend_session.expire_all()
         assert get_appointment(backend_session, appointment_without_consent).reason is None
 
@@ -107,22 +107,22 @@ class TestClinicalAudit:
         """Res. 2654 asks who touched clinical data. Burying that in the generic
         invocation stream makes it unanswerable at audit time."""
         args = {"appointment_id": appointment_with_consent, "reason": "Control"}
-        with as_caller("odontologa@clinica.test", CLINICO):
-            await mcp.aprobar("record_visit_reason", args)
+        with as_caller("odontologa@clinica.test", CLINICAL):
+            await mcp.approve("record_visit_reason", args)
 
-        clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
-        assert clinicos[-1]["result"] == "recorded"
-        assert all(e["subject"] == "odontologa@clinica.test" for e in clinicos)
-        assert all(e["appointment_id"] == appointment_with_consent for e in clinicos)
+        clinical_tools = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
+        assert clinical_tools[-1]["result"] == "recorded"
+        assert all(e["subject"] == "odontologa@clinica.test" for e in clinical_tools)
+        assert all(e["appointment_id"] == appointment_with_consent for e in clinical_tools)
 
     async def test_a_refusal_is_audited_too(
         self, mcp: MCPTestClient, ctx: Any, appointment_without_consent: int
     ) -> None:
         args = {"appointment_id": appointment_without_consent, "reason": "Dolor"}
-        with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError):
-            await mcp.aprobar("record_visit_reason", args)
-        clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
-        assert clinicos[-1]["result"] == "refused:CONSENT_REQUIRED"
+        with as_caller(SUBJECT, CLINICAL), pytest.raises(ToolCallError):
+            await mcp.approve("record_visit_reason", args)
+        clinical_tools = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
+        assert clinical_tools[-1]["result"] == "refused:CONSENT_REQUIRED"
 
     async def test_the_reason_is_not_copied_into_the_log(
         self, mcp: MCPTestClient, ctx: Any, appointment_with_consent: int
@@ -130,8 +130,8 @@ class TestClinicalAudit:
         """The reason for consultation is the clinical datum itself. Auditing
         the access must not duplicate it somewhere less protected."""
         secreto = "sangrado gingival persistente hace tres semanas"
-        with as_caller(SUBJECT, CLINICO):
-            await mcp.aprobar(
+        with as_caller(SUBJECT, CLINICAL):
+            await mcp.approve(
                 "record_visit_reason",
                 {"appointment_id": appointment_with_consent, "reason": secreto},
             )
@@ -149,7 +149,7 @@ class TestClinicalAudit:
         and for whom. The reason itself is the patient's, and echoing it back
         through the client would put clinical data in one more place."""
         secreto = "absceso periapical según el paciente"
-        with as_caller(SUBJECT, CLINICO):
+        with as_caller(SUBJECT, CLINICAL):
             message = mcp.question_text(
                 await mcp.ask(
                     "record_visit_reason",

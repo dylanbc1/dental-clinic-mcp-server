@@ -218,7 +218,7 @@ implementa: un **siguiente paso accionable**.
   "code": "SLOT_UNAVAILABLE",
   "message": "El cupo del 2026-09-03 09:00 ya no está libre.",
   "suggestion": "Los cupos libres más cercanos son: 2026-09-03 09:30 (Dra. Ospina), 2026-09-03 11:00 (Dr. Cadena).",
-  "details": { "slot_id": 88, "alternativas": [{ "slot_id": 91 }, { "slot_id": 96 }] }
+  "details": { "slot_id": 88, "alternatives": [{ "slot_id": 91 }, { "slot_id": 96 }] }
 }
 ```
 

@@ -9,7 +9,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from backend.domain.afiliacion import validate_afiliacion
+from backend.domain.affiliation import validate_affiliation
 from backend.domain.cartera import (
     AGEING_BUCKETS,
     CarteraPolicy,
@@ -46,34 +46,34 @@ def charge(
 
 class TestChargeForVisit:
     def test_particular_pays_the_full_tariff(self) -> None:
-        afiliacion = validate_afiliacion(Regimen.PARTICULAR, True)
-        result = charge_for_visit(afiliacion, "endodontics")
+        affiliation = validate_affiliation(Regimen.PARTICULAR, True)
+        result = charge_for_visit(affiliation, "endodontics")
         assert result is not None
         assert result.concept is ChargeConcept.PARTICULAR
         assert result.amount == Decimal("350000")
 
     def test_soat_creates_no_charge(self) -> None:
-        afiliacion = validate_afiliacion(Regimen.SOAT, True)
-        assert charge_for_visit(afiliacion, "general_dentistry") is None
+        affiliation = validate_affiliation(Regimen.SOAT, True)
+        assert charge_for_visit(affiliation, "general_dentistry") is None
 
     def test_contributivo_pays_the_cuota_moderadora_for_its_level(self) -> None:
-        afiliacion = validate_afiliacion(Regimen.CONTRIBUTIVO, True, cuota_moderadora_level=2)
-        result = charge_for_visit(afiliacion, "orthodontics", cuota_moderadora_level=2)
+        affiliation = validate_affiliation(Regimen.CONTRIBUTIVO, True, cuota_moderadora_level=2)
+        result = charge_for_visit(affiliation, "orthodontics", cuota_moderadora_level=2)
         assert result is not None
         assert result.concept is ChargeConcept.CUOTA_MODERADORA
         assert result.amount == Decimal("22000")
 
     def test_subsidiado_pays_a_percentage_of_the_tariff(self) -> None:
-        afiliacion = validate_afiliacion(Regimen.SUBSIDIADO, True)
-        result = charge_for_visit(afiliacion, "endodontics")
+        affiliation = validate_affiliation(Regimen.SUBSIDIADO, True)
+        result = charge_for_visit(affiliation, "endodontics")
         assert result is not None
         assert result.concept is ChargeConcept.COPAGO
         assert result.amount == Decimal("35000")  # 10% of 350.000
 
-    def test_inactive_afiliacion_is_billed_as_particular(self) -> None:
+    def test_inactive_affiliation_is_billed_as_particular(self) -> None:
         """The regime says 'subsidised' but the charge must be the full tariff."""
-        afiliacion = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_active=False)
-        result = charge_for_visit(afiliacion, "endodontics")
+        affiliation = validate_affiliation(Regimen.SUBSIDIADO, affiliation_active=False)
+        result = charge_for_visit(affiliation, "endodontics")
         assert result is not None
         assert result.concept is ChargeConcept.PARTICULAR
         assert result.amount == Decimal("350000")
@@ -88,8 +88,8 @@ class TestChargeForVisit:
     def test_the_amount_is_never_negative(
         self, regimen: Regimen, active: bool, specialty: str
     ) -> None:
-        afiliacion = validate_afiliacion(regimen, active)
-        result = charge_for_visit(afiliacion, specialty)
+        affiliation = validate_affiliation(regimen, active)
+        result = charge_for_visit(affiliation, specialty)
         assert result is None or result.amount >= 0
 
 
@@ -235,12 +235,12 @@ class TestAlertWhenBooking:
 
     def test_mora_above_the_threshold_alerts_but_does_not_block(self) -> None:
         summary = summarise_cartera(1, [charge("150000", 70)], hoy=HOY)
-        alerta = booking_warning(summary)
-        assert alerta is not None
-        assert "Heads-up" in alerta
+        warning = booking_warning(summary)
+        assert warning is not None
+        assert "Heads-up" in warning
         # The wording must make clear the appointment still goes through: the
         # spec is explicit that debt warns, it does not block.
-        assert "can still be booked" in alerta
+        assert "can still be booked" in warning
 
     def test_the_threshold_is_configurable(self) -> None:
         policy = CarteraPolicy(overdue_alert_threshold=Decimal("10000"))
@@ -253,12 +253,12 @@ class TestProperties:
 
     @given(
         amounts=st.lists(amounts, min_size=0, max_size=15),
-        desfases=st.lists(st.integers(min_value=-90, max_value=400), min_size=0, max_size=15),
+        offsets=st.lists(st.integers(min_value=-90, max_value=400), min_size=0, max_size=15),
     )
-    def test_summary_invariants(self, amounts: list[Decimal], desfases: list[int]) -> None:
+    def test_summary_invariants(self, amounts: list[Decimal], offsets: list[int]) -> None:
         charges = [
             charge(str(m), d, charge_id=i)
-            for i, (m, d) in enumerate(zip(amounts, desfases, strict=False))
+            for i, (m, d) in enumerate(zip(amounts, offsets, strict=False))
         ]
         summary = summarise_cartera(7, charges, hoy=HOY)
         assert summary.overdue_total <= summary.pending_total
@@ -268,6 +268,6 @@ class TestProperties:
         assert sum(summary.ageing.values()) == summary.pending_total
         # A zero-amount overdue charge still counts as arrears, so compare
         # against the actual overdue set rather than against the total.
-        hay_vencidos = any(c.days_overdue(HOY) > 0 for c in charges)
-        assert (summary.status is CarteraState.EN_MORA) is hay_vencidos
+        has_overdue = any(c.days_overdue(HOY) > 0 for c in charges)
+        assert (summary.status is CarteraState.EN_MORA) is has_overdue
         assert summary.patient_id == 7

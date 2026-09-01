@@ -37,7 +37,7 @@ from backend.models import (
 
 pytestmark = pytest.mark.integration
 
-TABLAS_ESPERADAS = {
+EXPECTED_TABLES = {
     "clinic",
     "professional",
     "patient",
@@ -52,10 +52,10 @@ TABLAS_ESPERADAS = {
 class TestSchemaShape:
     def test_the_models_eight_tables_exist(self, engine: object) -> None:
         names = set(inspect(engine).get_table_names())  # type: ignore[arg-type]
-        assert names >= TABLAS_ESPERADAS
+        assert names >= EXPECTED_TABLES
 
     def test_the_metadata_declares_exactly_those_tables(self) -> None:
-        assert set(Base.metadata.tables) == TABLAS_ESPERADAS
+        assert set(Base.metadata.tables) == EXPECTED_TABLES
 
     def test_the_timestamps_carry_a_timezone(self, engine: object) -> None:
         """A `timestamp without time zone` column is a five-hour bug waiting.
@@ -65,7 +65,7 @@ class TestSchemaShape:
         """
         inspector = inspect(engine)  # type: ignore[arg-type]
         checked = 0
-        for table in TABLAS_ESPERADAS:
+        for table in EXPECTED_TABLES:
             for column in inspector.get_columns(table):
                 kind = column["type"]
                 if isinstance(kind, DateTime):
@@ -74,11 +74,11 @@ class TestSchemaShape:
         assert checked >= 20, "no time column was inspected at all"
 
     def test_the_enums_are_native_postgres_types(self, session: Session) -> None:
-        tipos = (
+        types = (
             session.execute(text("select typname from pg_type where typtype = 'e'")).scalars().all()
         )
-        assert "appointment_state_enum" in tipos
-        assert "regimen_enum" in tipos
+        assert "appointment_state_enum" in types
+        assert "regimen_enum" in types
 
 
 class TestUniqueness:
@@ -89,7 +89,7 @@ class TestUniqueness:
             name="Ana Gómez",
             phone="+57 3001234567",
             regimen=Regimen.CONTRIBUTIVO,
-            afiliacion_active=True,
+            affiliation_active=True,
         )
 
     def test_the_document_is_not_repeated_for_the_same_type(self, empty_tables: Session) -> None:
@@ -157,7 +157,7 @@ class TestChecks:
             name="N",
             phone="+57 3000000000",
             regimen=Regimen.PARTICULAR,
-            afiliacion_active=True,
+            affiliation_active=True,
         )
         empty_tables.add(patient)
         empty_tables.flush()
@@ -181,7 +181,7 @@ class TestChecks:
                 name="N",
                 phone="+57 3000000000",
                 regimen=Regimen.CONTRIBUTIVO,
-                afiliacion_active=True,
+                affiliation_active=True,
                 cuota_moderadora_level=7,
             )
         )
@@ -207,7 +207,7 @@ class TestWaitingListPartialUniqueness:
             name="N",
             phone="+57 3000000000",
             regimen=Regimen.SUBSIDIADO,
-            afiliacion_active=True,
+            affiliation_active=True,
         )
         session.add(patient)
         session.flush()

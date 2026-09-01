@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.domain.afiliacion import AfiliacionResult
+from backend.domain.affiliation import AffiliationResult
 from backend.domain.cartera import CarteraSummary
 from backend.domain.services import AvailableSlot
 from backend.domain.states import reachable_states
@@ -52,7 +52,7 @@ class PatientSummary(Model):
     name: str
     phone: str
     regimen: Regimen
-    afiliacion_active: bool
+    affiliation_active: bool
     eps: str | None = None
 
     @classmethod
@@ -143,7 +143,7 @@ class AppointmentDetail(Model):
     history: list[HistoryItem] = Field(default_factory=list)
 
     @classmethod
-    def of(cls, appointment: Appointment, *, incluir_historial: bool = True) -> AppointmentDetail:
+    def of(cls, appointment: Appointment, *, include_history: bool = True) -> AppointmentDetail:
         return cls(
             id=appointment.id,
             status=appointment.status,
@@ -163,13 +163,13 @@ class AppointmentDetail(Model):
             valid_transitions=sorted(reachable_states(appointment.status)),
             history=(
                 [HistoryItem.model_validate(h) for h in appointment.history]
-                if incluir_historial
+                if include_history
                 else []
             ),
         )
 
 
-class AfiliacionResponse(Model):
+class AffiliationResponse(Model):
     patient_id: int
     regimen: Regimen
     active: bool
@@ -182,7 +182,7 @@ class AfiliacionResponse(Model):
     blocks_booking: bool
 
     @classmethod
-    def of(cls, patient_id: int, result: AfiliacionResult) -> AfiliacionResponse:
+    def of(cls, patient_id: int, result: AffiliationResult) -> AffiliationResponse:
         return cls(
             patient_id=patient_id,
             regimen=result.regimen,
@@ -302,10 +302,10 @@ class AttendanceRequest(BaseModel):
 
     @model_validator(mode="after")
     def _attendance_states_only(self) -> AttendanceRequest:
-        permitidos = {AppointmentState.WAITING, AppointmentState.ATTENDED, AppointmentState.NO_SHOW}
-        if self.status not in permitidos:
+        allowed = {AppointmentState.WAITING, AppointmentState.ATTENDED, AppointmentState.NO_SHOW}
+        if self.status not in allowed:
             raise ValueError(
-                "record_attendance solo acepta: " + ", ".join(sorted(str(e) for e in permitidos))
+                "record_attendance only accepts: " + ", ".join(sorted(str(e) for e in allowed))
             )
         return self
 
@@ -332,7 +332,7 @@ class JoinWaitingListRequest(BaseModel):
 
 class BookResponse(Model):
     appointment: AppointmentDetail
-    afiliacion: AfiliacionResponse
+    affiliation: AffiliationResponse
     #: Present when the patient is in arrears. Informational: the appointment
     #: was created regardless (§2.3).
     cartera_alert: str | None = None

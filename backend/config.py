@@ -41,8 +41,8 @@ class Settings(BaseSettings):
 
     # --- deterministic mock data ------------------------------------------
     seed_value: int = 20260831
-    seed_pacientes: int = 60
-    seed_dias_agenda: int = 21
+    seed_patients: int = 60
+    seed_agenda_days: int = 21
 
     # --- MCP server (M3+) --------------------------------------------------
     mcp_host: str = "127.0.0.1"  # see backend_host
@@ -68,8 +68,8 @@ class Settings(BaseSettings):
     #: Master switch for OAuth. Defaults to on so a missing setting fails
     #: closed; turn it off only for local work without an authorization server.
     mcp_auth_enabled: bool = True
-    mcp_rate_limite: int = 120
-    mcp_rate_ventana_segundos: float = 60.0
+    mcp_rate_limit: int = 120
+    mcp_rate_window_seconds: float = 60.0
 
     # --- human-in-the-loop: MRTR request state ----------------------------
     #: Key ring that seals the request state carrying a paused operation.
@@ -117,13 +117,13 @@ class Settings(BaseSettings):
         legitimate requests included. Expanding here keeps the config readable
         without a wildcard, which would disable the guard entirely.
         """
-        expandidos: list[str] = []
+        expanded: list[str] = []
         for host in self.mcp_allowed_hosts:
-            expandidos.append(host)
+            expanded.append(host)
             if ":" not in host:
-                expandidos.append(f"{host}:{self.mcp_port}")
+                expanded.append(f"{host}:{self.mcp_port}")
         # dict.fromkeys preserves order while removing duplicates.
-        object.__setattr__(self, "mcp_allowed_hosts", list(dict.fromkeys(expandidos)))
+        object.__setattr__(self, "mcp_allowed_hosts", list(dict.fromkeys(expanded)))
         return self
 
     @property

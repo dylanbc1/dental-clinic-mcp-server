@@ -33,18 +33,18 @@ REDIRECT = "http://localhost:6274/oauth/callback"
 
 
 @pytest.fixture(scope="module")
-def par() -> KeyPair:
+def pair() -> KeyPair:
     return generate()
 
 
 @pytest.fixture
-def as_(par: KeyPair) -> AuthorizationServer:
+def as_(pair: KeyPair) -> AuthorizationServer:
     return AuthorizationServer(
         issuer=ISSUER,
         audience=AUDIENCE,
         scopes=[str(s) for s in Scope],
         ttl_token=900,
-        par=par,
+        pair=pair,
     )
 
 
@@ -76,7 +76,7 @@ def authorize(client: TestClient, **extra: str) -> Any:
     return verifier, client.get("/authorize", params=params)
 
 
-def codigo_de(response: Any) -> str:
+def code_for(response: Any) -> str:
     target = urlparse(response.headers["location"])
     return parse_qs(target.query)["code"][0]
 
@@ -137,7 +137,7 @@ class TestAuthorize:
         assert response.status_code == 302
         target = urlparse(response.headers["location"])
         assert parse_qs(target.query)["state"] == ["abc"]
-        assert codigo_de(response)
+        assert code_for(response)
 
     def test_without_pkce_there_is_no_code(self, client: TestClient) -> None:
         _, response = authorize(client, code_challenge="", code_challenge_method="")
@@ -153,7 +153,7 @@ class TestAuthorize:
         authorization-code exfiltration path, so it answers 400 instead."""
         _, response = authorize(client, redirect_uri="https://atacante.test/robar")
         assert response.status_code == 400
-        assert "no registrada" in response.json()["error_description"]
+        assert "is not registered" in response.json()["error_description"]
 
     def test_an_unknown_client_is_refused(self, client: TestClient) -> None:
         _, response = authorize(client, client_id="cliente-inventado")
@@ -175,7 +175,7 @@ class TestAuthorize:
 
 
 class TestToken:
-    def _canjear(self, client: TestClient, code: str, verifier: str, **extra: str) -> Any:
+    def _exchange(self, client: TestClient, code: str, verifier: str, **extra: str) -> Any:
         payload = {
             "grant_type": "authorization_code",
             "code": code,
@@ -187,7 +187,7 @@ class TestToken:
 
     def test_the_exchange_returns_a_bearer(self, client: TestClient) -> None:
         verifier, response = authorize(client)
-        token = self._canjear(client, codigo_de(response), verifier).json()
+        token = self._exchange(client, code_for(response), verifier).json()
         assert token["token_type"] == "Bearer"
         assert token["scope"] == "read write"
         assert token["expires_in"] == 900
@@ -196,23 +196,23 @@ class TestToken:
     def test_a_wrong_code_verifier_is_refused(self, client: TestClient) -> None:
         """The point of PKCE: a stolen code is useless without the verifier."""
         _, response = authorize(client)
-        output = self._canjear(client, codigo_de(response), "verificador-equivocado")
+        output = self._exchange(client, code_for(response), "verificador-equivocado")
         assert output.status_code == 400
         assert output.json()["error"] == "invalid_grant"
 
     def test_a_code_cannot_be_redeemed_twice(self, client: TestClient) -> None:
         verifier, response = authorize(client)
-        code = codigo_de(response)
-        assert self._canjear(client, code, verifier).status_code == 200
-        assert self._canjear(client, code, verifier).status_code == 400
+        code = code_for(response)
+        assert self._exchange(client, code, verifier).status_code == 200
+        assert self._exchange(client, code, verifier).status_code == 400
 
     def test_another_client_cannot_redeem_my_code(self, client: TestClient) -> None:
         verifier, response = authorize(client)
-        output = self._canjear(client, codigo_de(response), verifier, client_id="c-otro")
+        output = self._exchange(client, code_for(response), verifier, client_id="c-otro")
         assert output.status_code == 400
 
     def test_a_nonexistent_code_is_refused(self, client: TestClient) -> None:
-        assert self._canjear(client, "no-existe", "x").status_code == 400
+        assert self._exchange(client, "no-existe", "x").status_code == 400
 
     def test_other_grants_are_not_accepted(self, client: TestClient) -> None:
         output = client.post(
@@ -222,12 +222,12 @@ class TestToken:
         assert output.json()["error"] == "unsupported_grant_type"
 
     def test_the_token_carries_the_claims_that_matter(
-        self, client: TestClient, par: KeyPair
+        self, client: TestClient, pair: KeyPair
     ) -> None:
         verifier, response = authorize(client)
-        acceso = self._canjear(client, codigo_de(response), verifier).json()["access_token"]
+        access = self._exchange(client, code_for(response), verifier).json()["access_token"]
         claims = jwt.decode(
-            acceso, par.public_key, algorithms=["RS256"], audience=AUDIENCE, issuer=ISSUER
+            access, pair.public_key, algorithms=["RS256"], audience=AUDIENCE, issuer=ISSUER
         )
         assert claims["aud"] == AUDIENCE
         assert claims["iss"] == ISSUER
@@ -272,57 +272,55 @@ class TestDynamicRegistration:
 
 class TestResourceServerVerifier:
     @pytest.fixture
-    def verificador(self, par: KeyPair) -> JWTVerifier:
+    def verifier(self, pair: KeyPair) -> JWTVerifier:
         return JWTVerifier(
             issuer=ISSUER,
             audience=AUDIENCE,
             jwks_uri=f"{ISSUER}/jwks.json",
-            obtener_jwks=lambda _token: par.public_key,
+            fetch_jwks=lambda _token: pair.public_key,
         )
 
     async def test_accepts_a_legitimate_token(
-        self, verificador: JWTVerifier, as_: AuthorizationServer
+        self, verifier: JWTVerifier, as_: AuthorizationServer
     ) -> None:
         token = as_.issue_token("dra@clinica.test", ["read", "write"])
-        acceso = await verificador.verify_token(token)
-        assert acceso is not None
-        assert acceso.subject == "dra@clinica.test"
-        assert set(acceso.scopes) == {"read", "write"}
+        access = await verifier.verify_token(token)
+        assert access is not None
+        assert access.subject == "dra@clinica.test"
+        assert set(access.scopes) == {"read", "write"}
 
     async def test_it_refuses_an_expired_token(
-        self, verificador: JWTVerifier, as_: AuthorizationServer
+        self, verifier: JWTVerifier, as_: AuthorizationServer
     ) -> None:
         token = as_.issue_token("x", ["read"], ttl=1, now=time.time() - 3600)
-        assert await verificador.verify_token(token) is None
+        assert await verifier.verify_token(token) is None
 
     async def test_it_refuses_a_token_from_another_issuer(
-        self, verificador: JWTVerifier, par: KeyPair
+        self, verifier: JWTVerifier, pair: KeyPair
     ) -> None:
-        ajeno = AuthorizationServer(
-            issuer="http://otro-as.test", audience=AUDIENCE, scopes=["read"], par=par
+        foreign = AuthorizationServer(
+            issuer="http://otro-as.test", audience=AUDIENCE, scopes=["read"], pair=pair
         )
-        assert await verificador.verify_token(ajeno.issue_token("x", ["read"])) is None
+        assert await verifier.verify_token(foreign.issue_token("x", ["read"])) is None
 
     async def test_it_refuses_a_token_for_another_audience(
-        self, verificador: JWTVerifier, as_: AuthorizationServer
+        self, verifier: JWTVerifier, as_: AuthorizationServer
     ) -> None:
         """The confused-deputy defence. Same issuer, same signature, different
         resource server, and it must not be replayable here."""
         token = as_.issue_token("x", ["read"], audience="http://otro-servicio.test")
-        assert await verificador.verify_token(token) is None
+        assert await verifier.verify_token(token) is None
 
-    async def test_it_refuses_a_token_signed_with_another_key(
-        self, verificador: JWTVerifier
-    ) -> None:
-        otro = AuthorizationServer(
-            issuer=ISSUER, audience=AUDIENCE, scopes=["read"], par=generate()
+    async def test_it_refuses_a_token_signed_with_another_key(self, verifier: JWTVerifier) -> None:
+        another = AuthorizationServer(
+            issuer=ISSUER, audience=AUDIENCE, scopes=["read"], pair=generate()
         )
-        assert await verificador.verify_token(otro.issue_token("x", ["read"])) is None
+        assert await verifier.verify_token(another.issue_token("x", ["read"])) is None
 
-    async def test_it_refuses_an_unsigned_token_alg_none(self, verificador: JWTVerifier) -> None:
+    async def test_it_refuses_an_unsigned_token_alg_none(self, verifier: JWTVerifier) -> None:
         """The classic JWT attack: swap the algorithm for `none`. The verifier
         pins RS256, so it never gets a chance."""
-        crudo = jwt.encode(
+        raw = jwt.encode(
             {
                 "iss": ISSUER,
                 "sub": "atacante",
@@ -334,32 +332,32 @@ class TestResourceServerVerifier:
             key="",
             algorithm="none",
         )
-        assert await verificador.verify_token(crudo) is None
+        assert await verifier.verify_token(raw) is None
 
-    @pytest.mark.parametrize("basura", ["", "no-es-un-jwt", "a.b.c", "Bearer algo"])
+    @pytest.mark.parametrize("garbage", ["", "no-es-un-jwt", "a.b.c", "Bearer algo"])
     async def test_garbage_returns_none_without_blowing_up(
-        self, verificador: JWTVerifier, basura: str
+        self, verifier: JWTVerifier, garbage: str
     ) -> None:
-        assert await verificador.verify_token(basura) is None
+        assert await verifier.verify_token(garbage) is None
 
     async def test_a_token_with_no_scope_carries_no_permissions(
-        self, verificador: JWTVerifier, as_: AuthorizationServer
+        self, verifier: JWTVerifier, as_: AuthorizationServer
     ) -> None:
-        acceso = await verificador.verify_token(as_.issue_token("x", []))
-        assert acceso is not None
-        assert acceso.scopes == []
+        access = await verifier.verify_token(as_.issue_token("x", []))
+        assert access is not None
+        assert access.scopes == []
 
 
 class TestKeys:
-    def test_the_ephemeral_key_is_marked_as_such(self, par: KeyPair) -> None:
-        assert par.ephemeral is True
+    def test_the_ephemeral_key_is_marked_as_such(self, pair: KeyPair) -> None:
+        assert pair.ephemeral is True
 
-    def test_the_jwk_carries_no_private_material(self, par: KeyPair) -> None:
-        jwk = par.public_jwk()
+    def test_the_jwk_carries_no_private_material(self, pair: KeyPair) -> None:
+        jwk = pair.public_jwk()
         assert "d" not in jwk and "p" not in jwk and "q" not in jwk
 
-    def test_the_key_is_at_least_2048_bits(self, par: KeyPair) -> None:
-        assert par.private.key_size >= 2048
+    def test_the_key_is_at_least_2048_bits(self, pair: KeyPair) -> None:
+        assert pair.private.key_size >= 2048
 
 
 class TestLandingPage:

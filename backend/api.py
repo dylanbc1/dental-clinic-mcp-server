@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from backend.config import get_settings
 from backend.database import get_engine, get_session
 from backend.domain import services
-from backend.domain.afiliacion import (
+from backend.domain.affiliation import (
     CUOTA_MODERADORA_BY_BRACKET,
     PRIVATE_TARIFF,
     SUBSIDIADO_COPAGO_RATE,
@@ -39,7 +39,7 @@ from backend.domain.waiting_list import in_queue_order
 from backend.enums import ChargeState, Specialty
 from backend.models import Charge, Professional
 from backend.schemas import (
-    AfiliacionResponse,
+    AffiliationResponse,
     AppointmentDetail,
     AttendanceRequest,
     BookRequest,
@@ -68,9 +68,9 @@ logger = logging.getLogger(__name__)
 #: The backend does not authenticate, since it is not reachable from outside,
 #: but it records who asked. An audit trail with "system" in every row is not an
 #: audit trail.
-USUARIO_POR_DEFECTO = "mcp-server"
+DEFAULT_USER = "mcp-server"
 
-RESPUESTAS_ERROR: dict[int | str, dict[str, Any]] = {
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorResponse, "description": "Invalid input or a domain rule violated"},
     403: {"model": ErrorResponse, "description": "Informed consent missing"},
     404: {"model": ErrorResponse, "description": "Resource not found"},
@@ -82,7 +82,7 @@ def actor_user(
     x_actor: Annotated[str | None, Header(alias="X-Actor")] = None,
 ) -> str:
     """Who is performing the operation, for the audit trail."""
-    return (x_actor or USUARIO_POR_DEFECTO).strip()[:120]
+    return (x_actor or DEFAULT_USER).strip()[:120]
 
 
 @asynccontextmanager
@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Clínica Odontológica · API de dominio",
+    title="Dental clinic · domain API",
     description=(
         "Internal source of truth. The MCP server consumes this API; MCP clients "
         "never reach it directly."
@@ -104,7 +104,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-SesionDep = Annotated[Session, Depends(get_session)]
+SessionDep = Annotated[Session, Depends(get_session)]
 ActorDep = Annotated[str, Depends(actor_user)]
 
 
@@ -184,8 +184,8 @@ async def health() -> dict[str, Any]:
 async def ready() -> JSONResponse:
     """Readiness: the process can actually serve traffic (database reachable)."""
     try:
-        with get_engine().connect() as conexion:
-            conexion.execute(text("select 1"))
+        with get_engine().connect() as connection:
+            connection.execute(text("select 1"))
     except Exception as exc:  # readiness must never raise, whatever the cause
         logger.warning("readiness check failed: %s", exc)
         return JSONResponse(
@@ -206,7 +206,7 @@ async def ready() -> JSONResponse:
 
 
 @app.get("/clinic", tags=["read"], response_model=ClinicInfo)
-def clinic_info_route(session: SesionDep) -> ClinicInfo:
+def clinic_info_route(session: SessionDep) -> ClinicInfo:
     clinic = services.get_clinic(session)
     professionals = list(
         session.scalars(
@@ -242,29 +242,29 @@ def cartera_policies_resource() -> CarteraPolicies:
     "/patients",
     tags=["read"],
     response_model=list[PatientSummary],
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def search_patients(
-    session: SesionDep,
+    session: SessionDep,
     document_number: Annotated[str | None, Query(max_length=20)] = None,
     name: Annotated[str | None, Query(max_length=160)] = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> list[PatientSummary]:
-    encontrados = services.search_patients(
+    found = services.search_patients(
         session, document_number=document_number, name=name, limit=limit
     )
-    return [PatientSummary.of(p) for p in encontrados]
+    return [PatientSummary.of(p) for p in found]
 
 
 @app.get(
-    "/patients/{patient_id}/afiliacion",
+    "/patients/{patient_id}/affiliation",
     tags=["read"],
-    response_model=AfiliacionResponse,
-    responses=RESPUESTAS_ERROR,
+    response_model=AffiliationResponse,
+    responses=ERROR_RESPONSES,
 )
-def afiliacion(session: SesionDep, patient_id: int) -> AfiliacionResponse:
-    return AfiliacionResponse.of(
-        patient_id, services.validate_patient_afiliacion(session, patient_id)
+def affiliation(session: SessionDep, patient_id: int) -> AffiliationResponse:
+    return AffiliationResponse.of(
+        patient_id, services.validate_patient_affiliation(session, patient_id)
     )
 
 
@@ -272,9 +272,9 @@ def afiliacion(session: SesionDep, patient_id: int) -> AfiliacionResponse:
     "/patients/{patient_id}/cartera",
     tags=["read"],
     response_model=CarteraResponse,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
-def cartera(session: SesionDep, patient_id: int) -> CarteraResponse:
+def cartera(session: SessionDep, patient_id: int) -> CarteraResponse:
     summary = services.get_cartera(session, patient_id)
     charges = list(
         session.scalars(
@@ -290,10 +290,10 @@ def cartera(session: SesionDep, patient_id: int) -> CarteraResponse:
     "/patients/{patient_id}/appointments",
     tags=["read"],
     response_model=list[AppointmentDetail],
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def patient_appointments_route(
-    session: SesionDep,
+    session: SessionDep,
     patient_id: int,
     since: date | None = None,
     until: date | None = None,
@@ -302,17 +302,17 @@ def patient_appointments_route(
     appointments = services.list_patient_appointments(
         session, patient_id, since=since, until=until, limit=limit
     )
-    return [AppointmentDetail.of(c, incluir_historial=False) for c in appointments]
+    return [AppointmentDetail.of(c, include_history=False) for c in appointments]
 
 
 @app.get(
     "/availability",
     tags=["read"],
     response_model=list[FreeSlot],
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def slot_availability_route(
-    session: SesionDep,
+    session: SessionDep,
     specialty: Specialty | None = None,
     day: date | None = None,
     professional_id: int | None = None,
@@ -332,10 +332,10 @@ def slot_availability_route(
     "/availability/{slot_id}",
     tags=["read"],
     response_model=FreeSlot,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def bookable_slot(
-    session: SesionDep,
+    session: SessionDep,
     slot_id: int,
     patient_id: int | None = None,
     expected_specialty: Specialty | None = None,
@@ -373,14 +373,14 @@ def bookable_slot(
     "/appointments/{appointment_id}",
     tags=["read"],
     response_model=AppointmentDetail,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
-def appointment_detail_route(session: SesionDep, appointment_id: int) -> AppointmentDetail:
+def appointment_detail_route(session: SessionDep, appointment_id: int) -> AppointmentDetail:
     return AppointmentDetail.of(services.get_appointment(session, appointment_id))
 
 
 @app.get("/agenda/{day}", tags=["read"], response_model=DayAgenda)
-def agenda_for_date(session: SesionDep, day: date) -> DayAgenda:
+def agenda_for_date(session: SessionDep, day: date) -> DayAgenda:
     appointments = services.agenda_for_day(session, day)
     by_status: dict[str, int] = {}
     for appointment in appointments:
@@ -389,21 +389,21 @@ def agenda_for_date(session: SesionDep, day: date) -> DayAgenda:
         day=day,
         total=len(appointments),
         by_status=by_status,
-        appointments=[AppointmentDetail.of(c, incluir_historial=False) for c in appointments],
+        appointments=[AppointmentDetail.of(c, include_history=False) for c in appointments],
     )
 
 
 @app.get("/waiting-list", tags=["read"], response_model=list[WaitingEntrySummary])
 def waiting_list_route(
-    session: SesionDep, specialty: Specialty | None = None
+    session: SessionDep, specialty: Specialty | None = None
 ) -> list[WaitingEntrySummary]:
-    filas = services.waiting_list_entries(session, specialty)
+    rows = services.waiting_list_entries(session, specialty)
     order = {
         e.entry_id: i
-        for i, e in enumerate(in_queue_order([services.to_queue_entry(f) for f in filas]))
+        for i, e in enumerate(in_queue_order([services.to_queue_entry(f) for f in rows]))
     }
-    filas.sort(key=lambda f: order.get(f.id, 10**6))
-    return [WaitingEntrySummary.of(f) for f in filas]
+    rows.sort(key=lambda f: order.get(f.id, 10**6))
+    return [WaitingEntrySummary.of(f) for f in rows]
 
 
 # --------------------------------------------------------------------------- #
@@ -416,18 +416,18 @@ def _transition_message(result: services.TransitionResult) -> str:
         f"Appointment {result.appointment.id}: {result.effects.previous_status} → "
         f"{result.effects.new_status}."
     ]
-    if result.effects.libera_slot:
+    if result.effects.releases_slot:
         parts.append("The slot is free again in the agenda.")
     if result.created_charge is not None:
         parts.append(
             f"A charge of ${result.created_charge.amount:,.0f} COP was created "
             f"({result.created_charge.concept})."
         )
-    if result.siguiente_en_espera is not None:
+    if result.next_in_queue is not None:
         parts.append(
             "There is a patient on the waiting list for "
-            f"{result.siguiente_en_espera.specialty}: "
-            f"{result.siguiente_en_espera.patient.name}."
+            f"{result.next_in_queue.specialty}: "
+            f"{result.next_in_queue.patient.name}."
         )
     return " ".join(parts)
 
@@ -437,22 +437,22 @@ def _to_response(result: services.TransitionResult) -> TransitionResponse:
         appointment=AppointmentDetail.of(result.appointment),
         previous_status=result.effects.previous_status,
         new_status=result.effects.new_status,
-        freed_slot=result.effects.libera_slot,
+        freed_slot=result.effects.releases_slot,
         created_charge=result.effects.genera_cargo,
         charge=(
             ChargeSummary.of(result.created_charge) if result.created_charge is not None else None
         ),
         next_in_waiting_list=(
-            WaitingEntrySummary.of(result.siguiente_en_espera)
-            if result.siguiente_en_espera is not None
+            WaitingEntrySummary.of(result.next_in_queue)
+            if result.next_in_queue is not None
             else None
         ),
         message=_transition_message(result),
     )
 
 
-@app.post("/appointments", tags=["write"], response_model=BookResponse, responses=RESPUESTAS_ERROR)
-def book_route(session: SesionDep, actor: ActorDep, body: BookRequest) -> BookResponse:
+@app.post("/appointments", tags=["write"], response_model=BookResponse, responses=ERROR_RESPONSES)
+def book_route(session: SessionDep, actor: ActorDep, body: BookRequest) -> BookResponse:
     result = services.book_appointment(
         session,
         patient_id=body.patient_id,
@@ -463,7 +463,7 @@ def book_route(session: SesionDep, actor: ActorDep, body: BookRequest) -> BookRe
     )
     return BookResponse(
         appointment=AppointmentDetail.of(result.appointment),
-        afiliacion=AfiliacionResponse.of(result.appointment.patient_id, result.afiliacion),
+        affiliation=AffiliationResponse.of(result.appointment.patient_id, result.affiliation),
         cartera_alert=result.cartera_alert,
         reused=result.reused,
     )
@@ -473,9 +473,9 @@ def book_route(session: SesionDep, actor: ActorDep, body: BookRequest) -> BookRe
     "/appointments/{appointment_id}/confirm",
     tags=["write"],
     response_model=TransitionResponse,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
-def confirm_route(session: SesionDep, actor: ActorDep, appointment_id: int) -> TransitionResponse:
+def confirm_route(session: SessionDep, actor: ActorDep, appointment_id: int) -> TransitionResponse:
     return _to_response(services.confirm_appointment(session, appointment_id, user=actor))
 
 
@@ -483,10 +483,10 @@ def confirm_route(session: SesionDep, actor: ActorDep, appointment_id: int) -> T
     "/appointments/{appointment_id}/cancel",
     tags=["write"],
     response_model=TransitionResponse,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def cancel_route(
-    session: SesionDep, actor: ActorDep, appointment_id: int, body: CancelRequest
+    session: SessionDep, actor: ActorDep, appointment_id: int, body: CancelRequest
 ) -> TransitionResponse:
     return _to_response(
         services.cancel_appointment(session, appointment_id, reason=body.reason, user=actor)
@@ -497,10 +497,10 @@ def cancel_route(
     "/appointments/{appointment_id}/reschedule",
     tags=["write"],
     response_model=TransitionResponse,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def reschedule_route(
-    session: SesionDep, actor: ActorDep, appointment_id: int, body: RescheduleRequest
+    session: SessionDep, actor: ActorDep, appointment_id: int, body: RescheduleRequest
 ) -> TransitionResponse:
     return _to_response(
         services.reschedule_appointment(
@@ -513,10 +513,10 @@ def reschedule_route(
     "/appointments/{appointment_id}/attendance",
     tags=["write"],
     response_model=TransitionResponse,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def attendance_route(
-    session: SesionDep, actor: ActorDep, appointment_id: int, body: AttendanceRequest
+    session: SessionDep, actor: ActorDep, appointment_id: int, body: AttendanceRequest
 ) -> TransitionResponse:
     return _to_response(
         services.record_attendance(session, appointment_id, body.status, user=actor)
@@ -527,27 +527,27 @@ def attendance_route(
     "/waiting-list/offer",
     tags=["write"],
     response_model=SlotOfferResponse,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def offer_slot_route(
-    session: SesionDep, actor: ActorDep, body: OfferSlotRequest
+    session: SessionDep, actor: ActorDep, body: OfferSlotRequest
 ) -> SlotOfferResponse:
-    oferta = services.offer_slot_to_waiting_list(session, body.slot_id, user=actor)
-    start = f"{to_clinic_time(oferta.slot.start):%Y-%m-%d %H:%M}"
+    offer = services.offer_slot_to_waiting_list(session, body.slot_id, user=actor)
+    start = f"{to_clinic_time(offer.slot.start):%Y-%m-%d %H:%M}"
     return SlotOfferResponse(
-        entry_id=oferta.entry.id,
-        patient_id=oferta.patient.id,
-        patient=oferta.patient.name,
-        phone=oferta.patient.phone,
-        specialty=oferta.entry.specialty,
-        priority=oferta.entry.priority,
-        original_position=oferta.original_position,
-        slot_id=oferta.slot.id,
+        entry_id=offer.entry.id,
+        patient_id=offer.patient.id,
+        patient=offer.patient.name,
+        phone=offer.patient.phone,
+        specialty=offer.entry.specialty,
+        priority=offer.entry.priority,
+        original_position=offer.original_position,
+        slot_id=offer.slot.id,
         start_local=start,
         message=(
-            f"Contact {oferta.patient.name} ({oferta.patient.phone}) to offer "
-            f"them the {start} slot. They were number {oferta.original_position} on "
-            f"the {oferta.entry.specialty} list."
+            f"Contact {offer.patient.name} ({offer.patient.phone}) to offer "
+            f"them the {start} slot. They were number {offer.original_position} on "
+            f"the {offer.entry.specialty} list."
         ),
     )
 
@@ -556,10 +556,10 @@ def offer_slot_route(
     "/waiting-list",
     tags=["write"],
     response_model=WaitingEntrySummary,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def join_waiting_list_route(
-    session: SesionDep, body: JoinWaitingListRequest
+    session: SessionDep, body: JoinWaitingListRequest
 ) -> WaitingEntrySummary:
     entry = services.join_waiting_list(
         session,
@@ -576,10 +576,10 @@ def join_waiting_list_route(
     "/appointments/{appointment_id}/reason",
     tags=["clinical"],
     response_model=AppointmentDetail,
-    responses=RESPUESTAS_ERROR,
+    responses=ERROR_RESPONSES,
 )
 def record_reason_route(
-    session: SesionDep, actor: ActorDep, appointment_id: int, body: VisitReasonRequest
+    session: SessionDep, actor: ActorDep, appointment_id: int, body: VisitReasonRequest
 ) -> AppointmentDetail:
     """Clinical data (Res. 2654/2019). Refused without recorded consent."""
     return AppointmentDetail.of(

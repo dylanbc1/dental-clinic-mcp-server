@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 REDIRECT = "http://localhost:6274/oauth/callback"
-CLIENTE = "clinic-demo"
+CLIENT = "clinic-demo"
 
 
 def pkce() -> tuple[str, str]:
@@ -47,7 +47,7 @@ def get_token(issuer: str, scope: str, subject: str) -> str:
             metadata["authorization_endpoint"],
             params={
                 "response_type": "code",
-                "client_id": CLIENTE,
+                "client_id": CLIENT,
                 "redirect_uri": REDIRECT,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
@@ -69,7 +69,7 @@ def get_token(issuer: str, scope: str, subject: str) -> str:
                 "grant_type": "authorization_code",
                 "code": query["code"][0],
                 "code_verifier": verifier,
-                "client_id": CLIENTE,
+                "client_id": CLIENT,
             },
         )
         if token.status_code != 200:

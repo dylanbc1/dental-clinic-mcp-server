@@ -43,8 +43,8 @@ from backend.seed import SeedParams, database_is_empty, seed_database
 
 pytestmark = pytest.mark.integration
 
-FECHA_BASE = date(2026, 8, 31)
-PARAMS = SeedParams(seed=20260831, patients=25, dias_agenda=10, base_date=FECHA_BASE)
+BASE_DATE = date(2026, 8, 31)
+PARAMS = SeedParams(seed=20260831, patients=25, agenda_days=10, base_date=BASE_DATE)
 
 
 def fingerprint(session: Session) -> str:
@@ -63,7 +63,7 @@ def fingerprint(session: Session) -> str:
             p.name,
             p.phone,
             p.regimen,
-            p.afiliacion_active,
+            p.affiliation_active,
             p.cuota_moderadora_level,
             p.clinical_data_consent,
             p.birth_date.isoformat() if p.birth_date else None,
@@ -92,8 +92,8 @@ def fingerprint(session: Session) -> str:
         (e.patient.document_number, e.specialty, e.priority, e.status)
         for e in session.scalars(select(WaitingList))
     )
-    crudo = json.dumps(content, sort_keys=True, default=str, ensure_ascii=False)
-    return hashlib.sha256(crudo.encode()).hexdigest()
+    raw = json.dumps(content, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 @pytest.fixture
@@ -137,15 +137,15 @@ class TestDeterminism:
         session_ = sessions()
         seed_database(session_, PARAMS)
         session_.commit()
-        estados_primera = sorted(
+        first_states = sorted(
             (c.slot.start.isoformat(), c.status) for c in session_.scalars(select(Appointment))
         )
         seed_database(session_, PARAMS)
         session_.commit()
-        estados_segunda = sorted(
+        second_states = sorted(
             (c.slot.start.isoformat(), c.status) for c in session_.scalars(select(Appointment))
         )
-        assert estados_primera == estados_segunda
+        assert first_states == second_states
 
 
 class TestCommandIdempotency:
@@ -174,8 +174,8 @@ class TestDatasetConsistency:
         assert seeded.scalar(select(func.count()).select_from(Patient)) == PARAMS.patients
 
     def test_documents_are_not_repeated(self, seeded: Session) -> None:
-        documentos = list(seeded.scalars(select(Patient.document_number)))
-        assert len(documentos) == len(set(documentos))
+        documents = list(seeded.scalars(select(Patient.document_number)))
+        assert len(documents) == len(set(documents))
 
     def test_no_appointment_takes_an_already_taken_slot(self, seeded: Session) -> None:
         """If the partial unique index were wrong, the seed itself would be the
@@ -207,10 +207,10 @@ class TestDatasetConsistency:
             assert history[-1].new_status is appointment.status
 
     def test_every_transition_was_audited(self, seeded: Session) -> None:
-        filas = seeded.scalar(select(func.count()).select_from(AppointmentHistory))
+        rows = seeded.scalar(select(func.count()).select_from(AppointmentHistory))
         appointments = seeded.scalar(select(func.count()).select_from(Appointment))
-        assert filas is not None and appointments is not None
-        assert filas >= appointments  # at least the creation row per appointment
+        assert rows is not None and appointments is not None
+        assert rows >= appointments  # at least the creation row per appointment
 
     def test_charges_only_hang_off_attended_or_no_show_appointments(self, seeded: Session) -> None:
         for charge in seeded.scalars(select(Charge)):
@@ -230,7 +230,7 @@ class TestDatasetConsistency:
                 and charge.appointment.status is AppointmentState.ATTENDED
             ):
                 patient = charge.patient
-                assert not (patient.regimen is Regimen.SOAT and patient.afiliacion_active), (
+                assert not (patient.regimen is Regimen.SOAT and patient.affiliation_active), (
                     f"SOAT activo con cargo de atención: paciente {patient.id}"
                 )
 
@@ -258,13 +258,13 @@ class TestDatasetRealism:
         ]
         assert no_shows
 
-    def test_there_are_inactive_afiliaciones(self, seeded: Session) -> None:
-        inactivos = [
+    def test_there_are_inactive_affiliationes(self, seeded: Session) -> None:
+        inactive = [
             p
             for p in seeded.scalars(select(Patient))
-            if not p.afiliacion_active and p.regimen is not Regimen.PARTICULAR
+            if not p.affiliation_active and p.regimen is not Regimen.PARTICULAR
         ]
-        assert inactivos, "with no inactive afiliaciones, validate_afiliacion has nothing to catch"
+        assert inactive, "with no inactive affiliations, validate_affiliation has nothing to catch"
 
     def test_there_are_patients_without_clinical_consent(self, seeded: Session) -> None:
         """The clinical tool must have real cases where it is correctly refused."""
@@ -285,7 +285,7 @@ class TestDatasetRealism:
         overdue = [
             c
             for c in seeded.scalars(select(Charge))
-            if c.status == ChargeState.PENDING and c.due_date < FECHA_BASE
+            if c.status == ChargeState.PENDING and c.due_date < BASE_DATE
         ]
         assert overdue, "the dataset has not a single overdue charge"
         assert len({c.patient_id for c in overdue}) >= 3
@@ -293,9 +293,9 @@ class TestDatasetRealism:
     def test_mora_spans_several_ageing_buckets(self, seeded: Session) -> None:
         """A ledger where everything is 20 days late exercises one bucket."""
         days = {
-            (FECHA_BASE - c.due_date).days
+            (BASE_DATE - c.due_date).days
             for c in seeded.scalars(select(Charge))
-            if c.status == ChargeState.PENDING and c.due_date < FECHA_BASE
+            if c.status == ChargeState.PENDING and c.due_date < BASE_DATE
         }
         assert max(days) > 60, f"the oldest mora is {max(days)} days"
 
@@ -305,13 +305,11 @@ class TestDatasetRealism:
 
         from backend.domain.cartera import DEFAULT_POLICY
 
-        por_paciente: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+        by_patient: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
         for c in seeded.scalars(select(Charge)):
-            if c.status == ChargeState.PENDING and c.due_date < FECHA_BASE:
-                por_paciente[c.patient_id] += c.amount
-        assert any(
-            total >= DEFAULT_POLICY.overdue_alert_threshold for total in por_paciente.values()
-        )
+            if c.status == ChargeState.PENDING and c.due_date < BASE_DATE:
+                by_patient[c.patient_id] += c.amount
+        assert any(total >= DEFAULT_POLICY.overdue_alert_threshold for total in by_patient.values())
 
     def test_there_are_patients_on_the_waiting_list(self, seeded: Session) -> None:
         assert seeded.scalar(select(func.count()).select_from(WaitingList))
@@ -322,7 +320,7 @@ class TestDatasetRealism:
 
     def test_the_agenda_covers_past_and_future(self, seeded: Session) -> None:
         dates = [s.day for s in seeded.scalars(select(AgendaSlot))]
-        assert min(dates) < FECHA_BASE < max(dates)
+        assert min(dates) < BASE_DATE < max(dates)
 
 
 class TestNoRealPii:

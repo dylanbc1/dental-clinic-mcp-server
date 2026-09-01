@@ -41,10 +41,10 @@ class TestReadiness:
     def test_readiness_never_raises_even_when_the_database_fails(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        def explotar() -> None:
+        def blow_up() -> None:
             raise RuntimeError("base caída")
 
-        monkeypatch.setattr("backend.api.get_engine", explotar)
+        monkeypatch.setattr("backend.api.get_engine", blow_up)
         response = client.get("/ready")
         assert response.status_code == 503
         body = response.json()
@@ -68,7 +68,7 @@ class TestErrorEnvelope:
             )
 
         @probe.get("/conflicto")
-        async def conflicto() -> None:
+        async def conflict() -> None:
             raise SlotUnavailable("El cupo ya fue tomado.", details={"slot_id": 7})
 
         return probe
@@ -116,7 +116,7 @@ class TestUnexpectedError:
         body = response.json()
         assert body["code"] == "INTERNAL_ERROR"
         assert body["suggestion"]
-        crudo = response.text
-        assert "ZeroDivisionError" not in crudo
-        assert "detalle interno" not in crudo
-        assert "Traceback" not in crudo
+        raw = response.text
+        assert "ZeroDivisionError" not in raw
+        assert "detalle interno" not in raw
+        assert "Traceback" not in raw
