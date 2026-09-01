@@ -494,7 +494,7 @@ def seed_database(session: Session, params: SeedParams) -> dict[str, int]:
         "agenda_slot": len(slots),
         "appointment": len(appointments),
         "charge": len(charges) + len(historic),
-        "lista_espera": len(waiting),
+        "waiting_list": len(waiting),
     }
 
 

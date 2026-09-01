@@ -14,7 +14,9 @@ from typing import Any, cast
 
 import httpx
 
+from backend.config import get_settings
 from backend.domain.errors import ErrorCode
+from backend.internal_auth import sign_request
 from mcp_server.errors import StructuredToolError, backend_down_error
 
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -27,10 +29,21 @@ class BackendClient:
     *who* asked, not just that the MCP server did.
     """
 
-    def __init__(self, base_url: str, *, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        client: httpx.AsyncClient | None = None,
+        signing_key: str | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._owned = client is None
         self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=TIMEOUT)
+        #: Signs every call. Falls back to the ring's first key so a caller that
+        #: builds a client by hand still authenticates; the backend refuses
+        #: anything unsigned, so getting this wrong fails loudly at the first
+        #: request rather than silently downgrading.
+        self._signing_key = signing_key or get_settings().internal_api_keys[0]
 
     async def aclose(self) -> None:
         if self._owned:
@@ -45,12 +58,23 @@ class BackendClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> Any:
-        headers = {"X-Actor": actor} if actor else None
         clean = {k: v for k, v in (params or {}).items() if v is not None}
-        try:
-            response = await self._client.request(
-                method, path, params=clean or None, json=json, headers=headers
+        request = self._client.build_request(method, path, params=clean or None, json=json)
+        # Sign what will actually be sent: httpx has already serialised the body
+        # and assembled the query string, so signing here cannot drift from the
+        # bytes on the wire.
+        request.headers.update(
+            sign_request(
+                self._signing_key,
+                method=method,
+                path=request.url.path,
+                query=request.url.query.decode(),
+                actor=actor or "",
+                body=request.content,
             )
+        )
+        try:
+            response = await self._client.send(request)
         except httpx.HTTPError as exc:
             raise backend_down_error(str(exc)) from exc
 

@@ -239,7 +239,7 @@ because the state can change in between.
 And check a real bug leaks nothing:
 
 ```bash
-curl -s localhost:8000/appointments/999999 | python3 -m json.tool
+uv run python scripts/call_api.py /appointments/999999
 ```
 
 **Expect:** JSON with `code`, `message` and `suggestion`. No `Traceback`, no

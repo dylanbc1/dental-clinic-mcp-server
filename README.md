@@ -12,7 +12,7 @@
   <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="coverage 99%" src="https://img.shields.io/badge/coverage-99%25-1f8b4c">
-  <img alt="836 tests" src="https://img.shields.io/badge/tests-836-1f8b4c">
+  <img alt="851 tests" src="https://img.shields.io/badge/tests-851-1f8b4c">
 </p>
 
 ```bash
@@ -176,6 +176,15 @@ write-up and threat model: [`docs/security.md`](./docs/security.md).
 | 4 | **Structured errors** with an actionable next step | Blind retry loops; leaked stack traces |
 | 5 | **Audit trail + transport guards** | Unattributable changes; DNS rebinding; runaway agents |
 
+Six, once you count the one pointing inward. The domain API has no login of its
+own and exactly one legitimate caller, so the MCP server signs every request to
+it (HMAC over method, path, query, actor and body, plus a timestamp) and the API
+refuses anything else. Before that it authenticated nothing: `X-Actor` was
+believed, so anything that could open a socket to it could write anonymously and
+sign the change with someone else's name. `/health` and `/ready` stay open, since
+an orchestrator has to probe before it can hold a key. This is why the manual
+walkthrough calls it through `scripts/call_api.py` rather than plain `curl`.
+
 Three hardening measures beyond the brief, because concurrent agents find them
 in the first hour:
 
@@ -282,6 +291,49 @@ it is why the realm carries an explicit audience mapper. Keycloak omits `aud`
 unless asked, and a resource server that accepts an audience-less token accepts
 every token that IdP ever issued, to anyone.
 
+## Deploying it somewhere real
+
+Three processes share one image and pick their role from `APP_ROLE`
+(`backend`, `oauth`, `mcp`; anything else exits 64 rather than starting the
+wrong thing). Compose names a command per service and never reaches that
+switch; a platform that runs one command per service sets the variable instead.
+
+| Service | `APP_ROLE` | Public? | Binds |
+|---|---|---|---|
+| Domain API | `backend` | no | `::` |
+| Authorization server | `oauth` | yes | `0.0.0.0` |
+| MCP server | `mcp` | yes | `0.0.0.0` |
+
+The bind addresses are not a style choice, and they were measured rather than
+assumed. Inside this image `::` is IPv6-only: a container bound that way
+answered `::1` and refused `127.0.0.1`. On Railway, setting the MCP server to
+`::` turned every public request into a `502`, while `0.0.0.0` serves them, so
+its public edge speaks IPv4 and its private network is IPv6-only. The backend
+is reached only by the MCP server over that private network, which is why it
+binds `::` and takes no public domain: the domain API is not a surface anyone
+outside should hold. The MCP server fetches JWKS over the authorization
+server's public URL, which its `iss` claim names anyway.
+
+### The variables that matter
+
+Everything in `.env.example` has a working default except these. The first two
+are the ones a deployment must not skip.
+
+| Variable | Why it cannot stay on its default |
+|---|---|
+| `OAUTH_PRIVATE_KEY_PEM` | Without it the authorization server generates an ephemeral RSA key at boot, so every restart and every replica invalidates outstanding tokens |
+| `REQUEST_STATE_KEYS` | Seals the paused operation a client carries back. The default is a placeholder published in this repository |
+| `DATABASE_URL` | Paste whatever the provider gives you: the bare `postgresql://` form is accepted and the psycopg 3 driver is pinned for you |
+| `MCP_PUBLIC_URL` | Goes into the RFC 9728 document, so it must be the URL a client can actually reach |
+| `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` | The DNS-rebinding guard. Leave them on `localhost` and every real request is refused |
+| `OAUTH_ISSUER`, `OAUTH_AUDIENCE` | The issuer lands in `iss` and must be publicly resolvable; the audience is the MCP server's URL, and a mismatch is how one deployment's token stops working against another's |
+| `BACKEND_BASE_URL` | Where the MCP server reaches the domain API, on the internal network |
+| `APP_ENV=production` | |
+
+The authorization server takes its port from `OAUTH_ISSUER`, falling back to
+9000 when the URL carries no port, so a host that routes by port needs to be
+told 9000 explicitly.
+
 ## Development
 
 ```bash
@@ -305,7 +357,7 @@ exist), the real MCP server, the real authorization server.
 | `tests/security` | **The full 13 × 3 scope matrix** over the wire, the sealed request state under attack (tampering, cross-operation reuse, wrong principal, expiry, key rotation), PKCE enforcement, JWT audience and `alg=none`, Host/Origin guards, statelessness, rate limiting |
 | `scripts/smoke.py` | The whole client path over real HTTP, run in CI |
 
-836 tests: 365 unit, 231 integration, 90 contract, 150 security.
+851 tests: 365 unit, 231 integration, 90 contract, 165 security.
 **Want to check it yourself?** [`docs/manual-testing.md`](./docs/manual-testing.md)
 is a 25-minute walkthrough of thirteen checks, each saying what to run and what
 you should see. [`docs/inspector.md`](./docs/inspector.md) covers the same ground
@@ -323,7 +375,7 @@ Six commands, in this order, from a clean checkout. Each one fails loudly.
 make reset            # empty volume, full migration chain, deterministic seed
 make lint             # ruff + ruff format --check + mypy --strict
 make audit            # bandit + pip-audit
-make test-fast        # 836 tests against the running stack, 95% coverage floor
+make test-fast        # 851 tests against the running stack, 95% coverage floor
 make smoke            # the nine-step client path over real HTTP
 make keycloak && make keycloak-verify    # the auth layer is swappable
 ```

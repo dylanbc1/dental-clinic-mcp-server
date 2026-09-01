@@ -237,7 +237,7 @@ cambiar entre una cosa y la otra.
 Y prueba que un bug real no filtra nada:
 
 ```bash
-curl -s localhost:8000/appointments/999999 | python3 -m json.tool
+uv run python scripts/call_api.py /appointments/999999
 ```
 
 **Esperas:** un JSON con `code`, `message` y `suggestion`. Sin `Traceback`, sin

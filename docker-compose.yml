@@ -21,6 +21,10 @@ x-python: &python
     APP_ENV: ${APP_ENV:-development}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-clinic}:${POSTGRES_PASSWORD:-clinic_dev_only}@postgres:5432/${POSTGRES_DB:-clinic}
+    # Signs the MCP server's calls into the domain API. Shared, so it belongs in
+    # the common block: the backend verifies with the same ring the MCP signs
+    # with, and a mismatch shows up as a 401 on the first tool call.
+    INTERNAL_API_KEYS: ${INTERNAL_API_KEYS:-dev-only-internal-api-key-change-me-32b}
 
 services:
   postgres:

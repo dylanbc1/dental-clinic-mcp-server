@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     #: How long a pending confirmation stays redeemable.
     request_state_ttl_seconds: float = 300.0
 
+    # --- the MCP server to domain API hop ---------------------------------
+    #: Key ring signing that hop. Same rotation story as `request_state_keys`:
+    #: the first key signs, every key verifies. The API has exactly one
+    #: legitimate caller, and this is how it knows.
+    internal_api_keys: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["dev-only-internal-api-key-change-me-32b"]
+    )
+    #: How far a signed request's clock may be from ours. Wide enough for
+    #: ordinary drift, narrow enough that a captured request stops working.
+    internal_request_skew_seconds: float = 300.0
+
     # --- OAuth 2.1 (M5) ----------------------------------------------------
     #: Bind address of the authorization server. Loopback by default, for the
     #: same reason as `backend_host`.
@@ -120,7 +131,11 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "mcp_allowed_origins", "mcp_allowed_hosts", "request_state_keys", mode="before"
+        "mcp_allowed_origins",
+        "mcp_allowed_hosts",
+        "request_state_keys",
+        "internal_api_keys",
+        mode="before",
     )
     @classmethod
     def _split_csv(cls, value: object) -> object:

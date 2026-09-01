@@ -52,6 +52,7 @@ from backend.config import Settings
 from backend.database import get_session
 from backend.domain.time import UTC, now_at_clinic, slots_for_day, to_clinic_time
 from backend.enums import ChargeConcept, ChargeState, DocumentType, Regimen, Specialty
+from backend.internal_auth import sign_request
 from backend.models import AgendaSlot, Base, Charge, Clinic, Patient, Professional
 from mcp_server.audit import Auditor
 from mcp_server.client import BackendClient
@@ -432,6 +433,37 @@ def mcp_settings() -> Settings:
         oauth_audience="http://localhost:8080",
         request_state_keys=STATE_KEYS,
     )
+
+
+#: The key the services share in development. Tests that speak to the domain
+#: API have to sign like the MCP server does, because the API now refuses
+#: anything else. `tests/security/test_internal_signing.py` is the deliberate
+#: exception: it calls unsigned on purpose, to prove the refusal.
+INTERNAL_KEY = "dev-only-internal-api-key-change-me-32b"
+
+
+def sign_like_the_mcp_server(request: Any) -> Any:
+    """Attach the signature the domain API expects, over the real request.
+
+    A plain callable rather than an `httpx.Auth` subclass on purpose: Starlette's
+    TestClient runs on `httpx2`, so an `httpx.Auth` is rejected as an invalid
+    auth argument while a callable is accepted by both.
+
+    Signing here rather than in each test means a change to the canonical string
+    breaks one place, and means the tests exercise the same bytes the middleware
+    verifies: method, path, query, actor and body.
+    """
+    request.headers.update(
+        sign_request(
+            INTERNAL_KEY,
+            method=request.method,
+            path=request.url.path,
+            query=request.url.query.decode(),
+            actor=request.headers.get("X-Actor", ""),
+            body=request.content,
+        )
+    )
+    return request
 
 
 @pytest.fixture

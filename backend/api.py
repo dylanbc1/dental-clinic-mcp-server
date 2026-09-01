@@ -11,6 +11,7 @@ structured error envelope**, never a bare 500 and never a stack trace.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
@@ -22,7 +23,9 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from backend import internal_auth
 from backend.config import get_settings
 from backend.database import get_engine, get_session
 from backend.domain import services
@@ -81,8 +84,83 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 def actor_user(
     x_actor: Annotated[str | None, Header(alias="X-Actor")] = None,
 ) -> str:
-    """Who is performing the operation, for the audit trail."""
+    """Who is performing the operation, for the audit trail.
+
+    Safe to read straight off the header because `SignedCallerOnly` has already
+    refused anything whose signature does not cover this exact value. Before
+    that middleware existed the header was simply believed.
+    """
     return (x_actor or DEFAULT_USER).strip()[:120]
+
+
+#: Reachable without a signature. Both are liveness probes carrying no data: an
+#: orchestrator has to call them before it can hold a key, and a deployment that
+#: cannot answer them never starts.
+UNSIGNED_PATHS: frozenset[str] = frozenset({"/health", "/ready"})
+
+
+class SignedCallerOnly(BaseHTTPMiddleware):
+    """Refuse anything the MCP server did not sign.
+
+    This API has exactly one legitimate caller and no login of its own. Until
+    now it also had no way to tell that caller apart from anything else that
+    could open a socket to it, which made `X-Actor` an assertion rather than a
+    fact. See `backend/internal_auth.py` for why this is a signature and not a
+    bearer token.
+    """
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        if request.url.path in UNSIGNED_PATHS:
+            return await call_next(request)
+
+        settings = get_settings()
+        presented = request.headers.get(internal_auth.SIGNATURE_HEADER, "")
+        raw_timestamp = request.headers.get(internal_auth.TIMESTAMP_HEADER, "")
+        actor = request.headers.get(internal_auth.ACTOR_HEADER, "")
+        try:
+            timestamp = int(raw_timestamp)
+        except ValueError:
+            return _unsigned()
+
+        body = await request.body()
+        message = internal_auth.canonical_request(
+            method=request.method,
+            path=request.url.path,
+            query=request.url.query,
+            actor=actor,
+            body=body,
+            timestamp=timestamp,
+        )
+        if not internal_auth.verify(
+            settings.internal_api_keys,
+            message,
+            presented,
+            timestamp=timestamp,
+            now=time.time(),
+            skew_seconds=settings.internal_request_skew_seconds,
+        ):
+            return _unsigned()
+        return await call_next(request)
+
+
+def _unsigned() -> JSONResponse:
+    """One answer for every way a signature can be wrong.
+
+    Saying which part failed tells an attacker whether they have the key, the
+    clock or the canonical string wrong, and narrows the search for them.
+    """
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": True,
+            "code": str(ErrorCode.NOT_AUTHENTICATED),
+            "message": "This API only answers requests signed by the MCP server.",
+            "suggestion": (
+                "Sign the request with internal_auth.sign_request, or use "
+                "scripts/call_api.py. MCP clients reach the tools, never this API."
+            ),
+        },
+    )
 
 
 @asynccontextmanager
@@ -103,6 +181,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(SignedCallerOnly)
 
 SessionDep = Annotated[Session, Depends(get_session)]
 ActorDep = Annotated[str, Depends(actor_user)]

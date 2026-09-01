@@ -88,7 +88,7 @@ def fingerprint(session: Session) -> str:
         (g.patient.document_number, g.concept, str(g.amount), g.status, g.due_date.isoformat())
         for g in session.scalars(select(Charge))
     )
-    content["lista_espera"] = sorted(
+    content["waiting_list"] = sorted(
         (e.patient.document_number, e.specialty, e.priority, e.status)
         for e in session.scalars(select(WaitingList))
     )

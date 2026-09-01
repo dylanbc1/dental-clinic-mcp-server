@@ -18,7 +18,7 @@ from backend.api import app
 from backend.database import get_session
 from backend.domain.services import book_appointment, join_waiting_list
 from backend.enums import Specialty
-from tests.conftest import Scenario
+from tests.conftest import Scenario, sign_like_the_mcp_server
 
 pytestmark = pytest.mark.integration
 
@@ -39,6 +39,9 @@ def client(api_session: Session) -> Iterator[TestClient]:
 
     app.dependency_overrides[get_session] = override
     with TestClient(app, raise_server_exceptions=False) as c:
+        # TestClient takes no `auth` kwarg; it is an httpx.Client underneath, so
+        # the hook attaches after construction.
+        c.auth = sign_like_the_mcp_server
         yield c
     app.dependency_overrides.clear()
 
