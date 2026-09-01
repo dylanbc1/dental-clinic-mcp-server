@@ -80,30 +80,30 @@ class MCPTestClient:
         if result.get("isError"):
             text_of = "\n".join(c.get("text", "") for c in result.get("content", []))
             raise SystemExit(f"the tool returned an error:\n{text_of}")
-        contenido = result.get("structuredContent") or {}
-        return contenido.get("result", contenido)
+        content = result.get("structuredContent") or {}
+        return content.get("result", content)
 
-    def call_tool(self, nombre: str, arguments: dict[str, Any]) -> Any:
-        return self._payload(self._rpc("tools/call", {"name": nombre, "arguments": arguments}))
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        return self._payload(self._rpc("tools/call", {"name": name, "arguments": arguments}))
 
-    def ask(self, nombre: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        result: dict[str, Any] = self._rpc("tools/call", {"name": nombre, "arguments": arguments})
+    def ask(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        result: dict[str, Any] = self._rpc("tools/call", {"name": name, "arguments": arguments})
         if result.get("resultType") != "input_required":
             self._payload(result)
-            raise SystemExit(f"{nombre} did not ask for confirmation")
+            raise SystemExit(f"{name} did not ask for confirmation")
         return result
 
     def respond(
-        self, nombre: str, arguments: dict[str, Any], question: dict[str, Any], *, si: bool
+        self, name: str, arguments: dict[str, Any], question: dict[str, Any], *, si: bool
     ) -> Any:
         key = next(iter(question["inputRequests"]))
         return self._payload(
             self._rpc(
                 "tools/call",
                 {
-                    "name": nombre,
+                    "name": name,
                     "arguments": arguments,
-                    "inputResponses": {key: {"action": "accept", "content": {"confirmado": si}}},
+                    "inputResponses": {key: {"action": "accept", "content": {"confirmed": si}}},
                     "requestState": question["requestState"],
                 },
             )
@@ -154,24 +154,24 @@ def main() -> int:
     print(f"  tools: {len(tools)} · {', '.join(t['name'] for t in tools[:4])}…")
 
     step("5 · Reading")
-    paciente = client.call_tool("search_patients", {"nombre": "a", "limite": 1})[0]
-    print(f"  patient: {paciente['nombre']} · régimen {paciente['regimen']}")
+    patient = client.call_tool("search_patients", {"name": "a", "limit": 1})[0]
+    print(f"  patient: {patient['name']} · régimen {patient['regimen']}")
 
     # Pick a slot at an hour the patient is not already booked for. A patient
     # cannot be in two chairs at once, and the domain says so, so the client
     # picks properly instead of discovering it in an error.
     ocupadas = {
-        c["inicio_local"]
-        for c in client.call_tool("list_patient_appointments", {"paciente_id": paciente["id"]})
+        c["start_local"]
+        for c in client.call_tool("list_patient_appointments", {"patient_id": patient["id"]})
     }
-    free_slots = client.call_tool("check_availability", {"limite": 25})
-    slot = next((s for s in free_slots if s["inicio_local"] not in ocupadas), None)
+    free_slots = client.call_tool("check_availability", {"limit": 25})
+    slot = next((s for s in free_slots if s["start_local"] not in ocupadas), None)
     if slot is None:
         raise SystemExit("no free slot at an hour the patient has available")
-    print(f"  free slot: {slot['inicio_local']} with {slot['profesional']}")
+    print(f"  free slot: {slot['start_local']} with {slot['professional']}")
 
     step("6 · Write, round 1: the server asks and does NOT execute")
-    arguments = {"paciente_id": paciente["id"], "slot_id": slot["slot_id"]}
+    arguments = {"patient_id": patient["id"], "slot_id": slot["slot_id"]}
     question = client.ask("book_appointment", arguments)
     for line in client.question_text(question).splitlines():
         print(f"    {line}")
@@ -179,8 +179,11 @@ def main() -> int:
 
     step("7 · Round 2: the person approves, and now it executes")
     hecho = client.respond("book_appointment", arguments, question, si=True)
-    cita = hecho["cita"]
-    print(f"  appointment {cita['id']} · state {cita['estado']} · {cita['inicio_local']}")
+    appointment = hecho["appointment"]
+    print(
+        f"  appointment {appointment['id']} · state {appointment['status']} · "
+        f"{appointment['start_local']}"
+    )
 
     step("8 · The sealed state cannot be reused or tampered with")
     tampered = {**question, "requestState": question["requestState"][:-4] + "AAAA"}
@@ -193,9 +196,9 @@ def main() -> int:
 
     step("9 · A token without 'clinical' cannot touch clinical data")
     try:
-        client.ask("record_visit_reason", {"cita_id": cita["id"], "motivo": "dolor"})
-    except SystemExit as esperado:
-        print(f"  {str(esperado).splitlines()[1][:88]}")
+        client.ask("record_visit_reason", {"appointment_id": appointment["id"], "reason": "dolor"})
+    except SystemExit as expected:
+        print(f"  {str(expected).splitlines()[1][:88]}")
     else:
         raise SystemExit("FAILURE: a clinical write was allowed without the scope")
 

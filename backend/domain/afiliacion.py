@@ -41,18 +41,18 @@ class AfiliacionResult:
     """The verdict returned by :func:`validate_afiliacion`."""
 
     regimen: Regimen
-    activa: bool
+    active: bool
     #: The regime actually billed. A lapsed affiliation falls back to
     #: `particular`: the patient is still attended, at full price.
-    regimen_efectivo: Regimen
-    cubierto: bool
-    requiere_copago: bool
-    concepto_cargo: ChargeConcept
-    mensaje: str
-    sugerencia: str | None = None
+    effective_regimen: Regimen
+    covered: bool
+    requires_copago: bool
+    charge_concept: ChargeConcept
+    message: str
+    suggestion: str | None = None
 
     @property
-    def bloquea_agendamiento(self) -> bool:
+    def blocks_booking(self) -> bool:
         """Affiliation never blocks scheduling, it only changes the tariff.
 
         Real clinic behaviour: nobody is turned away at the desk for a lapsed
@@ -63,35 +63,35 @@ class AfiliacionResult:
 
 def validate_afiliacion(
     regimen: Regimen,
-    afiliacion_activa: bool,
+    afiliacion_active: bool,
     *,
-    nivel_cuota_moderadora: int = 1,
+    cuota_moderadora_level: int = 1,
 ) -> AfiliacionResult:
     """Resolve the billing consequences of a patient's affiliation status."""
     if regimen is Regimen.PARTICULAR:
         return AfiliacionResult(
             regimen=regimen,
-            activa=True,  # a private patient is by definition "active"
-            regimen_efectivo=Regimen.PARTICULAR,
-            cubierto=False,
-            requiere_copago=False,
-            concepto_cargo=ChargeConcept.PARTICULAR,
-            mensaje="Private patient: pays the full tariff, no copago and no cuota moderadora.",
+            active=True,  # a private patient is by definition "active"
+            effective_regimen=Regimen.PARTICULAR,
+            covered=False,
+            requires_copago=False,
+            charge_concept=ChargeConcept.PARTICULAR,
+            message="Private patient: pays the full tariff, no copago and no cuota moderadora.",
         )
 
-    if not afiliacion_activa:
+    if not afiliacion_active:
         return AfiliacionResult(
             regimen=regimen,
-            activa=False,
-            regimen_efectivo=Regimen.PARTICULAR,
-            cubierto=False,
-            requiere_copago=False,
-            concepto_cargo=ChargeConcept.PARTICULAR,
-            mensaje=(
+            active=False,
+            effective_regimen=Regimen.PARTICULAR,
+            covered=False,
+            requires_copago=False,
+            charge_concept=ChargeConcept.PARTICULAR,
+            message=(
                 f"Affiliation to the {regimen} régimen is inactive. "
                 "The visit is billed at the private tariff."
             ),
-            sugerencia=(
+            suggestion=(
                 "Tell the patient they can reactivate their afiliación with their EPS; "
                 "meanwhile the private tariff applies."
             ),
@@ -100,26 +100,26 @@ def validate_afiliacion(
     if regimen is Regimen.SOAT:
         return AfiliacionResult(
             regimen=regimen,
-            activa=True,
-            regimen_efectivo=Regimen.SOAT,
-            cubierto=True,
-            requiere_copago=False,
-            concepto_cargo=ChargeConcept.PARTICULAR,
-            mensaje="SOAT cover is active: care arising from the accident carries no charge.",
+            active=True,
+            effective_regimen=Regimen.SOAT,
+            covered=True,
+            requires_copago=False,
+            charge_concept=ChargeConcept.PARTICULAR,
+            message="SOAT cover is active: care arising from the accident carries no charge.",
         )
 
     if regimen is Regimen.CONTRIBUTIVO:
         fee = CUOTA_MODERADORA_BY_BRACKET.get(
-            nivel_cuota_moderadora, CUOTA_MODERADORA_BY_BRACKET[1]
+            cuota_moderadora_level, CUOTA_MODERADORA_BY_BRACKET[1]
         )
         return AfiliacionResult(
             regimen=regimen,
-            activa=True,
-            regimen_efectivo=Regimen.CONTRIBUTIVO,
-            cubierto=True,
-            requiere_copago=True,
-            concepto_cargo=ChargeConcept.CUOTA_MODERADORA,
-            mensaje=(
+            active=True,
+            effective_regimen=Regimen.CONTRIBUTIVO,
+            covered=True,
+            requires_copago=True,
+            charge_concept=ChargeConcept.CUOTA_MODERADORA,
+            message=(
                 f"Contributivo afiliación active. A cuota moderadora of ${fee:,.0f} COP applies."
             ),
         )
@@ -127,18 +127,18 @@ def validate_afiliacion(
     # Regimen.SUBSIDIADO
     return AfiliacionResult(
         regimen=regimen,
-        activa=True,
-        regimen_efectivo=Regimen.SUBSIDIADO,
-        cubierto=True,
-        requiere_copago=True,
-        concepto_cargo=ChargeConcept.COPAGO,
-        mensaje=(
+        active=True,
+        effective_regimen=Regimen.SUBSIDIADO,
+        covered=True,
+        requires_copago=True,
+        charge_concept=ChargeConcept.COPAGO,
+        message=(
             "Subsidiado afiliación active. A copago of "
             f"{SUBSIDIADO_COPAGO_RATE:.0%} of the tariff applies."
         ),
     )
 
 
-def base_tariff(especialidad: str) -> Decimal:
+def base_tariff(specialty: str) -> Decimal:
     """Full private tariff for a specialty, in COP."""
-    return PRIVATE_TARIFF.get(especialidad, DEFAULT_PRIVATE_TARIFF)
+    return PRIVATE_TARIFF.get(specialty, DEFAULT_PRIVATE_TARIFF)

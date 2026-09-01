@@ -34,28 +34,28 @@ class TestFormaDelError:
         payload = PatientNotFound("No existe el paciente 42").to_dict()
         assert payload == {
             "error": True,
-            "codigo": "PACIENTE_NO_ENCONTRADO",
-            "mensaje": "No existe el paciente 42",
+            "code": "PATIENT_NOT_FOUND",
+            "message": "No existe el paciente 42",
         }
 
     def test_incluye_sugerencia_y_detalles_cuando_los_hay(self) -> None:
         error = SlotUnavailable(
             "El cupo ya fue tomado.",
-            sugerencia="Los más cercanos son 09:00, 09:30 y 11:00.",
-            detalles={"slot_id": 88, "alternativas": [12, 13]},
+            suggestion="Los más cercanos son 09:00, 09:30 y 11:00.",
+            details={"slot_id": 88, "alternativas": [12, 13]},
         )
         payload = error.to_dict()
-        assert payload["sugerencia"].startswith("Los más cercanos")
-        assert payload["detalles"]["slot_id"] == 88
+        assert payload["suggestion"].startswith("Los más cercanos")
+        assert payload["details"]["slot_id"] == 88
 
     def test_las_claves_opcionales_se_omiten_no_se_ponen_en_null(self) -> None:
         payload = PatientNotFound("x").to_dict()
-        assert "sugerencia" not in payload
-        assert "detalles" not in payload
+        assert "suggestion" not in payload
+        assert "details" not in payload
 
     def test_el_codigo_se_puede_forzar_en_construccion(self) -> None:
-        error = InvalidTransition("x", codigo=ErrorCode.CITA_EN_ESTADO_FINAL)
-        assert error.to_dict()["codigo"] == "CITA_EN_ESTADO_FINAL"
+        error = InvalidTransition("x", code=ErrorCode.APPOINTMENT_IN_FINAL_STATE)
+        assert error.to_dict()["code"] == "APPOINTMENT_IN_FINAL_STATE"
 
     def test_sigue_siendo_una_excepcion_normal(self) -> None:
         with pytest.raises(DomainError, match="algo pasó"):
@@ -65,14 +65,14 @@ class TestFormaDelError:
 class TestContratoDeLaJerarquia:
     @pytest.mark.parametrize("clase", CLASES_CONCRETAS, ids=lambda c: c.__name__)
     def test_toda_clase_fija_un_codigo_propio(self, clase: type[DomainError]) -> None:
-        assert clase.codigo is not DomainError.codigo or clase is DomainError
+        assert clase.code is not DomainError.code or clase is DomainError
 
     @pytest.mark.parametrize("clase", CLASES_CONCRETAS, ids=lambda c: c.__name__)
     def test_todo_error_serializa_sin_reventar(self, clase: type[DomainError]) -> None:
         payload = clase("mensaje de prueba").to_dict()
         assert payload["error"] is True
-        assert payload["mensaje"] == "mensaje de prueba"
-        assert payload["codigo"] in set(ErrorCode)
+        assert payload["message"] == "mensaje de prueba"
+        assert payload["code"] in set(ErrorCode)
 
     @pytest.mark.parametrize("clase", CLASES_CONCRETAS, ids=lambda c: c.__name__)
     def test_el_status_http_es_un_codigo_de_error_del_cliente(
@@ -93,28 +93,28 @@ class TestContratoDeLaJerarquia:
     def test_no_hay_codigos_duplicados_entre_clases(self) -> None:
         vistos: dict[ErrorCode, str] = {}
         for clase in CLASES_CONCRETAS:
-            previous = vistos.get(clase.codigo)
+            previous = vistos.get(clase.code)
             assert previous is None, f"{clase.__name__} repite el código de {previous}"
-            vistos[clase.codigo] = clase.__name__
+            vistos[clase.code] = clase.__name__
 
 
 class TestEspacioDeCodigos:
     def test_los_codigos_son_str_estables(self) -> None:
         # They are part of the tool contract: renaming one breaks callers.
-        for codigo in ErrorCode:
-            assert str(codigo) == codigo.value == codigo.name
+        for code in ErrorCode:
+            assert str(code) == code.value == code.name
 
     def test_el_espacio_de_seguridad_ya_esta_declarado(self) -> None:
         """Declared in M2 even though layers 3-5 land later, so the code space
         is defined in one place instead of growing ad hoc."""
-        for esperado in (
-            "NO_AUTENTICADO",
-            "SCOPE_INSUFICIENTE",
-            "APROBACION_REQUERIDA",
-            "APROBACION_EXPIRADA",
-            "APROBACION_YA_USADA",
-            "CONSENTIMIENTO_REQUERIDO",
-            "ORIGEN_NO_PERMITIDO",
-            "RATE_LIMIT_EXCEDIDO",
+        for expected in (
+            "NOT_AUTHENTICATED",
+            "INSUFFICIENT_SCOPE",
+            "APPROVAL_REQUIRED",
+            "APPROVAL_EXPIRED",
+            "APPROVAL_ALREADY_USED",
+            "CONSENT_REQUIRED",
+            "ORIGIN_NOT_ALLOWED",
+            "RATE_LIMIT_EXCEEDED",
         ):
-            assert esperado in set(ErrorCode)
+            assert expected in set(ErrorCode)

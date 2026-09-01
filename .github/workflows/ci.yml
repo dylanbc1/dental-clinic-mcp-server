@@ -40,7 +40,7 @@ jobs:
           --health-cmd "pg_isready -U clinica -d clinica_test"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      TEST_DATABASE_URL: postgresql+psycopg://clinica:clinica_ci@localhost:5432/clinica_test
+      TEST_DATABASE_URL: postgresql+psycopg://clinic:clinica_ci@localhost:5432/clinic_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

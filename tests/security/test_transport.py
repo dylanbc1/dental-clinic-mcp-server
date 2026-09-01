@@ -163,7 +163,7 @@ class TestGuardasDeTransporte:
         # A bad Origin is a forbidden *caller* (403); a bad Host is a request
         # that arrived at the wrong server (421). The SDK distinguishes them.
         assert response.status_code == 403, (
-            f"Origin '{origen}' no fue rechazado: una página web podría manejar "
+            f"Origin '{origen}' no fue refused: una página web podría manejar "
             "este servidor con las credenciales del usuario"
         )
 
@@ -225,21 +225,21 @@ class TestGuardasDeTransporte:
 
 class TestVentanaDeslizante:
     def test_permite_hasta_el_limite(self) -> None:
-        ventana = SlidingWindow(limite=3, ventana=60)
+        ventana = SlidingWindow(limit=3, ventana=60)
         assert [ventana.allow("a", now=0)[0] for _ in range(3)] == [True] * 3
         assert ventana.allow("a", now=0)[0] is False
 
     def test_la_espera_sugerida_es_util(self) -> None:
-        ventana = SlidingWindow(limite=1, ventana=60)
+        ventana = SlidingWindow(limit=1, ventana=60)
         ventana.allow("a", now=100)
-        permitido, espera = ventana.allow("a", now=110)
-        assert permitido is False
+        allowed, espera = ventana.allow("a", now=110)
+        assert allowed is False
         assert 49 <= espera <= 50
 
     def test_es_deslizante_no_de_ventana_fija(self) -> None:
         """A fixed window lets a caller fire the whole budget at the seam and
         again immediately after: twice the intended rate."""
-        ventana = SlidingWindow(limite=2, ventana=10)
+        ventana = SlidingWindow(limit=2, ventana=10)
         ventana.allow("a", now=0)
         ventana.allow("a", now=9)
         assert ventana.allow("a", now=9.5)[0] is False
@@ -248,7 +248,7 @@ class TestVentanaDeslizante:
     def test_cada_clave_tiene_su_propio_presupuesto(self) -> None:
         """Limiting purely by IP would let one agent starve everyone behind the
         same NAT."""
-        ventana = SlidingWindow(limite=1, ventana=60)
+        ventana = SlidingWindow(limit=1, ventana=60)
         assert ventana.allow("sub:ana", now=0)[0] is True
         assert ventana.allow("sub:bruno", now=0)[0] is True
         assert ventana.allow("sub:ana", now=0)[0] is False
@@ -263,7 +263,7 @@ class TestMiddlewareDeLimite:
             return PlainTextResponse("ok")
 
         app = Starlette(routes=[Route("/ping", ok)])
-        app.add_middleware(RequestLimiter, limite=3, ventana_segundos=60, reloj=lambda: next(reloj))
+        app.add_middleware(RequestLimiter, limit=3, ventana_segundos=60, reloj=lambda: next(reloj))
         return app
 
     def test_corta_pasado_el_limite(self, app_limitada: Starlette) -> None:
@@ -279,16 +279,16 @@ class TestMiddlewareDeLimite:
         assert response.status_code == 429
         assert response.headers["retry-after"] == "60"
         body = response.json()
-        assert body["codigo"] == "RATE_LIMIT_EXCEDIDO"
+        assert body["code"] == "RATE_LIMIT_EXCEEDED"
         # It must tell an agent in a retry loop to stop looping.
-        assert "bucle de reintentos" in body["sugerencia"]
+        assert "bucle de reintentos" in body["suggestion"]
 
     def test_el_error_usa_la_misma_envoltura_estructurada(self, app_limitada: Starlette) -> None:
         with TestClient(app_limitada) as c:
             for _ in range(4):
                 response = c.get("/ping")
         body = response.json()
-        assert set(body) >= {"error", "codigo", "mensaje", "sugerencia"}
+        assert set(body) >= {"error", "code", "message", "suggestion"}
 
     async def test_deja_pasar_el_trafico_que_no_es_http(self) -> None:
         """A websocket or lifespan scope must not be counted or blocked."""
@@ -297,7 +297,7 @@ class TestMiddlewareDeLimite:
         async def app(scope: Any, receive: Any, send: Any) -> None:
             visto.append(scope["type"])
 
-        limitador = RequestLimiter(app, limite=0, ventana_segundos=60)
+        limitador = RequestLimiter(app, limit=0, ventana_segundos=60)
         await limitador({"type": "lifespan"}, None, None)  # type: ignore[arg-type]
         assert visto == ["lifespan"]
 
@@ -306,8 +306,8 @@ class TestElBackendNoEsAlcanzable:
     def test_el_servidor_mcp_no_expone_la_api_de_dominio(self, client: TestClient) -> None:
         """The MCP surface is /mcp and the discovery documents. Nothing else,
         and in particular no path through to the internal REST API."""
-        for ruta in ("/citas/1", "/pacientes", "/salud", "/docs", "/openapi.json"):
-            assert client.get(ruta).status_code in {404, 405}, ruta
+        for path in ("/appointments/1", "/patients", "/health", "/docs", "/openapi.json"):
+            assert client.get(path).status_code in {404, 405}, path
 
 
 class TestClienteBackendAnteFallos:
@@ -318,10 +318,10 @@ class TestClienteBackendAnteFallos:
         async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
-                await client.get_object("/clinica")
-        mensaje = str(exc.value)
-        assert "BACKEND_NO_DISPONIBLE" in mensaje
-        assert "do not retry in a loop" in mensaje
+                await client.get_object("/clinic")
+        message = str(exc.value)
+        assert "BACKEND_UNAVAILABLE" in message
+        assert "do not retry in a loop" in message
 
     async def test_una_respuesta_con_forma_inesperada_se_detecta(self) -> None:
         transporte = httpx.MockTransport(
@@ -330,7 +330,7 @@ class TestClienteBackendAnteFallos:
         async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
-                await client.get_object("/clinica")
+                await client.get_object("/clinic")
         assert "RESPUESTA_INESPERADA" in str(exc.value)
 
     async def test_un_error_sin_envoltura_no_revienta(self) -> None:
@@ -338,7 +338,7 @@ class TestClienteBackendAnteFallos:
         async with httpx.AsyncClient(transport=transporte, base_url="http://backend") as http:
             client = BackendClient("http://backend", client=http)
             with pytest.raises(Exception) as exc:
-                await client.get_object("/clinica")
+                await client.get_object("/clinic")
         assert "502" in str(exc.value)
 
 

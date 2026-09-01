@@ -115,8 +115,8 @@ def _es_base_de_pruebas(url: str) -> bool:
     it as disposable, so a mistyped TEST_DATABASE_URL cannot destroy a dev or,
     far worse, a production database.
     """
-    nombre = urlsplit(url).path.lstrip("/").lower()
-    return any(marca in nombre for marca in ("test", "_ci", "pytest")) or nombre.startswith("tc-")
+    name = urlsplit(url).path.lstrip("/").lower()
+    return any(marca in name for marca in ("test", "_ci", "pytest")) or name.startswith("tc-")
 
 
 @pytest.fixture(scope="session")
@@ -206,27 +206,27 @@ def sessions(engine: Engine) -> Iterator[Callable[[], Session]]:
 def minimal_data(sessions: Callable[[], Session]) -> dict[str, int]:
     """One clinic, one dentist, two patients and one free slot, committed."""
     session_ = sessions()
-    clinica = Clinic(nombre="Clínica Test", nit="900.000.001-1", especialidad="Odontología")
-    session_.add(clinica)
+    clinic = Clinic(name="Clínica Test", nit="900.000.001-1", specialty="Odontología")
+    session_.add(clinic)
     session_.flush()
 
-    profesional = Professional(
-        clinica_id=clinica.id,
-        nombre="Dra. Prueba",
-        registro="RM-TEST-1",
-        especialidad=Specialty.GENERAL_DENTISTRY,
+    professional = Professional(
+        clinic_id=clinic.id,
+        name="Dra. Prueba",
+        license_number="RM-TEST-1",
+        specialty=Specialty.GENERAL_DENTISTRY,
     )
-    session_.add(profesional)
+    session_.add(professional)
     session_.flush()
 
     patients = [
         Patient(
-            tipo_documento=DocumentType.CC,
-            documento=f"100000{i}",
-            nombre=f"Paciente {i}",
-            telefono="+57 3001112233",
+            document_type=DocumentType.CC,
+            document_number=f"100000{i}",
+            name=f"Paciente {i}",
+            phone="+57 3001112233",
             regimen=Regimen.CONTRIBUTIVO,
-            afiliacion_activa=True,
+            afiliacion_active=True,
         )
         for i in (1, 2)
     ]
@@ -237,19 +237,19 @@ def minimal_data(sessions: Callable[[], Session]) -> dict[str, int]:
     manana = now_at_clinic().date() + timedelta(days=1)
     while not slots_for_day(manana):
         manana += timedelta(days=1)
-    inicio, fin = slots_for_day(manana)[0]
+    start, end = slots_for_day(manana)[0]
     slot = AgendaSlot(
-        profesional_id=profesional.id,
-        fecha=inicio.astimezone(UTC).date(),
-        inicio=inicio,
-        fin=fin,
+        professional_id=professional.id,
+        day=start.astimezone(UTC).date(),
+        start=start,
+        end=end,
     )
     session_.add(slot)
     session_.commit()
 
     return {
-        "clinica_id": clinica.id,
-        "profesional_id": profesional.id,
+        "clinic_id": clinic.id,
+        "professional_id": professional.id,
         "paciente_a": patients[0].id,
         "paciente_b": patients[1].id,
         "slot_id": slot.id,
@@ -264,7 +264,7 @@ class Scenario:
     randomised dataset turns every expected value into an approximation.
     """
 
-    clinica_id: int
+    clinic_id: int
     general_id: int
     orto_id: int
     #: Contributory regime, active affiliation, consent on file.
@@ -285,61 +285,61 @@ class Scenario:
 @pytest.fixture
 def scenario(sessions: Callable[[], Session]) -> Scenario:
     session_ = sessions()
-    clinica = Clinic(nombre="Clínica Escenario", nit="900.777.111-2", especialidad="Odontología")
-    session_.add(clinica)
+    clinic = Clinic(name="Clínica Escenario", nit="900.777.111-2", specialty="Odontología")
+    session_.add(clinic)
     session_.flush()
 
     general = Professional(
-        clinica_id=clinica.id,
-        nombre="Dra. General",
-        registro="RM-ESC-1",
-        especialidad=Specialty.GENERAL_DENTISTRY,
+        clinic_id=clinic.id,
+        name="Dra. General",
+        license_number="RM-ESC-1",
+        specialty=Specialty.GENERAL_DENTISTRY,
     )
     orto = Professional(
-        clinica_id=clinica.id,
-        nombre="Dr. Ortodoncia",
-        registro="RM-ESC-2",
-        especialidad=Specialty.ORTHODONTICS,
+        clinic_id=clinic.id,
+        name="Dr. Ortodoncia",
+        license_number="RM-ESC-2",
+        specialty=Specialty.ORTHODONTICS,
     )
     session_.add_all([general, orto])
     session_.flush()
 
-    def paciente(
-        documento: str,
-        nombre: str,
+    def patient(
+        document_number: str,
+        name: str,
         regimen: Regimen,
         *,
-        activa: bool = True,
+        active: bool = True,
         consentimiento: bool = True,
     ) -> Patient:
         return Patient(
-            tipo_documento=DocumentType.CC,
-            documento=documento,
-            nombre=nombre,
-            telefono="+57 3001112233",
-            email=f"{documento}@ejemplo.test",
+            document_type=DocumentType.CC,
+            document_number=document_number,
+            name=name,
+            phone="+57 3001112233",
+            email=f"{document_number}@ejemplo.test",
             regimen=regimen,
-            afiliacion_activa=activa,
-            nivel_cuota_moderadora=1,
-            consentimiento_datos_clinicos=consentimiento,
+            afiliacion_active=active,
+            cuota_moderadora_level=1,
+            clinical_data_consent=consentimiento,
         )
 
-    ana = paciente("11111111", "Ana Gómez Ruiz", Regimen.CONTRIBUTIVO)
-    bruno = paciente("22222222", "Bruno Díaz Peña", Regimen.SUBSIDIADO, activa=False)
-    carla = paciente("33333333", "Carla Ríos Mora", Regimen.PARTICULAR, consentimiento=False)
-    deudor = paciente("44444444", "Diego Mora Ruiz", Regimen.CONTRIBUTIVO)
+    ana = patient("11111111", "Ana Gómez Ruiz", Regimen.CONTRIBUTIVO)
+    bruno = patient("22222222", "Bruno Díaz Peña", Regimen.SUBSIDIADO, active=False)
+    carla = patient("33333333", "Carla Ríos Mora", Regimen.PARTICULAR, consentimiento=False)
+    deudor = patient("44444444", "Diego Mora Ruiz", Regimen.CONTRIBUTIVO)
     session_.add_all([ana, bruno, carla, deudor])
     session_.flush()
 
     # A debt large enough and old enough to trip the alert threshold.
     session_.add(
         Charge(
-            paciente_id=deudor.id,
-            concepto=ChargeConcept.PARTICULAR,
-            monto=Decimal("180000"),
-            descripcion="Tarifa particular vencida",
-            estado=ChargeState.PENDING,
-            vencimiento=now_at_clinic().date() - timedelta(days=75),
+            patient_id=deudor.id,
+            concept=ChargeConcept.PARTICULAR,
+            amount=Decimal("180000"),
+            description="Tarifa particular vencida",
+            status=ChargeState.PENDING,
+            due_date=now_at_clinic().date() - timedelta(days=75),
         )
     )
 
@@ -351,13 +351,13 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
 
     slots_general: list[AgendaSlot] = []
     slots_orto: list[AgendaSlot] = []
-    for inicio, fin in rangos[:6]:
-        for profesional, target in ((general, slots_general), (orto, slots_orto)):
+    for start, end in rangos[:6]:
+        for professional, target in ((general, slots_general), (orto, slots_orto)):
             slot = AgendaSlot(
-                profesional_id=profesional.id,
-                fecha=to_clinic_time(inicio).date(),
-                inicio=inicio,
-                fin=fin,
+                professional_id=professional.id,
+                day=to_clinic_time(start).date(),
+                start=start,
+                end=end,
             )
             session_.add(slot)
             target.append(slot)
@@ -368,20 +368,20 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
         pasada -= timedelta(days=1)
     inicio_pasado, fin_pasado = slots_for_day(pasada)[0]
     slot_pasado = AgendaSlot(
-        profesional_id=general.id,
-        fecha=to_clinic_time(inicio_pasado).date(),
-        inicio=inicio_pasado,
-        fin=fin_pasado,
+        professional_id=general.id,
+        day=to_clinic_time(inicio_pasado).date(),
+        start=inicio_pasado,
+        end=fin_pasado,
     )
     session_.add(slot_pasado)
     session_.commit()
 
     return Scenario(
-        clinica_id=clinica.id,
+        clinic_id=clinic.id,
         general_id=general.id,
         orto_id=orto.id,
         ana_id=ana.id,
-        ana_documento=ana.documento,
+        ana_documento=ana.document_number,
         bruno_id=bruno.id,
         carla_id=carla.id,
         deudor_id=deudor.id,
@@ -523,46 +523,46 @@ class MCPTestClient:
         if result.get("isError"):
             textos = [c.get("text", "") for c in result.get("content", [])]
             raise ToolCallError("\n".join(t for t in textos if t))
-        contenido = result.get("structuredContent")
-        if isinstance(contenido, dict) and set(contenido) == {"result"}:
-            return contenido["result"]
-        if contenido is not None:
-            return contenido
+        content = result.get("structuredContent")
+        if isinstance(content, dict) and set(content) == {"result"}:
+            return content["result"]
+        if content is not None:
+            return content
         return [c.get("text") for c in result.get("content", [])]
 
-    async def call_tool(self, nombre: str, arguments: dict[str, Any]) -> Any:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Call a tool that needs no human answer."""
         return self._desenvolver(
-            await self._rpc("tools/call", {"name": nombre, "arguments": arguments})
+            await self._rpc("tools/call", {"name": name, "arguments": arguments})
         )
 
-    async def ask(self, nombre: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def ask(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Call a tool expecting `input_required`, and return what it asks."""
-        result = await self._rpc("tools/call", {"name": nombre, "arguments": arguments})
+        result = await self._rpc("tools/call", {"name": name, "arguments": arguments})
         if result.get("resultType") != "input_required":
             self._desenvolver(result)  # raises if it was an error
-            raise AssertionError(f"{nombre} no pidió confirmación: {result}")
+            raise AssertionError(f"{name} no pidió confirmación: {result}")
         return result
 
     async def respond(
         self,
-        nombre: str,
+        name: str,
         arguments: dict[str, Any],
         question: dict[str, Any],
         *,
-        confirmado: bool = True,
+        confirmed: bool = True,
         action: str = "accept",
     ) -> Any:
         """Retry the same call carrying the human's answer."""
         key = next(iter(question["inputRequests"]))
         response: dict[str, Any] = {"action": action}
         if action == "accept":
-            response["content"] = {"confirmado": confirmado}
+            response["content"] = {"confirmed": confirmed}
         return self._desenvolver(
             await self._rpc(
                 "tools/call",
                 {
-                    "name": nombre,
+                    "name": name,
                     "arguments": arguments,
                     "inputResponses": {key: response},
                     "requestState": question["requestState"],
@@ -570,10 +570,10 @@ class MCPTestClient:
             )
         )
 
-    async def aprobar(self, nombre: str, arguments: dict[str, Any]) -> Any:
+    async def aprobar(self, name: str, arguments: dict[str, Any]) -> Any:
         """The whole round trip: ask, approve, execute."""
-        question = await self.ask(nombre, arguments)
-        return await self.respond(nombre, arguments, question)
+        question = await self.ask(name, arguments)
+        return await self.respond(name, arguments, question)
 
     def question_text(self, question: dict[str, Any]) -> str:
         key = next(iter(question["inputRequests"]))
@@ -647,20 +647,20 @@ def payload(result: CallToolResult) -> Any:
     """The structured payload of a successful in-process call."""
     assert not result.is_error, text_of(result)
     if result.structured_content is not None:
-        contenido = result.structured_content
-        if isinstance(contenido, dict) and set(contenido) == {"result"}:
-            return contenido["result"]
-        return contenido
+        content = result.structured_content
+        if isinstance(content, dict) and set(content) == {"result"}:
+            return content["result"]
+        return content
     return json.loads(text_of(result))
 
 
-async def call_tool(server_: MCPServer[Any], nombre: str, arguments: dict[str, Any]) -> Any:
+async def call_tool(server_: MCPServer[Any], name: str, arguments: dict[str, Any]) -> Any:
     """Call a read tool in-process and return its payload."""
-    return payload(await server_.call_tool(nombre, arguments))
+    return payload(await server_.call_tool(name, arguments))
 
 
-async def error_from(server_: MCPServer[Any], nombre: str, arguments: dict[str, Any]) -> str:
+async def error_from(server_: MCPServer[Any], name: str, arguments: dict[str, Any]) -> str:
     """Call a read tool expecting failure; return the message the model reads."""
     with pytest.raises(ToolError) as capturado:
-        await server_.call_tool(nombre, arguments)
+        await server_.call_tool(name, arguments)
     return str(capturado.value)

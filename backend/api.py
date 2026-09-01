@@ -127,18 +127,18 @@ def _validation_envelope(exc: ValidationError | RequestValidationError) -> JSONR
     request validation is remapped onto the single envelope everything else
     uses, with the offending fields named so the call can be corrected.
     """
-    campos = [
-        {"campo": ".".join(str(p) for p in e["loc"]), "problema": e["msg"]} for e in exc.errors()
+    fields = [
+        {"field": ".".join(str(p) for p in e["loc"]), "problem": e["msg"]} for e in exc.errors()
     ]
-    names = ", ".join(c["campo"] for c in campos) or "the parameters"
+    names = ", ".join(c["field"] for c in fields) or "the parameters"
     return JSONResponse(
         status_code=422,
         content={
             "error": True,
-            "codigo": str(ErrorCode.ENTRADA_INVALIDA),
-            "mensaje": "The parameters received are not valid.",
-            "sugerencia": f"Fix {names} and call the tool again.",
-            "detalles": {"campos": campos},
+            "code": str(ErrorCode.INVALID_INPUT),
+            "message": "The parameters received are not valid.",
+            "suggestion": f"Fix {names} and call the tool again.",
+            "details": {"fields": fields},
         },
     )
 
@@ -162,9 +162,9 @@ async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
         status_code=500,
         content={
             "error": True,
-            "codigo": "ERROR_INTERNO",
-            "mensaje": "An internal error occurred while processing the request.",
-            "sugerencia": "Retry in a few seconds; if it persists, report the incident.",
+            "code": "INTERNAL_ERROR",
+            "message": "An internal error occurred while processing the request.",
+            "suggestion": "Retry in a few seconds; if it persists, report the incident.",
         },
     )
 
@@ -174,13 +174,13 @@ async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
 # --------------------------------------------------------------------------- #
 
 
-@app.get("/salud", tags=["operación"])
+@app.get("/health", tags=["operations"])
 async def health() -> dict[str, Any]:
     """Liveness: the process is up. Does not touch the database on purpose."""
-    return {"estado": "ok", "momento": now_utc().isoformat()}
+    return {"status": "ok", "time": now_utc().isoformat()}
 
 
-@app.get("/listo", tags=["operación"])
+@app.get("/ready", tags=["operations"])
 async def ready() -> JSONResponse:
     """Readiness: the process can actually serve traffic (database reachable)."""
     try:
@@ -192,12 +192,12 @@ async def ready() -> JSONResponse:
             status_code=503,
             content={
                 "error": True,
-                "codigo": str(ErrorCode.ENTRADA_INVALIDA),
-                "mensaje": "The database is not available.",
-                "sugerencia": "Check that the PostgreSQL container is up.",
+                "code": str(ErrorCode.INVALID_INPUT),
+                "message": "The database is not available.",
+                "suggestion": "Check that the PostgreSQL container is up.",
             },
         )
-    return JSONResponse(status_code=200, content={"estado": "listo"})
+    return JSONResponse(status_code=200, content={"status": "ready"})
 
 
 # --------------------------------------------------------------------------- #
@@ -205,33 +205,33 @@ async def ready() -> JSONResponse:
 # --------------------------------------------------------------------------- #
 
 
-@app.get("/clinica", tags=["lectura"], response_model=ClinicInfo)
+@app.get("/clinic", tags=["read"], response_model=ClinicInfo)
 def clinic_info_route(session: SesionDep) -> ClinicInfo:
-    clinica = services.get_clinic(session)
-    profesionales = list(
+    clinic = services.get_clinic(session)
+    professionals = list(
         session.scalars(
             select(Professional)
-            .where(Professional.clinica_id == clinica.id)
-            .order_by(Professional.especialidad, Professional.nombre)
+            .where(Professional.clinic_id == clinic.id)
+            .order_by(Professional.specialty, Professional.name)
         )
     )
-    return ClinicInfo.of(clinica, profesionales)
+    return ClinicInfo.of(clinic, professionals)
 
 
-@app.get("/politicas/cartera", tags=["lectura"], response_model=CarteraPolicies)
+@app.get("/policies/cartera", tags=["read"], response_model=CarteraPolicies)
 def cartera_policies_resource() -> CarteraPolicies:
     p = DEFAULT_POLICY
     return CarteraPolicies(
-        cobra_no_show=p.cobra_no_show,
-        monto_no_show=p.monto_no_show,
-        dias_gracia=p.dias_gracia,
-        umbral_alerta_mora=p.umbral_alerta_mora,
-        penaliza_solo_confirmadas=p.penaliza_solo_confirmadas,
-        plazo_pago_dias=PAYMENT_TERM.days,
-        tarifas_particular=dict(PRIVATE_TARIFF),
-        cuota_moderadora_por_nivel=dict(CUOTA_MODERADORA_BY_BRACKET),
-        porcentaje_copago_subsidiado=SUBSIDIADO_COPAGO_RATE,
-        nota=(
+        charges_no_show=p.charges_no_show,
+        no_show_amount=p.no_show_amount,
+        grace_days=p.grace_days,
+        overdue_alert_threshold=p.overdue_alert_threshold,
+        penalises_only_confirmed=p.penalises_only_confirmed,
+        payment_term_days=PAYMENT_TERM.days,
+        particular_tariffs=dict(PRIVATE_TARIFF),
+        cuota_moderadora_by_level=dict(CUOTA_MODERADORA_BY_BRACKET),
+        subsidiado_copago_rate=SUBSIDIADO_COPAGO_RATE,
+        note=(
             "Overdue cartera raises a warning when booking, never a block: the clinic "
             "tells the patient and sees them anyway."
         ),
@@ -239,107 +239,107 @@ def cartera_policies_resource() -> CarteraPolicies:
 
 
 @app.get(
-    "/pacientes",
-    tags=["lectura"],
+    "/patients",
+    tags=["read"],
     response_model=list[PatientSummary],
     responses=RESPUESTAS_ERROR,
 )
 def search_patients(
     session: SesionDep,
-    documento: Annotated[str | None, Query(max_length=20)] = None,
-    nombre: Annotated[str | None, Query(max_length=160)] = None,
-    limite: Annotated[int, Query(ge=1, le=50)] = 10,
+    document_number: Annotated[str | None, Query(max_length=20)] = None,
+    name: Annotated[str | None, Query(max_length=160)] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> list[PatientSummary]:
     encontrados = services.search_patients(
-        session, documento=documento, nombre=nombre, limite=limite
+        session, document_number=document_number, name=name, limit=limit
     )
     return [PatientSummary.of(p) for p in encontrados]
 
 
 @app.get(
-    "/pacientes/{paciente_id}/afiliacion",
-    tags=["lectura"],
+    "/patients/{patient_id}/afiliacion",
+    tags=["read"],
     response_model=AfiliacionResponse,
     responses=RESPUESTAS_ERROR,
 )
-def afiliacion(session: SesionDep, paciente_id: int) -> AfiliacionResponse:
+def afiliacion(session: SesionDep, patient_id: int) -> AfiliacionResponse:
     return AfiliacionResponse.of(
-        paciente_id, services.validate_patient_afiliacion(session, paciente_id)
+        patient_id, services.validate_patient_afiliacion(session, patient_id)
     )
 
 
 @app.get(
-    "/pacientes/{paciente_id}/cartera",
-    tags=["lectura"],
+    "/patients/{patient_id}/cartera",
+    tags=["read"],
     response_model=CarteraResponse,
     responses=RESPUESTAS_ERROR,
 )
-def cartera(session: SesionDep, paciente_id: int) -> CarteraResponse:
-    resumen = services.get_cartera(session, paciente_id)
-    cargos = list(
+def cartera(session: SesionDep, patient_id: int) -> CarteraResponse:
+    summary = services.get_cartera(session, patient_id)
+    charges = list(
         session.scalars(
             select(Charge)
-            .where(Charge.paciente_id == paciente_id, Charge.estado == ChargeState.PENDING)
-            .order_by(Charge.vencimiento)
+            .where(Charge.patient_id == patient_id, Charge.status == ChargeState.PENDING)
+            .order_by(Charge.due_date)
         )
     )
-    return CarteraResponse.of(resumen, cargos)
+    return CarteraResponse.of(summary, charges)
 
 
 @app.get(
-    "/pacientes/{paciente_id}/citas",
-    tags=["lectura"],
+    "/patients/{patient_id}/appointments",
+    tags=["read"],
     response_model=list[AppointmentDetail],
     responses=RESPUESTAS_ERROR,
 )
 def patient_appointments_route(
     session: SesionDep,
-    paciente_id: int,
-    desde: date | None = None,
-    hasta: date | None = None,
-    limite: Annotated[int, Query(ge=1, le=100)] = 50,
+    patient_id: int,
+    since: date | None = None,
+    until: date | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[AppointmentDetail]:
-    citas = services.list_patient_appointments(
-        session, paciente_id, desde=desde, hasta=hasta, limite=limite
+    appointments = services.list_patient_appointments(
+        session, patient_id, since=since, until=until, limit=limit
     )
-    return [AppointmentDetail.of(c, incluir_historial=False) for c in citas]
+    return [AppointmentDetail.of(c, incluir_historial=False) for c in appointments]
 
 
 @app.get(
-    "/disponibilidad",
-    tags=["lectura"],
+    "/availability",
+    tags=["read"],
     response_model=list[FreeSlot],
     responses=RESPUESTAS_ERROR,
 )
 def slot_availability_route(
     session: SesionDep,
-    especialidad: Specialty | None = None,
-    fecha: date | None = None,
-    profesional_id: int | None = None,
-    limite: Annotated[int, Query(ge=1, le=50)] = 20,
+    specialty: Specialty | None = None,
+    day: date | None = None,
+    professional_id: int | None = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> list[FreeSlot]:
     slots = services.list_available_slots(
         session,
-        especialidad=especialidad,
-        fecha=fecha,
-        profesional_id=profesional_id,
-        limite=limite,
+        specialty=specialty,
+        day=day,
+        professional_id=professional_id,
+        limit=limit,
     )
     return [FreeSlot.of(s) for s in slots]
 
 
 @app.get(
-    "/disponibilidad/{slot_id}",
-    tags=["lectura"],
+    "/availability/{slot_id}",
+    tags=["read"],
     response_model=FreeSlot,
     responses=RESPUESTAS_ERROR,
 )
 def bookable_slot(
     session: SesionDep,
     slot_id: int,
-    paciente_id: int | None = None,
-    especialidad_esperada: Specialty | None = None,
-    excluir_cita_id: int | None = None,
+    patient_id: int | None = None,
+    expected_specialty: Specialty | None = None,
+    exclude_appointment_id: int | None = None,
 ) -> FreeSlot:
     """This slot, if it can still be booked.
 
@@ -353,53 +353,53 @@ def bookable_slot(
     slot = services.validate_booking(
         session,
         slot_id,
-        paciente_id=paciente_id,
-        especialidad_esperada=especialidad_esperada,
-        excluir_cita_id=excluir_cita_id,
+        patient_id=patient_id,
+        expected_specialty=expected_specialty,
+        exclude_appointment_id=exclude_appointment_id,
     )
     return FreeSlot.of(
         services.AvailableSlot(
             slot_id=slot.id,
-            profesional_id=slot.profesional_id,
-            profesional=slot.profesional.nombre,
-            especialidad=slot.profesional.especialidad,
-            inicio=slot.inicio,
-            fin=slot.fin,
+            professional_id=slot.professional_id,
+            professional=slot.professional.name,
+            specialty=slot.professional.specialty,
+            start=slot.start,
+            end=slot.end,
         )
     )
 
 
 @app.get(
-    "/citas/{cita_id}",
-    tags=["lectura"],
+    "/appointments/{appointment_id}",
+    tags=["read"],
     response_model=AppointmentDetail,
     responses=RESPUESTAS_ERROR,
 )
-def appointment_detail_route(session: SesionDep, cita_id: int) -> AppointmentDetail:
-    return AppointmentDetail.of(services.get_appointment(session, cita_id))
+def appointment_detail_route(session: SesionDep, appointment_id: int) -> AppointmentDetail:
+    return AppointmentDetail.of(services.get_appointment(session, appointment_id))
 
 
-@app.get("/agenda/{fecha}", tags=["lectura"], response_model=DayAgenda)
-def agenda_for_date(session: SesionDep, fecha: date) -> DayAgenda:
-    citas = services.agenda_for_day(session, fecha)
-    por_estado: dict[str, int] = {}
-    for cita in citas:
-        por_estado[str(cita.estado)] = por_estado.get(str(cita.estado), 0) + 1
+@app.get("/agenda/{day}", tags=["read"], response_model=DayAgenda)
+def agenda_for_date(session: SesionDep, day: date) -> DayAgenda:
+    appointments = services.agenda_for_day(session, day)
+    by_status: dict[str, int] = {}
+    for appointment in appointments:
+        by_status[str(appointment.status)] = by_status.get(str(appointment.status), 0) + 1
     return DayAgenda(
-        fecha=fecha,
-        total=len(citas),
-        por_estado=por_estado,
-        citas=[AppointmentDetail.of(c, incluir_historial=False) for c in citas],
+        day=day,
+        total=len(appointments),
+        by_status=by_status,
+        appointments=[AppointmentDetail.of(c, incluir_historial=False) for c in appointments],
     )
 
 
-@app.get("/lista-espera", tags=["lectura"], response_model=list[WaitingEntrySummary])
+@app.get("/waiting-list", tags=["read"], response_model=list[WaitingEntrySummary])
 def waiting_list_route(
-    session: SesionDep, especialidad: Specialty | None = None
+    session: SesionDep, specialty: Specialty | None = None
 ) -> list[WaitingEntrySummary]:
-    filas = services.waiting_list_entries(session, especialidad)
+    filas = services.waiting_list_entries(session, specialty)
     order = {
-        e.entrada_id: i
+        e.entry_id: i
         for i, e in enumerate(in_queue_order([services.to_queue_entry(f) for f in filas]))
     }
     filas.sort(key=lambda f: order.get(f.id, 10**6))
@@ -413,146 +413,148 @@ def waiting_list_route(
 
 def _transition_message(result: services.TransitionResult) -> str:
     parts = [
-        f"Appointment {result.cita.id}: {result.effects.estado_anterior} → "
-        f"{result.effects.estado_nuevo}."
+        f"Appointment {result.appointment.id}: {result.effects.previous_status} → "
+        f"{result.effects.new_status}."
     ]
     if result.effects.libera_slot:
         parts.append("The slot is free again in the agenda.")
     if result.created_charge is not None:
         parts.append(
-            f"A charge of ${result.created_charge.monto:,.0f} COP was created "
-            f"({result.created_charge.concepto})."
+            f"A charge of ${result.created_charge.amount:,.0f} COP was created "
+            f"({result.created_charge.concept})."
         )
     if result.siguiente_en_espera is not None:
         parts.append(
             "There is a patient on the waiting list for "
-            f"{result.siguiente_en_espera.especialidad}: "
-            f"{result.siguiente_en_espera.paciente.nombre}."
+            f"{result.siguiente_en_espera.specialty}: "
+            f"{result.siguiente_en_espera.patient.name}."
         )
     return " ".join(parts)
 
 
 def _to_response(result: services.TransitionResult) -> TransitionResponse:
     return TransitionResponse(
-        cita=AppointmentDetail.of(result.cita),
-        estado_anterior=result.effects.estado_anterior,
-        estado_nuevo=result.effects.estado_nuevo,
-        libero_cupo=result.effects.libera_slot,
-        genero_cargo=result.effects.genera_cargo,
-        cargo=(
+        appointment=AppointmentDetail.of(result.appointment),
+        previous_status=result.effects.previous_status,
+        new_status=result.effects.new_status,
+        freed_slot=result.effects.libera_slot,
+        created_charge=result.effects.genera_cargo,
+        charge=(
             ChargeSummary.of(result.created_charge) if result.created_charge is not None else None
         ),
-        siguiente_en_lista_espera=(
+        next_in_waiting_list=(
             WaitingEntrySummary.of(result.siguiente_en_espera)
             if result.siguiente_en_espera is not None
             else None
         ),
-        mensaje=_transition_message(result),
+        message=_transition_message(result),
     )
 
 
-@app.post("/citas", tags=["escritura"], response_model=BookResponse, responses=RESPUESTAS_ERROR)
+@app.post("/appointments", tags=["write"], response_model=BookResponse, responses=RESPUESTAS_ERROR)
 def book_route(session: SesionDep, actor: ActorDep, body: BookRequest) -> BookResponse:
     result = services.book_appointment(
         session,
-        paciente_id=body.paciente_id,
+        patient_id=body.patient_id,
         slot_id=body.slot_id,
-        usuario=actor,
+        user=actor,
         idempotency_key=body.idempotency_key,
-        especialidad_esperada=body.especialidad_esperada,
+        expected_specialty=body.expected_specialty,
     )
     return BookResponse(
-        cita=AppointmentDetail.of(result.cita),
-        afiliacion=AfiliacionResponse.of(result.cita.paciente_id, result.afiliacion),
-        alerta_cartera=result.alerta_cartera,
-        reutilizada=result.reutilizada,
+        appointment=AppointmentDetail.of(result.appointment),
+        afiliacion=AfiliacionResponse.of(result.appointment.patient_id, result.afiliacion),
+        cartera_alert=result.cartera_alert,
+        reused=result.reused,
     )
 
 
 @app.post(
-    "/citas/{cita_id}/confirmar",
-    tags=["escritura"],
+    "/appointments/{appointment_id}/confirm",
+    tags=["write"],
     response_model=TransitionResponse,
     responses=RESPUESTAS_ERROR,
 )
-def confirm_route(session: SesionDep, actor: ActorDep, cita_id: int) -> TransitionResponse:
-    return _to_response(services.confirm_appointment(session, cita_id, usuario=actor))
+def confirm_route(session: SesionDep, actor: ActorDep, appointment_id: int) -> TransitionResponse:
+    return _to_response(services.confirm_appointment(session, appointment_id, user=actor))
 
 
 @app.post(
-    "/citas/{cita_id}/cancelar",
-    tags=["escritura"],
+    "/appointments/{appointment_id}/cancel",
+    tags=["write"],
     response_model=TransitionResponse,
     responses=RESPUESTAS_ERROR,
 )
 def cancel_route(
-    session: SesionDep, actor: ActorDep, cita_id: int, body: CancelRequest
+    session: SesionDep, actor: ActorDep, appointment_id: int, body: CancelRequest
 ) -> TransitionResponse:
     return _to_response(
-        services.cancel_appointment(session, cita_id, motivo=body.motivo, usuario=actor)
+        services.cancel_appointment(session, appointment_id, reason=body.reason, user=actor)
     )
 
 
 @app.post(
-    "/citas/{cita_id}/reprogramar",
-    tags=["escritura"],
+    "/appointments/{appointment_id}/reschedule",
+    tags=["write"],
     response_model=TransitionResponse,
     responses=RESPUESTAS_ERROR,
 )
 def reschedule_route(
-    session: SesionDep, actor: ActorDep, cita_id: int, body: RescheduleRequest
+    session: SesionDep, actor: ActorDep, appointment_id: int, body: RescheduleRequest
 ) -> TransitionResponse:
     return _to_response(
         services.reschedule_appointment(
-            session, cita_id, body.nuevo_slot_id, usuario=actor, motivo=body.motivo
+            session, appointment_id, body.new_slot_id, user=actor, reason=body.reason
         )
     )
 
 
 @app.post(
-    "/citas/{cita_id}/asistencia",
-    tags=["escritura"],
+    "/appointments/{appointment_id}/attendance",
+    tags=["write"],
     response_model=TransitionResponse,
     responses=RESPUESTAS_ERROR,
 )
 def attendance_route(
-    session: SesionDep, actor: ActorDep, cita_id: int, body: AttendanceRequest
+    session: SesionDep, actor: ActorDep, appointment_id: int, body: AttendanceRequest
 ) -> TransitionResponse:
-    return _to_response(services.record_attendance(session, cita_id, body.estado, usuario=actor))
+    return _to_response(
+        services.record_attendance(session, appointment_id, body.status, user=actor)
+    )
 
 
 @app.post(
-    "/lista-espera/ofrecer",
-    tags=["escritura"],
+    "/waiting-list/offer",
+    tags=["write"],
     response_model=SlotOfferResponse,
     responses=RESPUESTAS_ERROR,
 )
 def offer_slot_route(
     session: SesionDep, actor: ActorDep, body: OfferSlotRequest
 ) -> SlotOfferResponse:
-    oferta = services.offer_slot_to_waiting_list(session, body.slot_id, usuario=actor)
-    inicio = f"{to_clinic_time(oferta.slot.inicio):%Y-%m-%d %H:%M}"
+    oferta = services.offer_slot_to_waiting_list(session, body.slot_id, user=actor)
+    start = f"{to_clinic_time(oferta.slot.start):%Y-%m-%d %H:%M}"
     return SlotOfferResponse(
-        entrada_id=oferta.entry.id,
-        paciente_id=oferta.paciente.id,
-        paciente=oferta.paciente.nombre,
-        telefono=oferta.paciente.telefono,
-        especialidad=oferta.entry.especialidad,
-        prioridad=oferta.entry.prioridad,
-        posicion_original=oferta.posicion_original,
+        entry_id=oferta.entry.id,
+        patient_id=oferta.patient.id,
+        patient=oferta.patient.name,
+        phone=oferta.patient.phone,
+        specialty=oferta.entry.specialty,
+        priority=oferta.entry.priority,
+        original_position=oferta.original_position,
         slot_id=oferta.slot.id,
-        inicio_local=inicio,
-        mensaje=(
-            f"Contact {oferta.paciente.nombre} ({oferta.paciente.telefono}) to offer "
-            f"them the {inicio} slot. They were number {oferta.posicion_original} on "
-            f"the {oferta.entry.especialidad} list."
+        start_local=start,
+        message=(
+            f"Contact {oferta.patient.name} ({oferta.patient.phone}) to offer "
+            f"them the {start} slot. They were number {oferta.original_position} on "
+            f"the {oferta.entry.specialty} list."
         ),
     )
 
 
 @app.post(
-    "/lista-espera",
-    tags=["escritura"],
+    "/waiting-list",
+    tags=["write"],
     response_model=WaitingEntrySummary,
     responses=RESPUESTAS_ERROR,
 )
@@ -561,25 +563,25 @@ def join_waiting_list_route(
 ) -> WaitingEntrySummary:
     entry = services.join_waiting_list(
         session,
-        paciente_id=body.paciente_id,
-        especialidad=body.especialidad,
-        prioridad=body.prioridad,
-        notas=body.notas,
+        patient_id=body.patient_id,
+        specialty=body.specialty,
+        priority=body.priority,
+        notes=body.notes,
     )
     session.flush()
     return WaitingEntrySummary.of(entry)
 
 
 @app.post(
-    "/citas/{cita_id}/motivo",
-    tags=["clínico"],
+    "/appointments/{appointment_id}/reason",
+    tags=["clinical"],
     response_model=AppointmentDetail,
     responses=RESPUESTAS_ERROR,
 )
 def record_reason_route(
-    session: SesionDep, actor: ActorDep, cita_id: int, body: VisitReasonRequest
+    session: SesionDep, actor: ActorDep, appointment_id: int, body: VisitReasonRequest
 ) -> AppointmentDetail:
     """Clinical data (Res. 2654/2019). Refused without recorded consent."""
     return AppointmentDetail.of(
-        services.record_visit_reason(session, cita_id, body.motivo, usuario=actor)
+        services.record_visit_reason(session, appointment_id, body.reason, user=actor)
     )

@@ -26,15 +26,15 @@ import structlog
 #: consultation, clinical data under Res. 2654/2019; the rest are identifiers.
 #: The fact of the call is auditable, the content is not copied.
 REDACTED_FIELDS: frozenset[str] = frozenset(
-    {"motivo", "telefono", "email", "documento", "nombre", "token_confirmacion"}
+    {"reason", "phone", "email", "document_number", "name", "confirmation_token"}
 )
 
 REDACTED = "«redacted»"
 
 
-def configure_logging(nivel: str = "INFO") -> None:
+def configure_logging(level: str = "INFO") -> None:
     """JSON logs, one event per line, with an ISO timestamp."""
-    logging.basicConfig(format="%(message)s", level=getattr(logging, nivel.upper(), logging.INFO))
+    logging.basicConfig(format="%(message)s", level=getattr(logging, level.upper(), logging.INFO))
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -43,7 +43,7 @@ def configure_logging(nivel: str = "INFO") -> None:
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, nivel.upper(), logging.INFO)
+            getattr(logging, level.upper(), logging.INFO)
         ),
         cache_logger_on_first_use=True,
     )
@@ -103,10 +103,13 @@ class Auditor:
     def question_answered(self, action: str, *, subject: str, nonce: str) -> None:
         self._record("approval.confirmed", {"action": action, "subject": subject, "nonce": nonce})
 
-    def clinical_access(self, *, subject: str, cita_id: int, result: str) -> None:
+    def clinical_access(self, *, subject: str, appointment_id: int, result: str) -> None:
         """Clinical access gets its own event type.
 
         Res. 2654/2019 asks who touched clinical data; burying that inside the
         generic invocation stream makes it unanswerable at audit time.
         """
-        self._record("clinical.access", {"subject": subject, "cita_id": cita_id, "result": result})
+        self._record(
+            "clinical.access",
+            {"subject": subject, "appointment_id": appointment_id, "result": result},
+        )

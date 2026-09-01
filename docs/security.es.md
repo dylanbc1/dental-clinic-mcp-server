@@ -161,7 +161,7 @@ spec 2026-07-28 lo expresa sin conexión persistente, con Multi Round-Trip
 Requests:
 
 ```
-cliente ──tools/call cancel_appointment {cita_id: 412, motivo: "…"}──▶
+cliente ──tools/call cancel_appointment {appointment_id: 412, reason: "…"}──▶
         ◀── input_required
             inputRequests: "Cancelar la cita 412 de Ana Gómez del 3 sep 09:00.
                             Esto va a pasar: … ¿Confirmas?"
@@ -215,10 +215,10 @@ implementa: un **siguiente paso accionable**.
 ```json
 {
   "error": true,
-  "codigo": "SLOT_NO_DISPONIBLE",
-  "mensaje": "El cupo del 2026-09-03 09:00 ya no está libre.",
-  "sugerencia": "Los cupos libres más cercanos son: 2026-09-03 09:30 (Dra. Ospina), 2026-09-03 11:00 (Dr. Cadena).",
-  "detalles": { "slot_id": 88, "alternativas": [{ "slot_id": 91 }, { "slot_id": 96 }] }
+  "code": "SLOT_UNAVAILABLE",
+  "message": "El cupo del 2026-09-03 09:00 ya no está libre.",
+  "suggestion": "Los cupos libres más cercanos son: 2026-09-03 09:30 (Dra. Ospina), 2026-09-03 11:00 (Dr. Cadena).",
+  "details": { "slot_id": 88, "alternativas": [{ "slot_id": 91 }, { "slot_id": 96 }] }
 }
 ```
 
@@ -243,8 +243,8 @@ propio turno. Verificado por pruebas:
 
 **Dos registros separados**, y confundirlos es un error común:
 
-- **Los cambios de estado** viven en `cita_historial`, append-only (no tiene
-  columna `actualizada_en`, por diseño) y escrito en la misma transacción que el
+- **Los cambios de estado** viven en `appointment_history`, append-only (no tiene
+  columna `updated_at`, por diseño) y escrito en la misma transacción que el
   cambio. Un hueco de auditoría no puede ocurrir. Es el registro que pediría un
   ente regulador.
 - **Las invocaciones de herramientas** viven en el log JSON estructurado: quién
@@ -285,8 +285,8 @@ Dos controles están en el esquema y no en el código de aplicación, porque una
 validación en aplicación es una por la que un segundo proceso pasa de largo:
 
 ```sql
-CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('scheduled','confirmed','waiting','attended');
+CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
+  WHERE status IN ('scheduled','confirmed','waiting','attended');
 ```
 
 - **La doble reserva es imposible.** Dos agentes leen «cupo libre» antes de que
@@ -306,7 +306,7 @@ CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
 | **S**uplantación | Canjear la aprobación de otro | `requestState` sellado y atado al principal autenticado | Compromiso del anillo ⇒ rotar `REQUEST_STATE_KEYS`; los estados viven 5 minutos |
 | **T**ampering | Editar los argumentos de una operación aprobada | AES-256-GCM sobre todo el estado, atado a la petición | Ninguno conocido |
 | **T**ampering | Doble reserva por carrera | Índice único parcial + bloqueo optimista | Ninguno a nivel de base de datos |
-| **R**epudio | «Yo nunca cancelé esa cita» | `cita_historial` append-only, actor del token, misma transacción | El backend confía en el header `X-Actor`, aceptable porque no es alcanzable desde fuera de la red de compose; un despliegue público exige mTLS o un header firmado |
+| **R**epudio | «Yo nunca cancelé esa cita» | `appointment_history` append-only, actor del token, misma transacción | El backend confía en el header `X-Actor`, aceptable porque no es alcanzable desde fuera de la red de compose; un despliegue público exige mTLS o un header firmado |
 | **I**nformación | Dato clínico llegando a quien no debe | Scope `clinical` + consentimiento + nunca lo devuelven las tools de lectura | Quien legítimamente tiene `clinical` ve el dato, para eso es |
 | **I**nformación | Fuga de datos del paciente por logs | Redacción de campos clínicos e identificadores | El propio pipeline de logs debe estar protegido |
 | **I**nformación | Stack traces o fragmentos SQL en errores | Envoltura opaca única para fallos inesperados | Ninguno conocido |
@@ -327,7 +327,7 @@ Son fronteras deliberadas de un proyecto de portafolio, no descuidos:
 2. **El rate limiter está en proceso.** Correcto para una réplica; con más de
    una el límite efectivo se multiplica y va a Redis. La interfaz es lo bastante
    estrecha para intercambiarla sin tocar una herramienta. Las aprobaciones
-   pendientes ya no tienen este problema: viajan selladas en el `requestState`
+   pendientes ya no tienen este problem: viajan selladas en el `requestState`
    del cliente, así que no hay nada que compartir entre réplicas.
 3. **El backend confía en `X-Actor`.** No es alcanzable desde fuera de la red de
    compose y el MCP server es su único cliente. Un despliegue público necesita

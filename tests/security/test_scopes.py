@@ -43,32 +43,32 @@ SCOPE_REQUERIDO: dict[str, Scope] = {
 #: exist, which is deliberate: the scope check must happen before any lookup, so
 #: a denial cannot depend on the data, and cannot leak whether it exists.
 ARGUMENTOS: dict[str, dict[str, Any]] = {
-    "search_patients": {"documento": "11111111"},
+    "search_patients": {"document_number": "11111111"},
     "check_availability": {},
-    "get_appointment": {"cita_id": 424242},
-    "list_patient_appointments": {"paciente_id": 424242},
-    "check_cartera": {"paciente_id": 424242},
-    "validate_afiliacion": {"paciente_id": 424242},
-    "book_appointment": {"paciente_id": 424242, "slot_id": 424242},
-    "confirm_appointment": {"cita_id": 424242},
-    "cancel_appointment": {"cita_id": 424242, "motivo": "motivo de prueba"},
-    "reschedule_appointment": {"cita_id": 424242, "nuevo_slot_id": 424243},
-    "record_attendance": {"cita_id": 424242, "estado": "attended"},
+    "get_appointment": {"appointment_id": 424242},
+    "list_patient_appointments": {"patient_id": 424242},
+    "check_cartera": {"patient_id": 424242},
+    "validate_afiliacion": {"patient_id": 424242},
+    "book_appointment": {"patient_id": 424242, "slot_id": 424242},
+    "confirm_appointment": {"appointment_id": 424242},
+    "cancel_appointment": {"appointment_id": 424242, "reason": "motivo de prueba"},
+    "reschedule_appointment": {"appointment_id": 424242, "new_slot_id": 424243},
+    "record_attendance": {"appointment_id": 424242, "status": "attended"},
     "offer_slot_to_waiting_list": {"slot_id": 424242},
-    "record_visit_reason": {"cita_id": 424242, "motivo": "dolor de muela"},
+    "record_visit_reason": {"appointment_id": 424242, "reason": "dolor de muela"},
 }
 
 MATRIZ = list(itertools.product(sorted(SCOPE_REQUERIDO), list(Scope)))
 
 
-async def error_from(mcp: MCPTestClient, nombre: str, arguments: dict[str, Any]) -> str:
+async def error_from(mcp: MCPTestClient, name: str, arguments: dict[str, Any]) -> str:
     """Call over the wire and return the error text, or "" if it got through.
 
     A write tool that gets through pauses for a human rather than mutating, so
     "got through" here means it reached the point of asking.
     """
     try:
-        result = await mcp._rpc("tools/call", {"name": nombre, "arguments": arguments})
+        result = await mcp._rpc("tools/call", {"name": name, "arguments": arguments})
     except ToolCallError as fallo:
         return fallo.text_of
     if result.get("isError"):
@@ -81,17 +81,17 @@ class TestMatrizDeScopes:
     async def test_cada_combinacion_de_tool_y_scope(
         self, mcp: MCPTestClient, scenario: Scenario, tool_name: str, scope: Scope
     ) -> None:
-        requerido = SCOPE_REQUERIDO[tool_name]
+        required = SCOPE_REQUERIDO[tool_name]
         with as_caller(SUBJECT, [str(scope)]):
-            mensaje = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
+            message = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
 
-        if scope is requerido:
+        if scope is required:
             # It may still fail on the data, since the ids do not exist, but
             # never on permission. That is the distinction being asserted.
-            assert "SCOPE_INSUFICIENTE" not in mensaje
+            assert "INSUFFICIENT_SCOPE" not in message
         else:
-            assert "SCOPE_INSUFICIENTE" in mensaje, (
-                f"{tool_name} aceptó un token con scope '{scope}' cuando exige '{requerido}'"
+            assert "INSUFFICIENT_SCOPE" in message, (
+                f"{tool_name} aceptó un token con scope '{scope}' cuando exige '{required}'"
             )
 
     def test_la_matriz_cubre_todas_las_combinaciones(self) -> None:
@@ -109,53 +109,53 @@ class TestLosScopesNoAnidan:
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["write"]):
-            mensaje = await error_from(mcp, "search_patients", {"documento": "11111111"})
-        assert "SCOPE_INSUFICIENTE" in mensaje
+            message = await error_from(mcp, "search_patients", {"document_number": "11111111"})
+        assert "INSUFFICIENT_SCOPE" in message
 
     async def test_clinical_no_da_acceso_de_escritura(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         """Authority to record a symptom is not authority to cancel a visit."""
         with as_caller(SUBJECT, ["clinical"]):
-            mensaje = await error_from(
-                mcp, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+            message = await error_from(
+                mcp, "cancel_appointment", {"appointment_id": 1, "reason": "prueba"}
             )
-        assert "SCOPE_INSUFICIENTE" in mensaje
+        assert "INSUFFICIENT_SCOPE" in message
 
     async def test_write_no_da_acceso_clinico(self, mcp: MCPTestClient, scenario: Scenario) -> None:
         """The SaaStr shape: a valid token with more reach than it needed."""
         with as_caller(SUBJECT, ["read", "write"]):
-            mensaje = await error_from(
-                mcp, "record_visit_reason", {"cita_id": 1, "motivo": "dolor"}
+            message = await error_from(
+                mcp, "record_visit_reason", {"appointment_id": 1, "reason": "dolor"}
             )
-        assert "SCOPE_INSUFICIENTE" in mensaje
-        assert "clinical" in mensaje
+        assert "INSUFFICIENT_SCOPE" in message
+        assert "clinical" in message
 
 
 class TestMensajeDeDenegacion:
     async def test_dice_que_falta_y_que_hacer(self, mcp: MCPTestClient, scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(
-                mcp, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+            message = await error_from(
+                mcp, "cancel_appointment", {"appointment_id": 1, "reason": "prueba"}
             )
-        assert "SCOPE_INSUFICIENTE" in mensaje
-        assert "'write'" in mensaje
-        assert "Action required" in mensaje
+        assert "INSUFFICIENT_SCOPE" in message
+        assert "'write'" in message
+        assert "Action required" in message
         # It must tell the model not to loop: retrying with the same token is
         # the single most common wasted-token pattern.
-        assert "do not call this tool again" in mensaje.lower()
+        assert "do not call this tool again" in message.lower()
 
     async def test_no_revela_datos_del_paciente_al_denegar(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         """Denial happens before any lookup, so nothing about the record leaks."""
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(
+            message = await error_from(
                 mcp,
                 "record_visit_reason",
-                {"cita_id": 1, "motivo": "dolor severo en molar"},
+                {"appointment_id": 1, "reason": "dolor severo en molar"},
             )
-        assert "dolor severo" not in mensaje
+        assert "dolor severo" not in message
 
 
 class TestSinToken:
@@ -164,16 +164,16 @@ class TestSinToken:
     ) -> None:
         """No token means no identity. Never a permissive default."""
         for tool_name in SCOPE_REQUERIDO:
-            mensaje = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
-            assert "NO_AUTENTICADO" in mensaje, f"{tool_name} respondió sin token"
+            message = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
+            assert "NOT_AUTHENTICATED" in message, f"{tool_name} respondió sin token"
 
     async def test_un_token_sin_scopes_no_abre_nada(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, []):
             for tool_name in SCOPE_REQUERIDO:
-                mensaje = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
-                assert "SCOPE_INSUFICIENTE" in mensaje
+                message = await error_from(mcp, tool_name, ARGUMENTOS[tool_name])
+                assert "INSUFFICIENT_SCOPE" in message
 
 
 class TestElScopeSeRevisaEnAmbasRondas:
@@ -188,14 +188,14 @@ class TestElScopeSeRevisaEnAmbasRondas:
     async def test_un_token_que_pierde_clinical_no_ejecuta(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
-        cita = book_appointment(
+        appointment = book_appointment(
             backend_session,
-            paciente_id=scenario.ana_id,
+            patient_id=scenario.ana_id,
             slot_id=scenario.slots_general[0],
-            usuario="setup",
-        ).cita
+            user="setup",
+        ).appointment
         backend_session.commit()
-        args = {"cita_id": cita.id, "motivo": "dolor"}
+        args = {"appointment_id": appointment.id, "reason": "dolor"}
 
         with as_caller(SUBJECT, ["read", "write", "clinical"]):
             question = await mcp.ask("record_visit_reason", args)
@@ -203,26 +203,26 @@ class TestElScopeSeRevisaEnAmbasRondas:
         # Same subject and a perfectly valid approval, but `clinical` is gone.
         with as_caller(SUBJECT, ["read", "write"]), pytest.raises(ToolCallError) as exc:
             await mcp.respond("record_visit_reason", args, question)
-        assert "SCOPE_INSUFICIENTE" in exc.value.text_of
+        assert "INSUFFICIENT_SCOPE" in exc.value.text_of
         assert "clinical" in exc.value.text_of
 
     async def test_un_token_que_pierde_write_no_ejecuta(
         self, mcp: MCPTestClient, scenario: Scenario, backend_session: Session
     ) -> None:
-        cita = book_appointment(
+        appointment = book_appointment(
             backend_session,
-            paciente_id=scenario.ana_id,
+            patient_id=scenario.ana_id,
             slot_id=scenario.slots_general[0],
-            usuario="setup",
-        ).cita
+            user="setup",
+        ).appointment
         backend_session.commit()
 
         with as_caller(SUBJECT, ["read", "write"]):
-            question = await mcp.ask("confirm_appointment", {"cita_id": cita.id})
+            question = await mcp.ask("confirm_appointment", {"appointment_id": appointment.id})
 
         with as_caller(SUBJECT, ["read"]), pytest.raises(ToolCallError) as exc:
-            await mcp.respond("confirm_appointment", {"cita_id": cita.id}, question)
-        assert "SCOPE_INSUFICIENTE" in exc.value.text_of
+            await mcp.respond("confirm_appointment", {"appointment_id": appointment.id}, question)
+        assert "INSUFFICIENT_SCOPE" in exc.value.text_of
 
 
 class TestElOrdenDeLosChequeos:
@@ -237,20 +237,22 @@ class TestElOrdenDeLosChequeos:
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(
-                mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+            message = await error_from(
+                mcp_without_elicitation,
+                "cancel_appointment",
+                {"appointment_id": 1, "reason": "prueba"},
             )
-        assert "SCOPE_INSUFICIENTE" in mensaje
-        assert "CLIENTE_SIN_CONFIRMACION" not in mensaje
+        assert "INSUFFICIENT_SCOPE" in message
+        assert "CLIENT_CANNOT_CONFIRM" not in message
 
     async def test_sin_token_gana_el_error_de_autenticacion(
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
-        mensaje = await error_from(
-            mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+        message = await error_from(
+            mcp_without_elicitation, "cancel_appointment", {"appointment_id": 1, "reason": "prueba"}
         )
-        assert "NO_AUTENTICADO" in mensaje
-        assert "CLIENTE_SIN_CONFIRMACION" not in mensaje
+        assert "NOT_AUTHENTICATED" in message
+        assert "CLIENT_CANNOT_CONFIRM" not in message
 
     async def test_la_denegacion_por_scope_se_audita_aunque_el_cliente_no_confirme(
         self, mcp_without_elicitation: MCPTestClient, ctx: Any, scenario: Scenario
@@ -258,17 +260,21 @@ class TestElOrdenDeLosChequeos:
         """Checking the capability first would have skipped the audit entirely."""
         with as_caller(SUBJECT, ["read"]):
             await error_from(
-                mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+                mcp_without_elicitation,
+                "cancel_appointment",
+                {"appointment_id": 1, "reason": "prueba"},
             )
         evento = ctx.auditor.events[-1]
         assert evento["result"] == "error"
-        assert evento["error_code"] == "SCOPE_INSUFICIENTE"
+        assert evento["error_code"] == "INSUFFICIENT_SCOPE"
 
     async def test_con_scope_correcto_si_avisa_del_cliente(
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read", "write"]):
-            mensaje = await error_from(
-                mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+            message = await error_from(
+                mcp_without_elicitation,
+                "cancel_appointment",
+                {"appointment_id": 1, "reason": "prueba"},
             )
-        assert "CLIENTE_SIN_CONFIRMACION" in mensaje
+        assert "CLIENT_CANNOT_CONFIRM" in message

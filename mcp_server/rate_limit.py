@@ -34,19 +34,19 @@ class SlidingWindow:
     and again at the start of the next: twice the intended rate at the seam.
     """
 
-    limite: int
+    limit: int
     ventana: float
     marcas: dict[str, deque[float]] = field(default_factory=dict)
 
     def allow(self, key: str, *, now: float) -> tuple[bool, float]:
-        cola = self.marcas.setdefault(key, deque())
+        queue = self.marcas.setdefault(key, deque())
         limite_inferior = now - self.ventana
-        while cola and cola[0] < limite_inferior:
-            cola.popleft()
-        if len(cola) >= self.limite:
-            espera = max(0.0, cola[0] + self.ventana - now)
+        while queue and queue[0] < limite_inferior:
+            queue.popleft()
+        if len(queue) >= self.limit:
+            espera = max(0.0, queue[0] + self.ventana - now)
             return False, espera
-        cola.append(now)
+        queue.append(now)
         return True, 0.0
 
     def forget(self, key: str) -> None:
@@ -60,17 +60,17 @@ class RequestLimiter:
         self,
         app: ASGIApp,
         *,
-        limite: int = 120,
+        limit: int = 120,
         ventana_segundos: float = 60.0,
         reloj: object | None = None,
     ) -> None:
         self.app = app
-        self.ventana = SlidingWindow(limite=limite, ventana=ventana_segundos)
+        self.ventana = SlidingWindow(limit=limit, ventana=ventana_segundos)
         self._reloj = reloj or time.monotonic
 
     def _key(self, scope: Scope) -> str:
-        usuario = scope.get("user")
-        subject = getattr(getattr(usuario, "access_token", None), "subject", None)
+        user = scope.get("user")
+        subject = getattr(getattr(user, "access_token", None), "subject", None)
         if subject:
             return f"sub:{subject}"
         client = scope.get("client")
@@ -82,8 +82,8 @@ class RequestLimiter:
             return
 
         now = float(self._reloj())  # type: ignore[operator]
-        permitido, espera = self.ventana.allow(self._key(scope), now=now)
-        if permitido:
+        allowed, espera = self.ventana.allow(self._key(scope), now=now)
+        if allowed:
             await self.app(scope, receive, send)
             return
 
@@ -91,12 +91,12 @@ class RequestLimiter:
         body = json.dumps(
             {
                 "error": True,
-                "codigo": str(ErrorCode.RATE_LIMIT_EXCEDIDO),
-                "mensaje": (
-                    f"Demasiadas peticiones: el límite es {self.ventana.limite} por "
+                "code": str(ErrorCode.RATE_LIMIT_EXCEEDED),
+                "message": (
+                    f"Demasiadas peticiones: el límite es {self.ventana.limit} por "
                     f"{int(self.ventana.ventana)} segundos."
                 ),
-                "sugerencia": (
+                "suggestion": (
                     f"Espera {segundos} segundos antes de reintentar. Si estás en un bucle "
                     "de reintentos, revisa el último error en vez de repetir la llamada."
                 ),
@@ -104,14 +104,14 @@ class RequestLimiter:
             ensure_ascii=False,
         ).encode()
 
-        inicio: Message = {
+        start: Message = {
             "type": "http.response.start",
             "status": 429,
             "headers": [
                 (b"content-type", b"application/json"),
                 (b"retry-after", str(segundos).encode()),
-                (b"x-ratelimit-limit", str(self.ventana.limite).encode()),
+                (b"x-ratelimit-limit", str(self.ventana.limit).encode()),
             ],
         }
-        await send(inicio)
+        await send(start)
         await send({"type": "http.response.body", "body": body})

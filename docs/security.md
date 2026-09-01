@@ -159,7 +159,7 @@ Every write and clinical tool pauses for a person. The 2026-07-28 spec expresses
 that without a persistent connection, through Multi Round-Trip Requests:
 
 ```
-client ──tools/call cancel_appointment {cita_id: 412, motivo: "…"}──▶
+client ──tools/call cancel_appointment {appointment_id: 412, reason: "…"}──▶
        ◀── input_required
            inputRequests: "Cancelar la cita 412 de Ana Gómez del 3 sep 09:00.
                            Esto va a pasar: … ¿Confirmas?"
@@ -211,10 +211,10 @@ nobody implements: an **actionable** next step.
 ```json
 {
   "error": true,
-  "codigo": "SLOT_NO_DISPONIBLE",
-  "mensaje": "El cupo del 2026-09-03 09:00 ya no está libre.",
-  "sugerencia": "Los cupos libres más cercanos son: 2026-09-03 09:30 (Dra. Ospina), 2026-09-03 11:00 (Dr. Cadena).",
-  "detalles": { "slot_id": 88, "alternativas": [{ "slot_id": 91 }, { "slot_id": 96 }] }
+  "code": "SLOT_UNAVAILABLE",
+  "message": "El cupo del 2026-09-03 09:00 ya no está libre.",
+  "suggestion": "Los cupos libres más cercanos son: 2026-09-03 09:30 (Dra. Ospina), 2026-09-03 11:00 (Dr. Cadena).",
+  "details": { "slot_id": 88, "alternativas": [{ "slot_id": 91 }, { "slot_id": 96 }] }
 }
 ```
 
@@ -237,8 +237,8 @@ its own turn. Enforced by tests:
 
 **Two separate records**, and conflating them is a common mistake:
 
-- **State changes** live in `cita_historial`, append-only (it has no
-  `actualizada_en` column, by design) and written inside the same transaction as
+- **State changes** live in `appointment_history`, append-only (it has no
+  `updated_at` column, by design) and written inside the same transaction as
   the change. An audit gap cannot occur. This is the record a regulator asks for.
 - **Tool invocations** live in the structured JSON log: who called what, with
   which scope, whether it was approved, whether it succeeded, including the
@@ -277,8 +277,8 @@ Two controls sit in the schema rather than in application code, because an
 application check is one a second process walks straight past:
 
 ```sql
-CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('scheduled','confirmed','waiting','attended');
+CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
+  WHERE status IN ('scheduled','confirmed','waiting','attended');
 ```
 
 - **Double-booking is impossible.** Two agents both read "slot free" before
@@ -297,7 +297,7 @@ CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
 | **S**poofing | Redeeming another user's approval | `requestState` sealed and bound to the authenticated principal | Key-ring compromise ⇒ rotate `REQUEST_STATE_KEYS`; states live 5 minutes |
 | **T**ampering | Editing the arguments of an approved operation | AES-256-GCM over the whole state, bound to the request | None known |
 | **T**ampering | Double-booking through a race | Partial unique index + optimistic locking | None at the database level |
-| **R**epudiation | "I never cancelled that appointment" | `cita_historial` append-only, actor from the token, same transaction | The backend trusts the `X-Actor` header, acceptable because it is not reachable from outside the compose network; a public deployment must put mTLS or a signed header there |
+| **R**epudiation | "I never cancelled that appointment" | `appointment_history` append-only, actor from the token, same transaction | The backend trusts the `X-Actor` header, acceptable because it is not reachable from outside the compose network; a public deployment must put mTLS or a signed header there |
 | **I**nformation disclosure | Clinical data reaching an unauthorised caller | `clinical` scope + recorded consent + never returned by read tools | A caller legitimately holding `clinical` sees the data, that is the point |
 | **I**nformation disclosure | Patient data leaking through logs | Redaction of clinical and identifying fields | Log pipeline itself must be protected |
 | **I**nformation disclosure | Stack traces or SQL fragments in errors | Single opaque envelope for unexpected failures | None known |

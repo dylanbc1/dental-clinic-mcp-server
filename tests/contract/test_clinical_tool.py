@@ -21,61 +21,60 @@ CLINICO = ["read", "write", "clinical"]
 @pytest.fixture
 def appointment_with_consent(backend_session: Session, scenario: Scenario) -> int:
     """Ana has consent on file."""
-    cita = book_appointment(
+    appointment = book_appointment(
         backend_session,
-        paciente_id=scenario.ana_id,
+        patient_id=scenario.ana_id,
         slot_id=scenario.slots_general[0],
-        usuario="setup",
-    ).cita
+        user="setup",
+    ).appointment
     backend_session.commit()
-    return cita.id
+    return appointment.id
 
 
 @pytest.fixture
 def appointment_without_consent(backend_session: Session, scenario: Scenario) -> int:
     """Carla does not."""
-    cita = book_appointment(
+    appointment = book_appointment(
         backend_session,
-        paciente_id=scenario.carla_id,
+        patient_id=scenario.carla_id,
         slot_id=scenario.slots_general[1],
-        usuario="setup",
-    ).cita
+        user="setup",
+    ).appointment
     backend_session.commit()
-    return cita.id
+    return appointment.id
 
 
 class TestConConsentimiento:
     async def test_el_ciclo_completo_registra_el_motivo(
         self, mcp: MCPTestClient, backend_session: Session, appointment_with_consent: int
     ) -> None:
-        args = {"cita_id": appointment_with_consent, "motivo": "Dolor en molar inferior"}
+        args = {"appointment_id": appointment_with_consent, "reason": "Dolor en molar inferior"}
         with as_caller(SUBJECT, CLINICO):
             result = await mcp.aprobar("record_visit_reason", args)
 
-        assert result["motivo"] == "Dolor en molar inferior"
+        assert result["reason"] == "Dolor en molar inferior"
         backend_session.expire_all()
         assert (
-            get_appointment(backend_session, appointment_with_consent).motivo_registrado_por
-            == SUBJECT
+            get_appointment(backend_session, appointment_with_consent).reason_recorded_by == SUBJECT
         )
 
     async def test_la_pregunta_advierte_de_la_regulacion(
         self, mcp: MCPTestClient, appointment_with_consent: int
     ) -> None:
-        args = {"cita_id": appointment_with_consent, "motivo": "Dolor"}
+        args = {"appointment_id": appointment_with_consent, "reason": "Dolor"}
         with as_caller(SUBJECT, CLINICO):
-            mensaje = mcp.question_text(await mcp.ask("record_visit_reason", args))
-        assert "2654" in mensaje
-        assert "1581" in mensaje
+            message = mcp.question_text(await mcp.ask("record_visit_reason", args))
+        assert "2654" in message
+        assert "1581" in message
 
     async def test_preguntar_no_escribe_nada_todavia(
         self, mcp: MCPTestClient, backend_session: Session, appointment_with_consent: int
     ) -> None:
-        args = {"cita_id": appointment_with_consent, "motivo": "Dolor agudo"}
+        args = {"appointment_id": appointment_with_consent, "reason": "Dolor agudo"}
         with as_caller(SUBJECT, CLINICO):
             await mcp.ask("record_visit_reason", args)
         backend_session.expire_all()
-        assert get_appointment(backend_session, appointment_with_consent).motivo is None
+        assert get_appointment(backend_session, appointment_with_consent).reason is None
 
 
 class TestSinConsentimiento:
@@ -84,21 +83,21 @@ class TestSinConsentimiento:
     ) -> None:
         """Every gate open except the patient's own authorisation, and that is
         the one that must still stop it."""
-        args = {"cita_id": appointment_without_consent, "motivo": "Dolor"}
+        args = {"appointment_id": appointment_without_consent, "reason": "Dolor"}
         with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError) as exc:
             await mcp.aprobar("record_visit_reason", args)
-        assert "CONSENTIMIENTO_REQUERIDO" in exc.value.text_of
+        assert "CONSENT_REQUIRED" in exc.value.text_of
         assert "2654" in exc.value.text_of
         assert "Action required" in exc.value.text_of
 
     async def test_el_rechazo_no_deja_el_motivo_escrito(
         self, mcp: MCPTestClient, backend_session: Session, appointment_without_consent: int
     ) -> None:
-        args = {"cita_id": appointment_without_consent, "motivo": "Dolor severo"}
+        args = {"appointment_id": appointment_without_consent, "reason": "Dolor severo"}
         with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError):
             await mcp.aprobar("record_visit_reason", args)
         backend_session.expire_all()
-        assert get_appointment(backend_session, appointment_without_consent).motivo is None
+        assert get_appointment(backend_session, appointment_without_consent).reason is None
 
 
 class TestAuditoriaClinica:
@@ -107,23 +106,23 @@ class TestAuditoriaClinica:
     ) -> None:
         """Res. 2654 asks who touched clinical data. Burying that in the generic
         invocation stream makes it unanswerable at audit time."""
-        args = {"cita_id": appointment_with_consent, "motivo": "Control"}
+        args = {"appointment_id": appointment_with_consent, "reason": "Control"}
         with as_caller("odontologa@clinica.test", CLINICO):
             await mcp.aprobar("record_visit_reason", args)
 
         clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
-        assert clinicos[-1]["result"] == "registrado"
+        assert clinicos[-1]["result"] == "recorded"
         assert all(e["subject"] == "odontologa@clinica.test" for e in clinicos)
-        assert all(e["cita_id"] == appointment_with_consent for e in clinicos)
+        assert all(e["appointment_id"] == appointment_with_consent for e in clinicos)
 
     async def test_un_rechazo_tambien_queda_auditado(
         self, mcp: MCPTestClient, ctx: Any, appointment_without_consent: int
     ) -> None:
-        args = {"cita_id": appointment_without_consent, "motivo": "Dolor"}
+        args = {"appointment_id": appointment_without_consent, "reason": "Dolor"}
         with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError):
             await mcp.aprobar("record_visit_reason", args)
         clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
-        assert clinicos[-1]["result"] == "rechazado:CONSENTIMIENTO_REQUERIDO"
+        assert clinicos[-1]["result"] == "refused:CONSENT_REQUIRED"
 
     async def test_el_motivo_no_se_copia_al_log(
         self, mcp: MCPTestClient, ctx: Any, appointment_with_consent: int
@@ -134,11 +133,11 @@ class TestAuditoriaClinica:
         with as_caller(SUBJECT, CLINICO):
             await mcp.aprobar(
                 "record_visit_reason",
-                {"cita_id": appointment_with_consent, "motivo": secreto},
+                {"appointment_id": appointment_with_consent, "reason": secreto},
             )
         assert secreto not in str(ctx.auditor.events)
         assert any(
-            e.get("arguments", {}).get("motivo") == "«redacted»"
+            e.get("arguments", {}).get("reason") == "«redacted»"
             for e in ctx.auditor.events
             if e["event"] == "tool.invocation"
         )
@@ -151,11 +150,11 @@ class TestAuditoriaClinica:
         through the client would put clinical data in one more place."""
         secreto = "absceso periapical según el paciente"
         with as_caller(SUBJECT, CLINICO):
-            mensaje = mcp.question_text(
+            message = mcp.question_text(
                 await mcp.ask(
                     "record_visit_reason",
-                    {"cita_id": appointment_with_consent, "motivo": secreto},
+                    {"appointment_id": appointment_with_consent, "reason": secreto},
                 )
             )
-        assert secreto not in mensaje
-        assert "motivo de consulta" in mensaje
+        assert secreto not in message
+        assert "motivo de consulta" in message

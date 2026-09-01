@@ -5,7 +5,7 @@
 > **A real limitation, first.** The Inspector does not speak the 2026-07-28 spec
 > yet: its JavaScript SDK trails the Python one, so it negotiates an older
 > version and **cannot answer an `input_required`**. Read tools work perfectly;
-> write tools return `CLIENTE_SIN_CONFIRMACION` saying exactly that.
+> write tools return `CLIENT_CANNOT_CONFIRM` saying exactly that.
 >
 > For the write tools use `make consola`, an interactive client where you answer
 > the confirmations yourself. Steps 4 and 5 below use it.
@@ -43,7 +43,7 @@ TOKEN=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN" \
   --method tools/call --tool-name cancel_appointment \
-  --tool-arg cita_id=1 --tool-arg motivo="prueba de scope"
+  --tool-arg appointment_id=1 --tool-arg reason="prueba de scope"
 ```
 
 The refusal names the missing scope, lists the ones you hold, and tells the
@@ -58,8 +58,8 @@ refused: the scopes do not nest.
 
 ```bash
 make consola
-› check_availability {"limite": 3}
-› book_appointment {"paciente_id": 20, "slot_id": SLOT_ID}
+› check_availability {"limit": 3}
+› book_appointment {"patient_id": 20, "slot_id": SLOT_ID}
 ```
 
 The console prints the question the server sent back instead of a result: the

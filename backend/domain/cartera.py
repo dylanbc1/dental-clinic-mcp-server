@@ -40,14 +40,14 @@ AGEING_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
 class CarteraPolicy:
     """Clinic-configurable collection policy."""
 
-    cobra_no_show: bool = True
-    monto_no_show: Decimal = Decimal("40000")
+    charges_no_show: bool = True
+    no_show_amount: Decimal = Decimal("40000")
     #: Days before a charge counts as in arrears.
-    dias_gracia: int = 0
+    grace_days: int = 0
     #: Debt above this amount raises a warning when scheduling. It never blocks.
-    umbral_alerta_mora: Decimal = Decimal("50000")
+    overdue_alert_threshold: Decimal = Decimal("50000")
     #: Only a patient who had *confirmed* is penalised for not showing up.
-    penaliza_solo_confirmadas: bool = True
+    penalises_only_confirmed: bool = True
 
 
 DEFAULT_POLICY = CarteraPolicy()
@@ -57,171 +57,171 @@ DEFAULT_POLICY = CarteraPolicy()
 class CalculatedCharge:
     """A charge the domain decided to create, before it is persisted."""
 
-    concepto: ChargeConcept
-    monto: Decimal
-    descripcion: str
+    concept: ChargeConcept
+    amount: Decimal
+    description: str
 
 
 @dataclass(frozen=True, slots=True)
 class PendingCharge:
     """Read model of a single outstanding charge."""
 
-    cargo_id: int
-    concepto: ChargeConcept
-    monto: Decimal
-    vencimiento: date
-    estado: ChargeState
+    charge_id: int
+    concept: ChargeConcept
+    amount: Decimal
+    due_date: date
+    status: ChargeState
 
     def days_overdue(self, hoy: date) -> int:
         """Positive when overdue, negative when it is not due yet."""
-        return (hoy - self.vencimiento).days
+        return (hoy - self.due_date).days
 
 
 @dataclass(frozen=True, slots=True)
 class CarteraSummary:
     """What `check_cartera` returns and what a collections agent acts on."""
 
-    paciente_id: int
-    estado: CarteraState
-    total_pendiente: Decimal
-    total_vencido: Decimal
-    dias_mora_maximo: int
-    cantidad_cargos: int
-    antiguedad: dict[str, Decimal] = field(default_factory=dict)
-    supera_umbral_alerta: bool = False
-    mensaje: str = ""
+    patient_id: int
+    status: CarteraState
+    pending_total: Decimal
+    overdue_total: Decimal
+    max_overdue_days: int
+    charge_count: int
+    ageing: dict[str, Decimal] = field(default_factory=dict)
+    above_alert_threshold: bool = False
+    message: str = ""
 
 
-def _round(monto: Decimal) -> Decimal:
+def _round(amount: Decimal) -> Decimal:
     """COP has no cents in practice; round to the peso."""
-    return monto.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
 def charge_for_visit(
     afiliacion: AfiliacionResult,
-    especialidad: str,
+    specialty: str,
     *,
-    nivel_cuota_moderadora: int = 1,
+    cuota_moderadora_level: int = 1,
 ) -> CalculatedCharge | None:
     """Charge produced when an appointment reaches `atendida`.
 
     ``None`` when the service is fully covered (SOAT). That is a legitimate
     outcome, not an error.
     """
-    tariff = base_tariff(especialidad)
+    tariff = base_tariff(specialty)
 
-    if afiliacion.regimen_efectivo is Regimen.SOAT:
+    if afiliacion.effective_regimen is Regimen.SOAT:
         return None
 
-    if afiliacion.regimen_efectivo is Regimen.PARTICULAR:
+    if afiliacion.effective_regimen is Regimen.PARTICULAR:
         return CalculatedCharge(
-            concepto=ChargeConcept.PARTICULAR,
-            monto=_round(tariff),
-            descripcion=f"Private tariff · {especialidad}",
+            concept=ChargeConcept.PARTICULAR,
+            amount=_round(tariff),
+            description=f"Private tariff · {specialty}",
         )
 
-    if afiliacion.regimen_efectivo is Regimen.CONTRIBUTIVO:
+    if afiliacion.effective_regimen is Regimen.CONTRIBUTIVO:
         fee = CUOTA_MODERADORA_BY_BRACKET.get(
-            nivel_cuota_moderadora, CUOTA_MODERADORA_BY_BRACKET[1]
+            cuota_moderadora_level, CUOTA_MODERADORA_BY_BRACKET[1]
         )
         return CalculatedCharge(
-            concepto=ChargeConcept.CUOTA_MODERADORA,
-            monto=_round(fee),
-            descripcion=f"Cuota moderadora · {especialidad}",
+            concept=ChargeConcept.CUOTA_MODERADORA,
+            amount=_round(fee),
+            description=f"Cuota moderadora · {specialty}",
         )
 
     # Subsidised regime: percentage copayment over the reference tariff.
     return CalculatedCharge(
-        concepto=ChargeConcept.COPAGO,
-        monto=_round(tariff * SUBSIDIADO_COPAGO_RATE),
-        descripcion=f"Copago, subsidiado régimen · {especialidad}",
+        concept=ChargeConcept.COPAGO,
+        amount=_round(tariff * SUBSIDIADO_COPAGO_RATE),
+        description=f"Copago, subsidiado régimen · {specialty}",
     )
 
 
 def charge_for_no_show(
     *,
-    estaba_confirmada: bool,
+    was_confirmed: bool,
     policy: CarteraPolicy = DEFAULT_POLICY,
 ) -> CalculatedCharge | None:
     """Penalty charge for a missed appointment, if the policy enables it."""
-    if not policy.cobra_no_show:
+    if not policy.charges_no_show:
         return None
-    if policy.penaliza_solo_confirmadas and not estaba_confirmada:
+    if policy.penalises_only_confirmed and not was_confirmed:
         return None
     return CalculatedCharge(
-        concepto=ChargeConcept.NO_SHOW,
-        monto=_round(policy.monto_no_show),
-        descripcion="No-show penalty, no prior cancellation",
+        concept=ChargeConcept.NO_SHOW,
+        amount=_round(policy.no_show_amount),
+        description="No-show penalty, no prior cancellation",
     )
 
 
 def _bucket(dias: int) -> str:
-    for nombre, desde, hasta in AGEING_BUCKETS:
-        if dias >= desde and (hasta is None or dias <= hasta):
-            return nombre
+    for name, since, until in AGEING_BUCKETS:
+        if dias >= since and (until is None or dias <= until):
+            return name
     return "corriente"
 
 
 def summarise_cartera(
-    paciente_id: int,
-    cargos: list[PendingCharge],
+    patient_id: int,
+    charges: list[PendingCharge],
     *,
     hoy: date,
     policy: CarteraPolicy = DEFAULT_POLICY,
 ) -> CarteraSummary:
     """Aggregate a patient's outstanding charges into a collections view."""
-    outstanding = [c for c in cargos if c.estado is ChargeState.PENDING]
+    outstanding = [c for c in charges if c.status is ChargeState.PENDING]
 
-    total_pendiente = _round(sum((c.monto for c in outstanding), Decimal("0")))
-    overdue = [c for c in outstanding if c.days_overdue(hoy) > policy.dias_gracia]
-    total_vencido = _round(sum((c.monto for c in overdue), Decimal("0")))
-    dias_mora_maximo = max((c.days_overdue(hoy) for c in overdue), default=0)
+    pending_total = _round(sum((c.amount for c in outstanding), Decimal("0")))
+    overdue = [c for c in outstanding if c.days_overdue(hoy) > policy.grace_days]
+    overdue_total = _round(sum((c.amount for c in overdue), Decimal("0")))
+    max_overdue_days = max((c.days_overdue(hoy) for c in overdue), default=0)
 
-    antiguedad: dict[str, Decimal] = {nombre: Decimal("0") for nombre, _, _ in AGEING_BUCKETS}
-    for cargo in outstanding:
-        antiguedad[_bucket(cargo.days_overdue(hoy))] += cargo.monto
-    antiguedad = {k: _round(v) for k, v in antiguedad.items()}
+    ageing: dict[str, Decimal] = {name: Decimal("0") for name, _, _ in AGEING_BUCKETS}
+    for charge in outstanding:
+        ageing[_bucket(charge.days_overdue(hoy))] += charge.amount
+    ageing = {k: _round(v) for k, v in ageing.items()}
 
-    estado = CarteraState.EN_MORA if overdue else CarteraState.AL_DIA
-    supera_umbral = total_vencido >= policy.umbral_alerta_mora
+    status = CarteraState.EN_MORA if overdue else CarteraState.AL_DIA
+    above_threshold = overdue_total >= policy.overdue_alert_threshold
 
-    if estado is CarteraState.AL_DIA:
-        mensaje = (
+    if status is CarteraState.AL_DIA:
+        message = (
             "Cartera up to date."
             if not outstanding
-            else f"Cartera up to date. ${total_pendiente:,.0f} COP not yet due."
+            else f"Cartera up to date. ${pending_total:,.0f} COP not yet due."
         )
     else:
-        mensaje = (
-            f"Cartera in arrears: ${total_vencido:,.0f} COP overdue, "
-            f"up to {dias_mora_maximo} days late."
+        message = (
+            f"Cartera in arrears: ${overdue_total:,.0f} COP overdue, "
+            f"up to {max_overdue_days} days late."
         )
-        if supera_umbral:
-            mensaje += " Above the clinic's alert threshold."
+        if above_threshold:
+            message += " Above the clinic's alert threshold."
 
     return CarteraSummary(
-        paciente_id=paciente_id,
-        estado=estado,
-        total_pendiente=total_pendiente,
-        total_vencido=total_vencido,
-        dias_mora_maximo=dias_mora_maximo,
-        cantidad_cargos=len(outstanding),
-        antiguedad=antiguedad,
-        supera_umbral_alerta=supera_umbral,
-        mensaje=mensaje,
+        patient_id=patient_id,
+        status=status,
+        pending_total=pending_total,
+        overdue_total=overdue_total,
+        max_overdue_days=max_overdue_days,
+        charge_count=len(outstanding),
+        ageing=ageing,
+        above_alert_threshold=above_threshold,
+        message=message,
     )
 
 
-def booking_warning(resumen: CarteraSummary) -> str | None:
+def booking_warning(summary: CarteraSummary) -> str | None:
     """Warning shown when scheduling a patient in arrears, never a block.
 
     Returning a string rather than raising is the point: the tool layer passes
     it to the model as context and the appointment still goes through.
     """
-    if resumen.estado is CarteraState.AL_DIA or not resumen.supera_umbral_alerta:
+    if summary.status is CarteraState.AL_DIA or not summary.above_alert_threshold:
         return None
     return (
-        f"Heads-up: the patient has ${resumen.total_vencido:,.0f} COP of overdue "
-        f"cartera ({resumen.dias_mora_maximo} days). The appointment can still be "
+        f"Heads-up: the patient has ${summary.overdue_total:,.0f} COP of overdue "
+        f"cartera ({summary.max_overdue_days} days). The appointment can still be "
         "booked; tell the patient about the outstanding balance when confirming."
     )

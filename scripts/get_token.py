@@ -43,7 +43,7 @@ def get_token(issuer: str, scope: str, subject: str) -> str:
     with httpx.Client(follow_redirects=False, timeout=10) as client:
         metadata = client.get(f"{issuer}/.well-known/oauth-authorization-server").json()
 
-        autorizacion = client.get(
+        authorization = client.get(
             metadata["authorization_endpoint"],
             params={
                 "response_type": "code",
@@ -56,10 +56,10 @@ def get_token(issuer: str, scope: str, subject: str) -> str:
                 "login_hint": subject,
             },
         )
-        if autorizacion.status_code != 302:
-            raise SystemExit(f"/authorize failed: {autorizacion.status_code} {autorizacion.text}")
+        if authorization.status_code != 302:
+            raise SystemExit(f"/authorize failed: {authorization.status_code} {authorization.text}")
 
-        query = parse_qs(urlparse(autorizacion.headers["location"]).query)
+        query = parse_qs(urlparse(authorization.headers["location"]).query)
         if "error" in query:
             raise SystemExit(f"/authorize refused the request: {query}")
 

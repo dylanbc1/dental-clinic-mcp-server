@@ -24,20 +24,20 @@ from backend.enums import CarteraState, ChargeConcept, ChargeState, Regimen
 HOY = date(2026, 8, 31)
 
 
-def cargo(
-    monto: str,
-    dias_vencido: int,
+def charge(
+    amount: str,
+    days_overdue: int,
     *,
-    cargo_id: int = 1,
-    estado: ChargeState = ChargeState.PENDING,
-    concepto: ChargeConcept = ChargeConcept.COPAGO,
+    charge_id: int = 1,
+    status: ChargeState = ChargeState.PENDING,
+    concept: ChargeConcept = ChargeConcept.COPAGO,
 ) -> PendingCharge:
     return PendingCharge(
-        cargo_id=cargo_id,
-        concepto=concepto,
-        monto=Decimal(monto),
-        vencimiento=HOY - timedelta(days=dias_vencido),
-        estado=estado,
+        charge_id=charge_id,
+        concept=concept,
+        amount=Decimal(amount),
+        due_date=HOY - timedelta(days=days_overdue),
+        status=status,
     )
 
 
@@ -49,74 +49,74 @@ class TestCargoPorAtencion:
         afiliacion = validate_afiliacion(Regimen.PARTICULAR, True)
         result = charge_for_visit(afiliacion, "endodontics")
         assert result is not None
-        assert result.concepto is ChargeConcept.PARTICULAR
-        assert result.monto == Decimal("350000")
+        assert result.concept is ChargeConcept.PARTICULAR
+        assert result.amount == Decimal("350000")
 
     def test_soat_no_genera_cargo(self) -> None:
         afiliacion = validate_afiliacion(Regimen.SOAT, True)
         assert charge_for_visit(afiliacion, "general_dentistry") is None
 
     def test_contributivo_paga_cuota_moderadora_del_nivel(self) -> None:
-        afiliacion = validate_afiliacion(Regimen.CONTRIBUTIVO, True, nivel_cuota_moderadora=2)
-        result = charge_for_visit(afiliacion, "orthodontics", nivel_cuota_moderadora=2)
+        afiliacion = validate_afiliacion(Regimen.CONTRIBUTIVO, True, cuota_moderadora_level=2)
+        result = charge_for_visit(afiliacion, "orthodontics", cuota_moderadora_level=2)
         assert result is not None
-        assert result.concepto is ChargeConcept.CUOTA_MODERADORA
-        assert result.monto == Decimal("22000")
+        assert result.concept is ChargeConcept.CUOTA_MODERADORA
+        assert result.amount == Decimal("22000")
 
     def test_subsidiado_paga_un_porcentaje_de_la_tarifa(self) -> None:
         afiliacion = validate_afiliacion(Regimen.SUBSIDIADO, True)
         result = charge_for_visit(afiliacion, "endodontics")
         assert result is not None
-        assert result.concepto is ChargeConcept.COPAGO
-        assert result.monto == Decimal("35000")  # 10% of 350.000
+        assert result.concept is ChargeConcept.COPAGO
+        assert result.amount == Decimal("35000")  # 10% of 350.000
 
     def test_afiliacion_inactiva_se_liquida_como_particular(self) -> None:
         """The regime says 'subsidised' but the charge must be the full tariff."""
-        afiliacion = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_activa=False)
+        afiliacion = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_active=False)
         result = charge_for_visit(afiliacion, "endodontics")
         assert result is not None
-        assert result.concepto is ChargeConcept.PARTICULAR
-        assert result.monto == Decimal("350000")
+        assert result.concept is ChargeConcept.PARTICULAR
+        assert result.amount == Decimal("350000")
 
     @given(
         regimen=st.sampled_from(list(Regimen)),
-        activa=st.booleans(),
-        especialidad=st.sampled_from(
+        active=st.booleans(),
+        specialty=st.sampled_from(
             ["general_dentistry", "orthodontics", "endodontics", "periodontics"]
         ),
     )
     def test_el_monto_nunca_es_negativo(
-        self, regimen: Regimen, activa: bool, especialidad: str
+        self, regimen: Regimen, active: bool, specialty: str
     ) -> None:
-        afiliacion = validate_afiliacion(regimen, activa)
-        result = charge_for_visit(afiliacion, especialidad)
-        assert result is None or result.monto >= 0
+        afiliacion = validate_afiliacion(regimen, active)
+        result = charge_for_visit(afiliacion, specialty)
+        assert result is None or result.amount >= 0
 
 
 class TestCargoPorNoShow:
     def test_politica_por_defecto_cobra_a_quien_habia_confirmado(self) -> None:
-        result = charge_for_no_show(estaba_confirmada=True)
+        result = charge_for_no_show(was_confirmed=True)
         assert result is not None
-        assert result.concepto is ChargeConcept.NO_SHOW
-        assert result.monto == Decimal("40000")
+        assert result.concept is ChargeConcept.NO_SHOW
+        assert result.amount == Decimal("40000")
 
     def test_no_cobra_a_quien_nunca_confirmo(self) -> None:
-        assert charge_for_no_show(estaba_confirmada=False) is None
+        assert charge_for_no_show(was_confirmed=False) is None
 
     def test_una_clinica_puede_no_cobrar_no_shows(self) -> None:
-        policy = CarteraPolicy(cobra_no_show=False)
-        assert charge_for_no_show(estaba_confirmada=True, policy=policy) is None
+        policy = CarteraPolicy(charges_no_show=False)
+        assert charge_for_no_show(was_confirmed=True, policy=policy) is None
 
     def test_una_clinica_puede_cobrar_a_todos(self) -> None:
-        policy = CarteraPolicy(penaliza_solo_confirmadas=False)
-        result = charge_for_no_show(estaba_confirmada=False, policy=policy)
+        policy = CarteraPolicy(penalises_only_confirmed=False)
+        result = charge_for_no_show(was_confirmed=False, policy=policy)
         assert result is not None
 
     def test_el_monto_es_configurable(self) -> None:
-        policy = CarteraPolicy(monto_no_show=Decimal("75000"))
-        result = charge_for_no_show(estaba_confirmada=True, policy=policy)
+        policy = CarteraPolicy(no_show_amount=Decimal("75000"))
+        result = charge_for_no_show(was_confirmed=True, policy=policy)
         assert result is not None
-        assert result.monto == Decimal("75000")
+        assert result.amount == Decimal("75000")
 
 
 # ------------------------------------------------------------------- summary
@@ -124,70 +124,70 @@ class TestCargoPorNoShow:
 
 class TestResumenCartera:
     def test_sin_cargos_esta_al_dia(self) -> None:
-        resumen = summarise_cartera(1, [], hoy=HOY)
-        assert resumen.estado is CarteraState.AL_DIA
-        assert resumen.total_pendiente == Decimal("0")
-        assert resumen.cantidad_cargos == 0
-        assert "up to date" in resumen.mensaje
+        summary = summarise_cartera(1, [], hoy=HOY)
+        assert summary.status is CarteraState.AL_DIA
+        assert summary.pending_total == Decimal("0")
+        assert summary.charge_count == 0
+        assert "up to date" in summary.message
 
     def test_los_cargos_pagados_no_cuentan(self) -> None:
-        cargos = [cargo("100000", 60, estado=ChargeState.PAID)]
-        resumen = summarise_cartera(1, cargos, hoy=HOY)
-        assert resumen.estado is CarteraState.AL_DIA
-        assert resumen.total_pendiente == Decimal("0")
+        charges = [charge("100000", 60, status=ChargeState.PAID)]
+        summary = summarise_cartera(1, charges, hoy=HOY)
+        assert summary.status is CarteraState.AL_DIA
+        assert summary.pending_total == Decimal("0")
 
     def test_los_cargos_anulados_no_cuentan(self) -> None:
-        cargos = [cargo("100000", 60, estado=ChargeState.VOIDED)]
-        assert summarise_cartera(1, cargos, hoy=HOY).total_pendiente == Decimal("0")
+        charges = [charge("100000", 60, status=ChargeState.VOIDED)]
+        assert summarise_cartera(1, charges, hoy=HOY).pending_total == Decimal("0")
 
     def test_un_cargo_no_vencido_deja_la_cartera_al_dia(self) -> None:
-        resumen = summarise_cartera(1, [cargo("50000", -10)], hoy=HOY)
-        assert resumen.estado is CarteraState.AL_DIA
-        assert resumen.total_pendiente == Decimal("50000")
-        assert resumen.total_vencido == Decimal("0")
-        assert "not yet due" in resumen.mensaje
+        summary = summarise_cartera(1, [charge("50000", -10)], hoy=HOY)
+        assert summary.status is CarteraState.AL_DIA
+        assert summary.pending_total == Decimal("50000")
+        assert summary.overdue_total == Decimal("0")
+        assert "not yet due" in summary.message
 
     def test_un_cargo_vencido_pone_la_cartera_en_mora(self) -> None:
-        resumen = summarise_cartera(1, [cargo("50000", 45)], hoy=HOY)
-        assert resumen.estado is CarteraState.EN_MORA
-        assert resumen.total_vencido == Decimal("50000")
-        assert resumen.dias_mora_maximo == 45
+        summary = summarise_cartera(1, [charge("50000", 45)], hoy=HOY)
+        assert summary.status is CarteraState.EN_MORA
+        assert summary.overdue_total == Decimal("50000")
+        assert summary.max_overdue_days == 45
 
     def test_el_vencimiento_de_hoy_todavia_no_es_mora(self) -> None:
         """Due today means due today, not overdue. Off-by-one lives here."""
-        resumen = summarise_cartera(1, [cargo("10000", 0)], hoy=HOY)
-        assert resumen.estado is CarteraState.AL_DIA
+        summary = summarise_cartera(1, [charge("10000", 0)], hoy=HOY)
+        assert summary.status is CarteraState.AL_DIA
 
     def test_dias_gracia_retrasa_la_mora(self) -> None:
-        policy = CarteraPolicy(dias_gracia=10)
+        policy = CarteraPolicy(grace_days=10)
         assert (
-            summarise_cartera(1, [cargo("10000", 5)], hoy=HOY, policy=policy).estado
+            summarise_cartera(1, [charge("10000", 5)], hoy=HOY, policy=policy).status
             is CarteraState.AL_DIA
         )
         assert (
-            summarise_cartera(1, [cargo("10000", 15)], hoy=HOY, policy=policy).estado
+            summarise_cartera(1, [charge("10000", 15)], hoy=HOY, policy=policy).status
             is CarteraState.EN_MORA
         )
 
     def test_toma_el_maximo_de_dias_de_mora(self) -> None:
-        cargos = [cargo("1000", 10, cargo_id=1), cargo("2000", 120, cargo_id=2)]
-        assert summarise_cartera(1, cargos, hoy=HOY).dias_mora_maximo == 120
+        charges = [charge("1000", 10, charge_id=1), charge("2000", 120, charge_id=2)]
+        assert summarise_cartera(1, charges, hoy=HOY).max_overdue_days == 120
 
     def test_suma_correctamente_varios_cargos(self) -> None:
-        cargos = [
-            cargo("15000", 5, cargo_id=1),
-            cargo("25000", 40, cargo_id=2),
-            cargo("60000", -3, cargo_id=3),
+        charges = [
+            charge("15000", 5, charge_id=1),
+            charge("25000", 40, charge_id=2),
+            charge("60000", -3, charge_id=3),
         ]
-        resumen = summarise_cartera(1, cargos, hoy=HOY)
-        assert resumen.total_pendiente == Decimal("100000")
-        assert resumen.total_vencido == Decimal("40000")
-        assert resumen.cantidad_cargos == 3
+        summary = summarise_cartera(1, charges, hoy=HOY)
+        assert summary.pending_total == Decimal("100000")
+        assert summary.overdue_total == Decimal("40000")
+        assert summary.charge_count == 3
 
 
 class TestAntiguedad:
     def test_los_buckets_son_exhaustivos_y_no_se_solapan(self) -> None:
-        names = [nombre for nombre, _, _ in AGEING_BUCKETS]
+        names = [name for name, _, _ in AGEING_BUCKETS]
         assert len(names) == len(set(names))
         # every day between -365 and 365 must land in exactly one bucket
         for dias in range(-365, 366):
@@ -212,18 +212,18 @@ class TestAntiguedad:
         ],
     )
     def test_cada_cargo_cae_en_su_bucket(self, dias: int, bucket: str) -> None:
-        resumen = summarise_cartera(1, [cargo("10000", dias)], hoy=HOY)
-        assert resumen.antiguedad[bucket] == Decimal("10000")
+        summary = summarise_cartera(1, [charge("10000", dias)], hoy=HOY)
+        assert summary.ageing[bucket] == Decimal("10000")
 
     def test_la_antiguedad_suma_el_total_pendiente(self) -> None:
-        cargos = [
-            cargo("10000", -5, cargo_id=1),
-            cargo("20000", 15, cargo_id=2),
-            cargo("30000", 45, cargo_id=3),
-            cargo("40000", 200, cargo_id=4),
+        charges = [
+            charge("10000", -5, charge_id=1),
+            charge("20000", 15, charge_id=2),
+            charge("30000", 45, charge_id=3),
+            charge("40000", 200, charge_id=4),
         ]
-        resumen = summarise_cartera(1, cargos, hoy=HOY)
-        assert sum(resumen.antiguedad.values()) == resumen.total_pendiente
+        summary = summarise_cartera(1, charges, hoy=HOY)
+        assert sum(summary.ageing.values()) == summary.pending_total
 
 
 class TestAlertaAlAgendar:
@@ -231,13 +231,13 @@ class TestAlertaAlAgendar:
         assert booking_warning(summarise_cartera(1, [], hoy=HOY)) is None
 
     def test_mora_bajo_el_umbral_no_alerta(self) -> None:
-        resumen = summarise_cartera(1, [cargo("20000", 40)], hoy=HOY)
-        assert resumen.estado is CarteraState.EN_MORA
-        assert booking_warning(resumen) is None
+        summary = summarise_cartera(1, [charge("20000", 40)], hoy=HOY)
+        assert summary.status is CarteraState.EN_MORA
+        assert booking_warning(summary) is None
 
     def test_mora_sobre_el_umbral_alerta_pero_no_bloquea(self) -> None:
-        resumen = summarise_cartera(1, [cargo("150000", 70)], hoy=HOY)
-        alerta = booking_warning(resumen)
+        summary = summarise_cartera(1, [charge("150000", 70)], hoy=HOY)
+        alerta = booking_warning(summary)
         assert alerta is not None
         assert "Heads-up" in alerta
         # The wording must make clear the appointment still goes through: the
@@ -245,9 +245,9 @@ class TestAlertaAlAgendar:
         assert "can still be booked" in alerta
 
     def test_el_umbral_es_configurable(self) -> None:
-        policy = CarteraPolicy(umbral_alerta_mora=Decimal("10000"))
-        resumen = summarise_cartera(1, [cargo("20000", 40)], hoy=HOY, policy=policy)
-        assert booking_warning(resumen) is not None
+        policy = CarteraPolicy(overdue_alert_threshold=Decimal("10000"))
+        summary = summarise_cartera(1, [charge("20000", 40)], hoy=HOY, policy=policy)
+        assert booking_warning(summary) is not None
 
 
 class TestPropiedades:
@@ -258,18 +258,18 @@ class TestPropiedades:
         desfases=st.lists(st.integers(min_value=-90, max_value=400), min_size=0, max_size=15),
     )
     def test_invariantes_del_resumen(self, montos: list[Decimal], desfases: list[int]) -> None:
-        cargos = [
-            cargo(str(m), d, cargo_id=i)
+        charges = [
+            charge(str(m), d, charge_id=i)
             for i, (m, d) in enumerate(zip(montos, desfases, strict=False))
         ]
-        resumen = summarise_cartera(7, cargos, hoy=HOY)
-        assert resumen.total_vencido <= resumen.total_pendiente
-        assert resumen.total_pendiente >= 0
-        assert resumen.dias_mora_maximo >= 0
-        assert resumen.cantidad_cargos == len(cargos)
-        assert sum(resumen.antiguedad.values()) == resumen.total_pendiente
+        summary = summarise_cartera(7, charges, hoy=HOY)
+        assert summary.overdue_total <= summary.pending_total
+        assert summary.pending_total >= 0
+        assert summary.max_overdue_days >= 0
+        assert summary.charge_count == len(charges)
+        assert sum(summary.ageing.values()) == summary.pending_total
         # A zero-amount overdue charge still counts as arrears, so compare
         # against the actual overdue set rather than against the total.
-        hay_vencidos = any(c.days_overdue(HOY) > 0 for c in cargos)
-        assert (resumen.estado is CarteraState.EN_MORA) is hay_vencidos
-        assert resumen.paciente_id == 7
+        hay_vencidos = any(c.days_overdue(HOY) > 0 for c in charges)
+        assert (summary.status is CarteraState.EN_MORA) is hay_vencidos
+        assert summary.patient_id == 7

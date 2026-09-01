@@ -28,8 +28,8 @@ DIFERENCIAS_ESPERADAS = {"ix_paciente_nombre_lower"}
 
 def _diferencias_reales(engine: Engine) -> list[object]:
     with engine.connect() as conn:
-        contexto = MigrationContext.configure(conn, opts={"compare_type": True})
-        crudas = compare_metadata(contexto, Base.metadata)
+        context = MigrationContext.configure(conn, opts={"compare_type": True})
+        crudas = compare_metadata(context, Base.metadata)
     reales = []
     for diferencia in crudas:
         text_of = repr(diferencia)

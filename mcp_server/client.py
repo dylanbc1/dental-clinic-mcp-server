@@ -38,7 +38,7 @@ class BackendClient:
     async def _send(
         self,
         metodo: str,
-        ruta: str,
+        path: str,
         *,
         actor: str | None = None,
         params: dict[str, Any] | None = None,
@@ -48,7 +48,7 @@ class BackendClient:
         limpios = {k: v for k, v in (params or {}).items() if v is not None}
         try:
             response = await self._cliente.request(
-                metodo, ruta, params=limpios or None, json=json, headers=cabeceras
+                metodo, path, params=limpios or None, json=json, headers=cabeceras
             )
         except httpx.HTTPError as exc:
             raise backend_down_error(str(exc)) from exc
@@ -63,14 +63,14 @@ class BackendClient:
         if isinstance(payload, dict) and payload.get("error"):
             raise StructuredToolError.from_envelope(payload)
         raise StructuredToolError(
-            "ERROR_INTERNO",
+            "INTERNAL_ERROR",
             f"The backend answered {response.status_code} with no structured error.",
-            sugerencia="Retry in a few seconds; if it persists, report the incident.",
-            detalles={"status": response.status_code},
+            suggestion="Retry in a few seconds; if it persists, report the incident.",
+            details={"status": response.status_code},
         )
 
     @staticmethod
-    def _require(payload: Any, tipo: type, ruta: str) -> Any:
+    def _require(payload: Any, tipo: type, path: str) -> Any:
         """Assert the response shape before handing it to a tool.
 
         Not paranoia: the tools declare typed return values, and a backend that
@@ -80,28 +80,28 @@ class BackendClient:
         if not isinstance(payload, tipo):
             raise StructuredToolError(
                 "RESPUESTA_INESPERADA",
-                f"{ruta} returned {type(payload).__name__} instead of {tipo.__name__}.",
-                sugerencia="This is a backend fault, not a problem with your request.",
+                f"{path} returned {type(payload).__name__} instead of {tipo.__name__}.",
+                suggestion="This is a backend fault, not a problem with your request.",
             )
         return payload
 
     # --- reads -------------------------------------------------------------
 
-    async def get_object(self, ruta: str, **params: Any) -> dict[str, Any]:
+    async def get_object(self, path: str, **params: Any) -> dict[str, Any]:
         """GET returning a JSON object."""
-        payload = await self._send("GET", ruta, params=params)
-        return cast("dict[str, Any]", self._require(payload, dict, ruta))
+        payload = await self._send("GET", path, params=params)
+        return cast("dict[str, Any]", self._require(payload, dict, path))
 
-    async def get_list(self, ruta: str, **params: Any) -> list[dict[str, Any]]:
+    async def get_list(self, path: str, **params: Any) -> list[dict[str, Any]]:
         """GET returning a JSON array of objects."""
-        payload = await self._send("GET", ruta, params=params)
-        return cast("list[dict[str, Any]]", self._require(payload, list, ruta))
+        payload = await self._send("GET", path, params=params)
+        return cast("list[dict[str, Any]]", self._require(payload, list, path))
 
     # --- writes ------------------------------------------------------------
 
     async def post(
-        self, ruta: str, *, actor: str, body: dict[str, Any] | None = None
+        self, path: str, *, actor: str, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """POST returning a JSON object."""
-        payload = await self._send("POST", ruta, actor=actor, json=body or {})
-        return cast("dict[str, Any]", self._require(payload, dict, ruta))
+        payload = await self._send("POST", path, actor=actor, json=body or {})
+        return cast("dict[str, Any]", self._require(payload, dict, path))

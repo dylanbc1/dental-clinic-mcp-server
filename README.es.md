@@ -108,13 +108,13 @@ persona**, con Multi Round-Trip Requests. Llamar `cancel_appointment` no cambia 
 vuelve preguntando.
 
 ```jsonc
-// ronda 1  →  tools/call cancel_appointment {cita_id: 412, motivo: "…"}
+// ronda 1  →  tools/call cancel_appointment {appointment_id: 412, reason: "…"}
 {
   "resultType": "input_required",
   "inputRequests": {
     "…": { "method": "elicitation/create", "params": {
       "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00. Motivo: …\n\nEsto va a pasar:\n  · La cita quedará cancelada.\n  · El cupo quedará libre en la agenda.\n  · El motivo quedará registrado en el historial de la cita.\n  · Si hay lista de espera para esa especialidad, se informará al siguiente.\n\n¿Confirmas la operación?",
-      "requestedSchema": { "properties": { "confirmado": { "type": "boolean" } } }
+      "requestedSchema": { "properties": { "confirmed": { "type": "boolean" } } }
     }}
   },
   "requestState": "v1.ZZs-yBzkr3f…"          // sellado, AES-256-GCM
@@ -186,7 +186,7 @@ make inspector            # el Inspector, para lecturas y el catálogo
 
 `make consola` es el que quieres. El SDK de JavaScript del Inspector todavía no
 habla la spec 2026-07-28, así que no puede responder un `input_required`: las
-lecturas funcionan ahí, las escrituras devuelven `CLIENTE_SIN_CONFIRMACION`
+lecturas funcionan ahí, las escrituras devuelven `CLIENT_CANNOT_CONFIRM`
 explicando por qué.
 
 `make token` imprime un access token obtenido con el flujo PKCE real, para curl

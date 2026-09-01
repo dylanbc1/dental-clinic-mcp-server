@@ -26,14 +26,14 @@ def test_scope(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(database, "get_sessionmaker", lambda: factory)
 
 
-def _paciente(documento: str) -> Patient:
+def _paciente(document_number: str) -> Patient:
     return Patient(
-        tipo_documento=DocumentType.CC,
-        documento=documento,
-        nombre="Persona de prueba",
-        telefono="+57 3001234567",
+        document_type=DocumentType.CC,
+        document_number=document_number,
+        name="Persona de prueba",
+        phone="+57 3001234567",
         regimen=Regimen.PARTICULAR,
-        afiliacion_activa=True,
+        afiliacion_active=True,
     )
 
 
@@ -51,7 +51,7 @@ class TestSessionScope:
             session_.add(_paciente("9000001"))
 
         with session_scope() as verificacion:
-            assert verificacion.scalar(select(Patient).where(Patient.documento == "9000001"))
+            assert verificacion.scalar(select(Patient).where(Patient.document_number == "9000001"))
 
     def test_revierte_ante_una_excepcion(self, test_scope: None) -> None:
         with pytest.raises(RuntimeError, match="algo falló"), session_scope() as session_:
@@ -61,7 +61,8 @@ class TestSessionScope:
 
         with session_scope() as verificacion:
             assert (
-                verificacion.scalar(select(Patient).where(Patient.documento == "9000002")) is None
+                verificacion.scalar(select(Patient).where(Patient.document_number == "9000002"))
+                is None
             )
 
     def test_una_escritura_parcial_no_sobrevive(self, test_scope: None) -> None:
@@ -76,7 +77,7 @@ class TestSessionScope:
 
         with session_scope() as verificacion:
             encontrados = verificacion.scalars(
-                select(Patient).where(Patient.documento.in_(["9000003", "9000004"]))
+                select(Patient).where(Patient.document_number.in_(["9000003", "9000004"]))
             ).all()
             assert encontrados == []
 
@@ -103,4 +104,4 @@ class TestDependenciaFastapi:
             next(generador)
 
         with session_scope() as verificacion:
-            assert verificacion.scalar(select(Patient).where(Patient.documento == "9000006"))
+            assert verificacion.scalar(select(Patient).where(Patient.document_number == "9000006"))

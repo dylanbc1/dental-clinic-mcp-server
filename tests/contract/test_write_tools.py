@@ -29,19 +29,19 @@ def contar_citas(session_: Session) -> int:
 def existing_appointment(backend_session: Session, scenario: Scenario) -> int:
     result = book_appointment(
         backend_session,
-        paciente_id=scenario.ana_id,
+        patient_id=scenario.ana_id,
         slot_id=scenario.slots_general[0],
-        usuario="setup",
+        user="setup",
     )
     backend_session.commit()
-    return result.cita.id
+    return result.appointment.id
 
 
 class TestLaPrimeraLlamadaNoEjecuta:
     async def test_agendar_pide_confirmacion_y_no_crea_nada(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
 
@@ -49,64 +49,64 @@ class TestLaPrimeraLlamadaNoEjecuta:
         assert question["requestState"]
         assert contar_citas(backend_session) == 0
         backend_session.expire_all()
-        assert backend_session.get(AgendaSlot, scenario.slots_general[0]).estado is SlotState.FREE
+        assert backend_session.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
 
     async def test_la_pregunta_describe_lo_que_va_a_pasar(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         """Read aloud to a receptionist, so it names the hour and the
         professional rather than a slot id."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
-            mensaje = mcp.question_text(await mcp.ask("book_appointment", args))
+            message = mcp.question_text(await mcp.ask("book_appointment", args))
 
-        assert str(scenario.fecha_futura) in mensaje
-        assert "Dra. General" in mensaje
-        assert "Esto va a pasar:" in mensaje
-        assert "¿Confirmas la operación?" in mensaje
+        assert str(scenario.fecha_futura) in message
+        assert "Dra. General" in message
+        assert "Esto va a pasar:" in message
+        assert "¿Confirmas la operación?" in message
 
     async def test_la_pregunta_pide_un_booleano_y_nada_mas(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         """A form with more fields invites changing the operation instead of
         judging it."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
         key = next(iter(question["inputRequests"]))
         esquema = question["inputRequests"][key]["params"]["requestedSchema"]
-        assert set(esquema["properties"]) == {"confirmado"}
-        assert esquema["properties"]["confirmado"]["type"] == "boolean"
+        assert set(esquema["properties"]) == {"confirmed"}
+        assert esquema["properties"]["confirmed"]["type"] == "boolean"
 
     async def test_advierte_de_la_afiliacion_inactiva(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.bruno_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.bruno_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
-            mensaje = mcp.question_text(await mcp.ask("book_appointment", args))
-        assert "inactiva" in mensaje
-        assert "tarifa particular" in mensaje
+            message = mcp.question_text(await mcp.ask("book_appointment", args))
+        assert "inactiva" in message
+        assert "tarifa particular" in message
 
     async def test_advierte_de_la_mora_sin_bloquear(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.deudor_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.deudor_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
-        mensaje = mcp.question_text(question)
-        assert "mora" in mensaje
-        assert "No impide agendar" in mensaje
+        message = mcp.question_text(question)
+        assert "mora" in message
+        assert "No impide agendar" in message
         assert question["requestState"], "la operación sigue disponible para aprobar"
 
     async def test_cancelar_pregunta_sin_cancelar(
         self, mcp: MCPTestClient, backend_session: Session, existing_appointment: int
     ) -> None:
-        args = {"cita_id": existing_appointment, "motivo": "El paciente viajó"}
+        args = {"appointment_id": existing_appointment, "reason": "El paciente viajó"}
         with as_caller(SUBJECT, ESCRITURA):
             await mcp.ask("cancel_appointment", args)
         backend_session.expire_all()
         assert (
-            backend_session.get(Appointment, existing_appointment).estado
+            backend_session.get(Appointment, existing_appointment).status
             is AppointmentState.SCHEDULED
         )
 
@@ -115,21 +115,21 @@ class TestLaSegundaLlamadaEjecuta:
     async def test_el_ciclo_completo_agenda_de_verdad(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             result = await mcp.aprobar("book_appointment", args)
 
-        assert result["cita"]["estado"] == "scheduled"
+        assert result["appointment"]["status"] == "scheduled"
         assert contar_citas(backend_session) == 1
 
     async def test_el_actor_del_token_queda_en_la_auditoria_del_backend(
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         """The audit row must name the human's subject, not "mcp-server"."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller("dra.ospina@clinica.test", ESCRITURA):
             result = await mcp.aprobar("book_appointment", args)
-        assert result["cita"]["historial"][0]["usuario"] == "dra.ospina@clinica.test"
+        assert result["appointment"]["history"][0]["user"] == "dra.ospina@clinica.test"
 
     async def test_cancelar_libera_el_cupo(
         self,
@@ -138,22 +138,24 @@ class TestLaSegundaLlamadaEjecuta:
         existing_appointment: int,
         scenario: Scenario,
     ) -> None:
-        args = {"cita_id": existing_appointment, "motivo": "El paciente viajó"}
+        args = {"appointment_id": existing_appointment, "reason": "El paciente viajó"}
         with as_caller(SUBJECT, ESCRITURA):
             result = await mcp.aprobar("cancel_appointment", args)
-        assert result["libero_cupo"] is True
+        assert result["freed_slot"] is True
         backend_session.expire_all()
-        assert backend_session.get(AgendaSlot, scenario.slots_general[0]).estado is SlotState.FREE
+        assert backend_session.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
 
     async def test_confirmar(
         self, mcp: MCPTestClient, backend_session: Session, existing_appointment: int
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA):
-            result = await mcp.aprobar("confirm_appointment", {"cita_id": existing_appointment})
-        assert result["estado_nuevo"] == "confirmed"
+            result = await mcp.aprobar(
+                "confirm_appointment", {"appointment_id": existing_appointment}
+            )
+        assert result["new_status"] == "confirmed"
         backend_session.expire_all()
         assert (
-            backend_session.get(Appointment, existing_appointment).estado
+            backend_session.get(Appointment, existing_appointment).status
             is AppointmentState.CONFIRMED
         )
 
@@ -162,18 +164,18 @@ class TestLaSegundaLlamadaEjecuta:
     ) -> None:
         from backend.domain.services import confirm_appointment, record_attendance
 
-        confirm_appointment(backend_session, existing_appointment, usuario="setup")
+        confirm_appointment(backend_session, existing_appointment, user="setup")
         record_attendance(
-            backend_session, existing_appointment, AppointmentState.WAITING, usuario="setup"
+            backend_session, existing_appointment, AppointmentState.WAITING, user="setup"
         )
         backend_session.commit()
 
         with as_caller(SUBJECT, ESCRITURA):
             result = await mcp.aprobar(
-                "record_attendance", {"cita_id": existing_appointment, "estado": "attended"}
+                "record_attendance", {"appointment_id": existing_appointment, "status": "attended"}
             )
-        assert result["genero_cargo"] is True
-        assert result["cargo"]["concepto"] == "cuota_moderadora"
+        assert result["created_charge"] is True
+        assert result["charge"]["concept"] == "cuota_moderadora"
 
     async def test_reprogramar_encadena_la_cita_nueva(
         self,
@@ -182,20 +184,20 @@ class TestLaSegundaLlamadaEjecuta:
         existing_appointment: int,
         scenario: Scenario,
     ) -> None:
-        args = {"cita_id": existing_appointment, "nuevo_slot_id": scenario.slots_general[2]}
+        args = {"appointment_id": existing_appointment, "new_slot_id": scenario.slots_general[2]}
         with as_caller(SUBJECT, ESCRITURA):
             result = await mcp.aprobar("reschedule_appointment", args)
-        assert result["cita"]["cita_origen_id"] == existing_appointment
+        assert result["appointment"]["source_appointment_id"] == existing_appointment
         backend_session.expire_all()
-        assert backend_session.get(AgendaSlot, scenario.slots_general[0]).estado is SlotState.FREE
+        assert backend_session.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
 
     async def test_ofrecer_cupo_contacta_sin_agendar(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
         join_waiting_list(
             backend_session,
-            paciente_id=scenario.carla_id,
-            especialidad=Specialty.ORTHODONTICS,
+            patient_id=scenario.carla_id,
+            specialty=Specialty.ORTHODONTICS,
         )
         backend_session.commit()
 
@@ -210,8 +212,8 @@ class TestLaSegundaLlamadaEjecuta:
                 question,
             )
 
-        assert oferta["paciente_id"] == scenario.carla_id
-        assert oferta["telefono"]
+        assert oferta["patient_id"] == scenario.carla_id
+        assert oferta["phone"]
         assert contar_citas(backend_session) == 0
 
 
@@ -219,11 +221,11 @@ class TestCuandoLaPersonaDiceQueNo:
     async def test_un_false_explicito_aborta_sin_tocar_nada(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
             with pytest.raises(ToolCallError) as exc:
-                await mcp.respond("book_appointment", args, question, confirmado=False)
+                await mcp.respond("book_appointment", args, question, confirmed=False)
 
         assert "OPERACION_NO_APROBADA" in exc.value.text_of
         assert "Nothing was changed" in exc.value.text_of
@@ -233,18 +235,18 @@ class TestCuandoLaPersonaDiceQueNo:
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         """Retrying an operation a person declined is how an agent nags."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
             with pytest.raises(ToolCallError) as exc:
-                await mcp.respond("book_appointment", args, question, confirmado=False)
+                await mcp.respond("book_appointment", args, question, confirmed=False)
         assert "Do not retry" in exc.value.text_of
 
     async def test_declinar_la_elicitacion_tambien_aborta(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
         """The client can decline instead of answering. The call must stop."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
             with pytest.raises(ToolCallError):
@@ -265,9 +267,9 @@ class TestValidaAntesDePreguntar:
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp.ask(
                 "book_appointment",
-                {"paciente_id": scenario.carla_id, "slot_id": scenario.slots_general[0]},
+                {"patient_id": scenario.carla_id, "slot_id": scenario.slots_general[0]},
             )
-        assert "SLOT_NO_DISPONIBLE" in exc.value.text_of
+        assert "SLOT_UNAVAILABLE" in exc.value.text_of
         assert "closest free slots" in exc.value.text_of
 
     async def test_no_pregunta_por_un_cupo_en_el_pasado(
@@ -276,35 +278,35 @@ class TestValidaAntesDePreguntar:
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp.ask(
                 "book_appointment",
-                {"paciente_id": scenario.ana_id, "slot_id": scenario.slot_pasado_id},
+                {"patient_id": scenario.ana_id, "slot_id": scenario.slot_pasado_id},
             )
-        assert "SLOT_EN_EL_PASADO" in exc.value.text_of
+        assert "SLOT_IN_THE_PAST" in exc.value.text_of
 
     async def test_no_pregunta_por_un_cruce_de_horario(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
         book_appointment(
             backend_session,
-            paciente_id=scenario.ana_id,
+            patient_id=scenario.ana_id,
             slot_id=scenario.slots_general[0],
-            usuario="setup",
+            user="setup",
         )
         backend_session.commit()
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp.ask(
                 "book_appointment",
-                {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_orto[0]},
+                {"patient_id": scenario.ana_id, "slot_id": scenario.slots_orto[0]},
             )
-        assert "PACIENTE_YA_TIENE_CITA" in exc.value.text_of
+        assert "PATIENT_ALREADY_BOOKED" in exc.value.text_of
 
     async def test_no_pregunta_por_una_transicion_imposible(
         self, mcp: MCPTestClient, existing_appointment: int
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp.ask(
-                "record_attendance", {"cita_id": existing_appointment, "estado": "attended"}
+                "record_attendance", {"appointment_id": existing_appointment, "status": "attended"}
             )
-        assert "TRANSICION_INVALIDA" in exc.value.text_of
+        assert "INVALID_TRANSITION" in exc.value.text_of
         assert "confirmed" in exc.value.text_of
 
     async def test_un_estado_de_asistencia_inventado_se_rechaza(
@@ -312,7 +314,7 @@ class TestValidaAntesDePreguntar:
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp.ask(
-                "record_attendance", {"cita_id": existing_appointment, "estado": "cancelled"}
+                "record_attendance", {"appointment_id": existing_appointment, "status": "cancelled"}
             )
         assert "is not an attendance state" in exc.value.text_of
 
@@ -320,8 +322,8 @@ class TestValidaAntesDePreguntar:
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
-            await mcp.ask("confirm_appointment", {"cita_id": 424242})
-        assert "CITA_NO_ENCONTRADA" in exc.value.text_of
+            await mcp.ask("confirm_appointment", {"appointment_id": 424242})
+        assert "APPOINTMENT_NOT_FOUND" in exc.value.text_of
 
 
 class TestLaValidacionSeRepiteAlEjecutar:
@@ -337,44 +339,46 @@ class TestLaValidacionSeRepiteAlEjecutar:
         from backend.domain.services import cancel_appointment
 
         with as_caller(SUBJECT, ESCRITURA):
-            question = await mcp.ask("confirm_appointment", {"cita_id": existing_appointment})
+            question = await mcp.ask(
+                "confirm_appointment", {"appointment_id": existing_appointment}
+            )
 
             cancel_appointment(
-                backend_session, existing_appointment, motivo="urgencia", usuario="otro"
+                backend_session, existing_appointment, reason="urgencia", user="otro"
             )
             backend_session.commit()
 
             with pytest.raises(ToolCallError) as exc:
                 await mcp.respond(
-                    "confirm_appointment", {"cita_id": existing_appointment}, question
+                    "confirm_appointment", {"appointment_id": existing_appointment}, question
                 )
-        assert "TRANSICION_INVALIDA" in exc.value.text_of or "estado final" in exc.value.text_of
+        assert "INVALID_TRANSITION" in exc.value.text_of or "estado final" in exc.value.text_of
 
     async def test_el_cupo_tomado_en_medio_se_detecta(
         self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
 
             book_appointment(
                 backend_session,
-                paciente_id=scenario.carla_id,
+                patient_id=scenario.carla_id,
                 slot_id=scenario.slots_general[0],
-                usuario="otro",
+                user="otro",
             )
             backend_session.commit()
 
             with pytest.raises(ToolCallError) as exc:
                 await mcp.respond("book_appointment", args, question)
-        assert "SLOT_NO_DISPONIBLE" in exc.value.text_of
+        assert "SLOT_UNAVAILABLE" in exc.value.text_of
 
 
 class TestAuditoria:
     async def test_la_pregunta_y_la_ejecucion_se_registran(
         self, mcp: MCPTestClient, ctx: Any, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             await mcp.aprobar("book_appointment", args)
 
@@ -386,7 +390,7 @@ class TestAuditoria:
     async def test_la_ejecucion_queda_marcada_como_aprobada(
         self, mcp: MCPTestClient, ctx: Any, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             await mcp.aprobar("book_appointment", args)
         assert ctx.auditor.events[-1]["with_human_approval"] is True
@@ -398,11 +402,11 @@ class TestAuditoria:
         an hour asking for something impossible."""
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError):
             await mcp.ask(
-                "record_attendance", {"cita_id": existing_appointment, "estado": "attended"}
+                "record_attendance", {"appointment_id": existing_appointment, "status": "attended"}
             )
         evento = ctx.auditor.events[-1]
         assert evento["result"] == "error"
-        assert evento["error_code"] == "TRANSICION_INVALIDA"
+        assert evento["error_code"] == "INVALID_TRANSITION"
 
     async def test_el_motivo_no_se_copia_al_log(
         self, mcp: MCPTestClient, ctx: Any, existing_appointment: int
@@ -410,16 +414,16 @@ class TestAuditoria:
         secreto = "sangrado persistente desde el martes"
         with as_caller(SUBJECT, ESCRITURA):
             await mcp.ask(
-                "cancel_appointment", {"cita_id": existing_appointment, "motivo": secreto}
+                "cancel_appointment", {"appointment_id": existing_appointment, "reason": secreto}
             )
         assert secreto not in str(ctx.auditor.events)
-        assert ctx.auditor.events[-1]["arguments"]["motivo"] == "«redacted»"
+        assert ctx.auditor.events[-1]["arguments"]["reason"] == "«redacted»"
 
     async def test_el_request_state_no_se_copia_al_log(
         self, mcp: MCPTestClient, ctx: Any, scenario: Scenario
     ) -> None:
         """A logged request state is a redeemable approval sitting in a log."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
         assert question["requestState"] not in str(ctx.auditor.events)
@@ -432,23 +436,23 @@ class TestUnClienteQueNoPuedeConfirmar:
     async def test_las_escrituras_se_rechazan_con_un_mensaje_util(
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp_without_elicitation.call_tool("book_appointment", args)
 
-        mensaje = exc.value.text_of
-        assert "CLIENTE_SIN_CONFIRMACION" in mensaje
+        message = exc.value.text_of
+        assert "CLIENT_CANNOT_CONFIRM" in message
         # Not a transport error the reader cannot act on.
-        assert "back-channel" not in mensaje
-        assert "elicitation" in mensaje
-        assert "Read tools work" in mensaje
+        assert "back-channel" not in message
+        assert "elicitation" in message
+        assert "Read tools work" in message
 
     async def test_las_lecturas_siguen_funcionando(
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA):
             patients = await mcp_without_elicitation.call_tool(
-                "search_patients", {"documento": scenario.ana_documento}
+                "search_patients", {"document_number": scenario.ana_documento}
             )
         assert [p["id"] for p in patients] == [scenario.ana_id]
 
@@ -457,18 +461,18 @@ class TestUnClienteQueNoPuedeConfirmar:
     ) -> None:
         with as_caller(SUBJECT, [*ESCRITURA, "clinical"]), pytest.raises(ToolCallError) as exc:
             await mcp_without_elicitation.call_tool(
-                "record_visit_reason", {"cita_id": 1, "motivo": "dolor"}
+                "record_visit_reason", {"appointment_id": 1, "reason": "dolor"}
             )
-        assert "CLIENTE_SIN_CONFIRMACION" in exc.value.text_of
+        assert "CLIENT_CANNOT_CONFIRM" in exc.value.text_of
 
     async def test_el_rechazo_nombra_el_protocolo_negociado(
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
         """So the reader can tell an old client from a misconfigured one."""
-        args = {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+        args = {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
         with as_caller(SUBJECT, ESCRITURA), pytest.raises(ToolCallError) as exc:
             await mcp_without_elicitation.call_tool("book_appointment", args)
-        assert "protocolo_negociado" in exc.value.text_of
+        assert "negotiated_protocol" in exc.value.text_of
 
 
 @pytest.mark.anyio
@@ -484,15 +488,15 @@ class TestLaPreguntaHumanaNoFiltraValoresInternos:
             # A slot the `existing_appointment` fixture has not taken.
             (
                 "book_appointment",
-                {"paciente_id": scenario.bruno_id, "slot_id": scenario.slots_general[1]},
+                {"patient_id": scenario.bruno_id, "slot_id": scenario.slots_general[1]},
             ),
             (
                 "cancel_appointment",
-                {"cita_id": existing_appointment, "motivo": "el paciente viaja"},
+                {"appointment_id": existing_appointment, "reason": "el paciente viaja"},
             ),
-            ("confirm_appointment", {"cita_id": existing_appointment}),
+            ("confirm_appointment", {"appointment_id": existing_appointment}),
             # `no_show` is reachable straight from `scheduled`; `waiting` is not.
-            ("record_attendance", {"cita_id": existing_appointment, "estado": "no_show"}),
+            ("record_attendance", {"appointment_id": existing_appointment, "status": "no_show"}),
         )
         internos = {s.value for s in AppointmentState} | {e.value for e in Specialty}
         for tool_name, args in propuestas:
@@ -509,6 +513,6 @@ class TestLaPreguntaHumanaNoFiltraValoresInternos:
         front desk, so it is rendered through the label map."""
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask(
-                "record_attendance", {"cita_id": existing_appointment, "estado": "no_show"}
+                "record_attendance", {"appointment_id": existing_appointment, "status": "no_show"}
             )
         assert "no asistió" in mcp.question_text(question)

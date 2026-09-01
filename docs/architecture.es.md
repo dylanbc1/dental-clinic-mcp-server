@@ -146,8 +146,8 @@ la segunda reserva falle con un conflicto limpio. El bloqueo optimista sobre
 `agenda_slot.version_id` cubre las ediciones concurrentes del cupo mismo.
 
 ```sql
-CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('scheduled','confirmed','waiting','attended');
+CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
+  WHERE status IN ('scheduled','confirmed','waiting','attended');
 ```
 
 ### Claves de idempotencia al agendar

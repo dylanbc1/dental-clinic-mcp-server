@@ -66,9 +66,9 @@ class TestCatalogo:
         """A model that thinks it already booked the appointment will tell the
         patient it did. The description has to prevent that."""
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        for nombre in TOOLS_CON_CONFIRMACION:
-            descripcion = (por_nombre[nombre].description or "").lower()
-            assert "confirmation" in descripcion, f"{nombre} no anuncia el gate"
+        for name in TOOLS_CON_CONFIRMACION:
+            description = (por_nombre[name].description or "").lower()
+            assert "confirmation" in description, f"{name} no anuncia el gate"
 
     async def test_el_parametro_de_confirmacion_no_se_expone_al_modelo(
         self, server_: MCPServer[Any]
@@ -80,7 +80,7 @@ class TestCatalogo:
         """
         for tool in await server_.list_tools():
             propiedades = tool.input_schema.get("properties", {})
-            assert "confirmacion" not in propiedades, tool.name
+            assert "confirmation" not in propiedades, tool.name
 
     async def test_ninguna_tool_pide_un_token_de_confirmacion(
         self, server_: MCPServer[Any]
@@ -88,23 +88,23 @@ class TestCatalogo:
         """The paused operation rides `requestState`, sealed by the SDK. No tool
         should be asking the model to carry an approval by hand."""
         names = {t.name for t in await server_.list_tools()}
-        assert "confirmar_operacion" not in names
+        assert "confirm_operation" not in names
         for tool in await server_.list_tools():
-            assert "token_confirmacion" not in tool.input_schema.get("properties", {})
+            assert "confirmation_token" not in tool.input_schema.get("properties", {})
 
     async def test_la_tool_clinica_advierte_de_la_regulacion(self, server_: MCPServer[Any]) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        descripcion = por_nombre["record_visit_reason"].description or ""
-        assert "2654" in descripcion
-        assert "consent" in descripcion.lower()
-        assert "never interpret" in descripcion.lower()
+        description = por_nombre["record_visit_reason"].description or ""
+        assert "2654" in description
+        assert "consent" in description.lower()
+        assert "never interpret" in description.lower()
 
     async def test_las_tools_de_lectura_no_anuncian_confirmacion(
         self, server_: MCPServer[Any]
     ) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        for nombre in TOOLS_LECTURA:
-            assert "confirmation" not in (por_nombre[nombre].description or "").lower()
+        for name in TOOLS_LECTURA:
+            assert "confirmation" not in (por_nombre[name].description or "").lower()
 
     async def test_la_regla_de_no_bloqueo_por_mora_esta_en_la_descripcion(
         self, server_: MCPServer[Any]
@@ -118,14 +118,16 @@ class TestCatalogo:
         self, server_: MCPServer[Any]
     ) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        assert "motivo" in por_nombre["cancel_appointment"].input_schema["required"]
-        assert "cita_id" in por_nombre["cancel_appointment"].input_schema["required"]
-        assert "confirmacion" not in por_nombre["cancel_appointment"].input_schema["required"]
+        assert "reason" in por_nombre["cancel_appointment"].input_schema["required"]
+        assert "appointment_id" in por_nombre["cancel_appointment"].input_schema["required"]
+        assert "confirmation" not in por_nombre["cancel_appointment"].input_schema["required"]
 
     async def test_ningun_parametro_opcional_es_obligatorio(self, server_: MCPServer[Any]) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        assert "documento" not in por_nombre["search_patients"].input_schema.get("required", [])
-        assert "nombre" not in por_nombre["search_patients"].input_schema.get("required", [])
+        assert "document_number" not in por_nombre["search_patients"].input_schema.get(
+            "required", []
+        )
+        assert "name" not in por_nombre["search_patients"].input_schema.get("required", [])
 
     async def test_las_instrucciones_del_servidor_explican_el_gate(
         self, server_: MCPServer[Any]

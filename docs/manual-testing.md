@@ -38,9 +38,9 @@ seeds and starts the API before returning, so if the command finished, the syste
 answers.
 
 ```bash
-curl -s localhost:8000/listo
+curl -s localhost:8000/ready
 ```
-→ `{"estado":"listo"}`
+→ `{"status":"ready"}`
 
 ### A2 · The data is synthetic and rich enough to be useful
 
@@ -48,7 +48,7 @@ curl -s localhost:8000/listo
 docker compose exec -T postgres psql -U clinica -d clinica -c "
 select regimen, afiliacion_activa, count(*) from paciente group by 1,2 order by 1;
 select estado, count(*) from cita group by 1 order by 2 desc;
-select count(*) as cupos_libres from agenda_slot where estado='libre';"
+select count(*) as free_slots from agenda_slot where status='free';"
 ```
 
 **Expect:** all four regimes present, some with `afiliacion_activa = f` (with none,
@@ -132,10 +132,10 @@ TOKEN_READ=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_READ" \
   --method tools/call --tool-name cancel_appointment \
-  --tool-arg cita_id=1 --tool-arg motivo="manual check"
+  --tool-arg appointment_id=1 --tool-arg reason="manual check"
 ```
 
-**Expect:** `SCOPE_INSUFICIENTE`, naming the missing scope (`write`), the ones you
+**Expect:** `INSUFFICIENT_SCOPE`, naming the missing scope (`write`), the ones you
 hold (`['read']`), and the line *"No vuelvas a llamar esta herramienta con el
 token actual"*. That last detail is what stops an agent looping.
 
@@ -147,7 +147,7 @@ TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name record_visit_reason \
-  --tool-arg cita_id=1 --tool-arg motivo="tooth pain"
+  --tool-arg appointment_id=1 --tool-arg reason="tooth pain"
 ```
 
 **Expect:** refused. Holding `write` grants no clinical access. This is the design
@@ -171,7 +171,7 @@ curl -s -X POST localhost:8080/mcp \
   -H 'Accept: application/json, text/event-stream' \
   -H 'MCP-Protocol-Version: 2026-07-28' \
   -H 'mcp-method: tools/call' -H 'mcp-name: book_appointment' \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"book_appointment\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"book_appointment\",\"arguments\":{\"patient_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
 ```
 
 **Expect:** `"resultType": "input_required"`, an `inputRequests` carrying the
@@ -196,7 +196,7 @@ the single key of the `inputRequests` object you got back:
 
 ```bash
   ...,\"params\":{\"name\":\"book_appointment\",\"arguments\":{ ...the same... },
-     \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmado\":true}}},
+     \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmed\":true}}},
      \"requestState\":\"v1....\",$META}
 ```
 
@@ -207,9 +207,9 @@ the state:
 |---|---|
 | Change one character of the `requestState` | Refused |
 | Use the state from `confirm_appointment` to run `cancel_appointment` | Refused: it is bound to the request |
-| Change `paciente_id` on the second round | Refused: the arguments are part of what was approved |
+| Change `patient_id` on the second round | Refused: the arguments are part of what was approved |
 | Obtain the state as one subject, redeem it as another | Refused: it is bound to the principal |
-| Answer `"confirmado": false` | `OPERACION_NO_APROBADA`, nothing touched |
+| Answer `"confirmed": false` | `OPERACION_NO_APROBADA`, nothing touched |
 
 **The one that matters most:** ask for the confirmation, cancel the appointment
 from somewhere else (`psql` or the Inspector), and *then* answer yes. It must be
@@ -224,10 +224,10 @@ Try booking the slot you just took:
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name book_appointment \
-  --tool-arg paciente_id=2 --tool-arg slot_id=SAME_SLOT
+  --tool-arg patient_id=2 --tool-arg slot_id=SAME_SLOT
 ```
 
-**Expect:** `SLOT_NO_DISPONIBLE` listing the three closest free slots with times
+**Expect:** `SLOT_UNAVAILABLE` listing the three closest free slots with times
 and professionals. Compare with what 92% of the ecosystem returns: `500`.
 
 Note *when* it fails: at proposal time, not on confirmation. Asking a person to
@@ -242,7 +242,7 @@ And check a real bug leaks nothing:
 curl -s localhost:8000/citas/999999 | python3 -m json.tool
 ```
 
-**Expect:** JSON with `codigo`, `mensaje` and `sugerencia`. No `Traceback`, no
+**Expect:** JSON with `code`, `message` and `suggestion`. No `Traceback`, no
 SQL, no internal class names.
 
 ### B8 · Layer 5 · The audit records without copying
@@ -252,8 +252,8 @@ docker compose logs mcp | grep tool.invocacion | tail -5
 ```
 
 **Expect:** one JSON line per call, **refusals included**, with `sujeto`,
-`scope_requerido`, `resultado` and `con_aprobacion_humana`. Note that `documento`
-and `motivo` show as `«redactado»`: the log records that the call happened, not
+`scope_requerido`, `resultado` and `con_aprobacion_humana`. Note that `document_number`
+and `reason` show as `«redactado»`: the log records that the call happened, not
 the patient's data.
 
 Check it on purpose:
@@ -269,11 +269,11 @@ And the appointment history in the database:
 
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -c \
-  "select estado_anterior, estado_nuevo, usuario, momento from cita_historial
+  "select previous_status, new_status, changed_by, occurred_at from appointment_history
    order by id desc limit 5;"
 ```
 
-**Expect:** `usuario` is the token's subject (`recepcion@clinica.local`), not
+**Expect:** `user` is the token's subject (`recepcion@clinica.local`), not
 `system` or `mcp-server`. An audit trail with the same user in every row is not
 an audit trail.
 
@@ -308,11 +308,11 @@ Find a patient in arrears and book them an appointment:
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select paciente_id, sum(monto)::int from cargo
-   where estado='pendiente' and vencimiento < current_date
+   where status='pendiente' and vencimiento < current_date
    group by 1 order by 2 desc limit 1;"
 ```
 
-Book with that `paciente_id`. **Expect:** the proposal carries a warning
+Book with that `patient_id`. **Expect:** the proposal carries a warning
 `"...en mora... No impide agendar"` and still asks for confirmation. The
 appointment goes through once approved. Clinics do not refuse care over an unpaid copayment.
 
@@ -320,7 +320,7 @@ appointment goes through once approved. Clinics do not refuse care over an unpai
 
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
-  "select id from paciente where afiliacion_activa=false and regimen<>'particular' limit 1;"
+  "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
 ```
 
 Call `validate_afiliacion` with that id. **Expect:** `regimen_efectivo:
@@ -330,10 +330,10 @@ with the EPS.
 ### C3 · The state machine allows no shortcuts
 
 On an appointment in `scheduled`, propose and confirm `record_attendance` with
-`estado=attended`, skipping `confirmed` and `waiting`.
+`status=attended`, skipping `confirmed` and `waiting`.
 
-**Expect:** `TRANSICION_INVALIDA` **before you are asked anything**, listing which transitions
-would be valid. Ask `get_appointment` first: the `transiciones_validas` field says
+**Expect:** `INVALID_TRANSITION` **before you are asked anything**, listing which transitions
+would be valid. Ask `get_appointment` first: the `valid_transitions` field says
 exactly what can happen next, which is the same information the model uses to
 pick its next tool.
 

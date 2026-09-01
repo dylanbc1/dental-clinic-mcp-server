@@ -151,7 +151,7 @@ def _publish_resource_metadata(server_: MCPServer[Any], config: Settings) -> Non
     The SDK registers its own route for this path first, so `_preferir_nuestra_metadata`
     drops it once the app is built and leaves exactly one handler here.
     """
-    documento = {
+    document_number = {
         "resource": config.mcp_public_url,
         "authorization_servers": [config.oauth_issuer],
         "scopes_supported": SUPPORTED_SCOPES,
@@ -165,7 +165,7 @@ def _publish_resource_metadata(server_: MCPServer[Any], config: Settings) -> Non
         RESOURCE_METADATA_PATH, methods=["GET"], include_in_schema=False, name=METADATA_ROUTE_NAME
     )
     async def resource_metadata(_: Request) -> JSONResponse:
-        return JSONResponse(documento)
+        return JSONResponse(document_number)
 
 
 def _prefer_our_metadata(app: Starlette) -> None:
@@ -216,7 +216,7 @@ def build_app(
         _prefer_our_metadata(app)
     app.add_middleware(
         RequestLimiter,
-        limite=settings_.mcp_rate_limite,
+        limit=settings_.mcp_rate_limite,
         ventana_segundos=settings_.mcp_rate_ventana_segundos,
     )
     return app

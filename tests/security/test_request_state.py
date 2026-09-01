@@ -38,7 +38,7 @@ def contar_citas(session_: Session) -> int:
 
 @pytest.fixture
 def args(scenario: Scenario) -> dict[str, Any]:
-    return {"paciente_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
+    return {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
 
 
 class TestConfidencialidad:
@@ -52,23 +52,23 @@ class TestConfidencialidad:
         encrypted, so it says nothing to anyone holding it.
         """
         with as_caller(SUBJECT, ESCRITURA):
-            estado = (await mcp.ask("book_appointment", args))["requestState"]
+            status = (await mcp.ask("book_appointment", args))["requestState"]
 
         # Only distinctive strings are worth asserting on: a bare id like "1"
         # occurs in any base64 blob by chance and would prove nothing.
-        assert "book_appointment" not in estado
-        assert "paciente_id" not in estado
-        assert "slot_id" not in estado
-        assert SUBJECT not in estado
-        assert scenario.ana_documento not in estado
+        assert "book_appointment" not in status
+        assert "patient_id" not in status
+        assert "slot_id" not in status
+        assert SUBJECT not in status
+        assert scenario.ana_documento not in status
 
     async def test_el_estado_esta_versionado(
         self, mcp: MCPTestClient, args: dict[str, Any]
     ) -> None:
         """A version prefix is what makes the format changeable later."""
         with as_caller(SUBJECT, ESCRITURA):
-            estado = (await mcp.ask("book_appointment", args))["requestState"]
-        assert estado.startswith("v1.")
+            status = (await mcp.ask("book_appointment", args))["requestState"]
+        assert status.startswith("v1.")
 
     async def test_cada_pregunta_produce_un_estado_distinto(
         self, mcp: MCPTestClient, args: dict[str, Any]
@@ -117,20 +117,20 @@ class TestAtadoALaOperacion:
         redeem it against something else."""
         from backend.domain.services import book_appointment as book_route
 
-        cita = book_route(
+        appointment = book_route(
             backend_session,
-            paciente_id=args["paciente_id"],
+            patient_id=args["patient_id"],
             slot_id=args["slot_id"],
-            usuario="setup",
-        ).cita
+            user="setup",
+        ).appointment
         backend_session.commit()
 
         with as_caller(SUBJECT, ESCRITURA):
-            inocua = await mcp.ask("confirm_appointment", {"cita_id": cita.id})
+            inocua = await mcp.ask("confirm_appointment", {"appointment_id": appointment.id})
             with pytest.raises(ToolCallError):
                 await mcp.respond(
                     "cancel_appointment",
-                    {"cita_id": cita.id, "motivo": "usando otra aprobación"},
+                    {"appointment_id": appointment.id, "reason": "usando otra aprobación"},
                     inocua,
                 )
 
@@ -140,7 +140,7 @@ class TestAtadoALaOperacion:
         """Approving a booking for one patient must not book another."""
         with as_caller(SUBJECT, ESCRITURA):
             question = await mcp.ask("book_appointment", args)
-            otros = {**args, "paciente_id": scenario.carla_id}
+            otros = {**args, "patient_id": scenario.carla_id}
             with pytest.raises(ToolCallError):
                 await mcp.respond("book_appointment", otros, question)
 
@@ -186,7 +186,7 @@ class TestExpiracion:
             with as_caller(SUBJECT, ESCRITURA):
                 question = await corto.ask("book_appointment", args)
                 result = await corto.respond("book_appointment", args, question)
-        assert result["cita"]["estado"] == "scheduled"
+        assert result["appointment"]["status"] == "scheduled"
 
 
 class TestRotacionDeClaves:
@@ -211,7 +211,7 @@ class TestRotacionDeClaves:
         ) as durante:
             with as_caller(SUBJECT, ESCRITURA):
                 result = await durante.respond("book_appointment", args, question)
-        assert result["cita"]["estado"] == "scheduled"
+        assert result["appointment"]["status"] == "scheduled"
 
     async def test_retirada_la_clave_vieja_su_estado_deja_de_valer(
         self,
@@ -253,4 +253,4 @@ class TestSinEstadoEnElServidor:
             with as_caller(SUBJECT, ESCRITURA):
                 result = await replica_b.respond("book_appointment", args, question)
 
-        assert result["cita"]["estado"] == "scheduled"
+        assert result["appointment"]["status"] == "scheduled"

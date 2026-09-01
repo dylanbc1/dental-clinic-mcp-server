@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 from mcp_server.errors import StructuredToolError
 
 
-def require_client_that_can_confirm(contexto: Context) -> None:
+def require_client_that_can_confirm(context: Context) -> None:
     """Refuse clearly when the client cannot ask a person anything.
 
     Without this the call dies deep in the transport with "no back-channel for
@@ -41,21 +41,21 @@ def require_client_that_can_confirm(contexto: Context) -> None:
     A client that cannot elicit is not a broken client, it is an older one, and
     it deserves to be told which half of this server it can still use.
     """
-    capacidades = contexto.client_capabilities
+    capacidades = context.client_capabilities
     if capacidades is not None and capacidades.elicitation is not None:
         return
     raise StructuredToolError(
-        "CLIENTE_SIN_CONFIRMACION",
+        "CLIENT_CANNOT_CONFIRM",
         "Your MCP client cannot ask a person for confirmation, and this server does "
         "not perform writes without one.",
-        sugerencia=(
+        suggestion=(
             "Read tools work normally. For the write tools you need a client on the "
             "2026-07-28 spec that declares the 'elicitation' capability. If you are "
             "exploring, use `uv run python scripts/console.py`."
         ),
-        detalles={
-            "protocolo_negociado": contexto.protocol_version,
-            "capacidad_requerida": "elicitation",
+        details={
+            "negotiated_protocol": context.protocol_version,
+            "required_capability": "elicitation",
         },
     )
 
@@ -68,7 +68,7 @@ class Confirmation(BaseModel):
     judging it.
     """
 
-    confirmado: bool = Field(
+    confirmed: bool = Field(
         description=(
             "true to run the operation exactly as described, "
             "false to abort it without changing anything."
@@ -77,9 +77,9 @@ class Confirmation(BaseModel):
 
 
 def render_question(
-    resumen: str,
+    summary: str,
     effects: list[str],
-    advertencias: list[str] | None = None,
+    warnings: list[str] | None = None,
 ) -> str:
     """Render the question a human reads before approving.
 
@@ -87,10 +87,10 @@ def render_question(
     names the appointment in words, and the effects are what they are actually
     consenting to.
     """
-    lines = [resumen, "", "Esto va a pasar:"]
+    lines = [summary, "", "Esto va a pasar:"]
     lines += [f"  · {e}" for e in effects]
-    if advertencias:
+    if warnings:
         lines += ["", "Ten en cuenta:"]
-        lines += [f"  ⚠ {a}" for a in advertencias]
+        lines += [f"  ⚠ {a}" for a in warnings]
     lines += ["", "¿Confirmas la operación?"]
     return "\n".join(lines)

@@ -36,15 +36,17 @@ SCOPE = Scope.CLINICAL
 
 
 def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
-    async def _ask_reason(contexto: Context, cita_id: int, motivo: str) -> Elicit[Confirmation]:
-        arguments = {"cita_id": cita_id, "motivo": motivo}
+    async def _ask_reason(
+        context: Context, appointment_id: int, reason: str
+    ) -> Elicit[Confirmation]:
+        arguments = {"appointment_id": appointment_id, "reason": reason}
         identity = ctx.authorize_audited("record_visit_reason", SCOPE, arguments)
-        require_client_that_can_confirm(contexto)
+        require_client_that_can_confirm(context)
         async with ctx.audit_failure("record_visit_reason", SCOPE, arguments, identity):
-            cita = await ctx.client.get_object(f"/citas/{cita_id}")
+            appointment = await ctx.client.get_object(f"/appointments/{appointment_id}")
 
         ctx.auditor.clinical_access(
-            subject=identity.subject, cita_id=cita_id, result="input_required"
+            subject=identity.subject, appointment_id=appointment_id, result="input_required"
         )
         ctx.auditor.tool_call(
             "record_visit_reason",
@@ -55,8 +57,8 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
         return Elicit(
             render_question(
-                f"Registrar el motivo de consulta en la cita {cita_id} de "
-                f"{cita['paciente']} ({cita['inicio_local']}).",
+                f"Registrar el motivo de consulta en la cita {appointment_id} de "
+                f"{appointment['patient']} ({appointment['start_local']}).",
                 [
                     "Se guardará el motivo de consulta asociado a la cita.",
                     "Quedará registrado quién lo anotó y cuándo, en el log de auditoría.",
@@ -85,8 +87,8 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         ),
     )
     async def record_visit_reason(
-        cita_id: Annotated[int, Field(gt=0)],
-        motivo: Annotated[
+        appointment_id: Annotated[int, Field(gt=0)],
+        reason: Annotated[
             str,
             Field(
                 min_length=3,
@@ -97,21 +99,21 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 ),
             ),
         ],
-        confirmacion: Annotated[Confirmation, Resolve(_ask_reason)],
+        confirmation: Annotated[Confirmation, Resolve(_ask_reason)],
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "record_visit_reason")
+        require_approval(confirmation, "record_visit_reason")
         identity = ctx.identity()
-        arguments = {"cita_id": cita_id, "motivo": motivo}
+        arguments = {"appointment_id": appointment_id, "reason": reason}
         try:
             result = await ctx.client.post(
-                f"/citas/{cita_id}/motivo",
+                f"/appointments/{appointment_id}/reason",
                 actor=identity.subject,
-                body={"motivo": motivo},
+                body={"reason": reason},
             )
         except Exception as error:
-            codigo = getattr(error, "codigo", "ERROR_INTERNO")
+            code = getattr(error, "code", "INTERNAL_ERROR")
             ctx.auditor.clinical_access(
-                subject=identity.subject, cita_id=cita_id, result=f"rechazado:{codigo}"
+                subject=identity.subject, appointment_id=appointment_id, result=f"refused:{code}"
             )
             ctx.auditor.tool_call(
                 "record_visit_reason",
@@ -119,12 +121,14 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 scope=str(SCOPE),
                 arguments=arguments,
                 result="error",
-                error_code=str(codigo),
+                error_code=str(code),
                 approved=True,
             )
             raise
 
-        ctx.auditor.clinical_access(subject=identity.subject, cita_id=cita_id, result="registrado")
+        ctx.auditor.clinical_access(
+            subject=identity.subject, appointment_id=appointment_id, result="recorded"
+        )
         ctx.auditor.tool_call(
             "record_visit_reason",
             subject=identity.subject,

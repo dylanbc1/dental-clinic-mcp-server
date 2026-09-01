@@ -65,8 +65,8 @@ class TransitionEffects:
     rules, and so the effects are testable on their own.
     """
 
-    estado_anterior: AppointmentState
-    estado_nuevo: AppointmentState
+    previous_status: AppointmentState
+    new_status: AppointmentState
     libera_slot: bool
     genera_cargo: bool
     dispara_lista_espera: bool
@@ -77,21 +77,21 @@ class TransitionEffects:
 class HistoryRecord:
     """One immutable audit row for a state change (security layer 5)."""
 
-    estado_anterior: AppointmentState
-    estado_nuevo: AppointmentState
-    usuario: str
-    momento: datetime
-    motivo: str | None = None
+    previous_status: AppointmentState
+    new_status: AppointmentState
+    user: str
+    occurred_at: datetime
+    reason: str | None = None
     metadatos: dict[str, str] = field(default_factory=dict)
 
 
-def reachable_states(estado: AppointmentState) -> frozenset[AppointmentState]:
+def reachable_states(status: AppointmentState) -> frozenset[AppointmentState]:
     """States reachable from `estado` in one step."""
-    return TRANSITIONS[estado]
+    return TRANSITIONS[status]
 
 
-def is_final(estado: AppointmentState) -> bool:
-    return estado in FINAL_STATES
+def is_final(status: AppointmentState) -> bool:
+    return status in FINAL_STATES
 
 
 def is_valid_transition(current: AppointmentState, new_state: AppointmentState) -> bool:
@@ -103,7 +103,7 @@ def validate_transition(
     current: AppointmentState,
     new_state: AppointmentState,
     *,
-    motivo: str | None = None,
+    reason: str | None = None,
 ) -> TransitionEffects:
     """Validate a state change and describe its consequences.
 
@@ -116,38 +116,38 @@ def validate_transition(
             raise InvalidTransition(
                 f"The appointment is already in final state '{current}' and accepts no "
                 "further changes.",
-                sugerencia=(
+                suggestion=(
                     "If the patient needs another visit, book a new one with book_appointment."
                 ),
-                detalles={"estado_actual": str(current), "estado_solicitado": str(new_state)},
-                codigo=ErrorCode.CITA_EN_ESTADO_FINAL,
+                details={"estado_actual": str(current), "requested_state": str(new_state)},
+                code=ErrorCode.APPOINTMENT_IN_FINAL_STATE,
             )
         raise InvalidTransition(
             f"Cannot move from '{current}' to '{new_state}'.",
-            sugerencia=(
+            suggestion=(
                 "From this state only these are valid: " + ", ".join(str(e) for e in allowed) + "."
             ),
-            detalles={
+            details={
                 "estado_actual": str(current),
-                "estado_solicitado": str(new_state),
-                "transiciones_validas": [str(e) for e in allowed],
+                "requested_state": str(new_state),
+                "valid_transitions": [str(e) for e in allowed],
             },
         )
 
-    if new_state in TRANSITIONS_REQUIRING_REASON and not (motivo or "").strip():
+    if new_state in TRANSITIONS_REQUIRING_REASON and not (reason or "").strip():
         raise ReasonRequired(
             f"Moving to '{new_state}' requires a reason.",
-            sugerencia=(
+            suggestion=(
                 "Call the tool again including the 'motivo' parameter with the reason "
                 "the patient gave."
             ),
-            detalles={"estado_solicitado": str(new_state)},
+            details={"requested_state": str(new_state)},
         )
 
     libera = new_state in TRANSITIONS_FREEING_SLOT
     return TransitionEffects(
-        estado_anterior=current,
-        estado_nuevo=new_state,
+        previous_status=current,
+        new_status=new_state,
         libera_slot=libera,
         genera_cargo=new_state in TRANSITIONS_CREATING_CHARGE,
         # Only a cancellation frees a slot someone on the waiting list could

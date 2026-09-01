@@ -39,9 +39,9 @@ migra, siembra y levanta la API antes de devolver el control, así que si el
 comando terminó, el sistema responde.
 
 ```bash
-curl -s localhost:8000/listo
+curl -s localhost:8000/ready
 ```
-→ `{"estado":"listo"}`
+→ `{"status":"ready"}`
 
 ### A2 · Los datos son sintéticos y suficientes
 
@@ -49,7 +49,7 @@ curl -s localhost:8000/listo
 docker compose exec -T postgres psql -U clinica -d clinica -c "
 select regimen, afiliacion_activa, count(*) from paciente group by 1,2 order by 1;
 select estado, count(*) from cita group by 1 order by 2 desc;
-select count(*) as cupos_libres from agenda_slot where estado='libre';"
+select count(*) as free_slots from agenda_slot where status='free';"
 ```
 
 **Esperas:** los cuatro regímenes representados, algunos con `afiliacion_activa =
@@ -133,10 +133,10 @@ TOKEN_READ=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_READ" \
   --method tools/call --tool-name cancel_appointment \
-  --tool-arg cita_id=1 --tool-arg motivo="prueba manual"
+  --tool-arg appointment_id=1 --tool-arg reason="prueba manual"
 ```
 
-**Esperas:** `SCOPE_INSUFICIENTE`, con el scope que falta (`write`), los que sí
+**Esperas:** `INSUFFICIENT_SCOPE`, con el scope que falta (`write`), los que sí
 tienes (`['read']`) y la frase *"No vuelvas a llamar esta herramienta con el token
 actual"*. Ese último detalle es lo que evita que un agente entre en bucle.
 
@@ -148,7 +148,7 @@ TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name record_visit_reason \
-  --tool-arg cita_id=1 --tool-arg motivo="dolor de muela"
+  --tool-arg appointment_id=1 --tool-arg reason="dolor de muela"
 ```
 
 **Esperas:** rechazado. Tener `write` no da acceso clínico. Esta es la decisión de
@@ -172,7 +172,7 @@ curl -s -X POST localhost:8080/mcp \
   -H 'Accept: application/json, text/event-stream' \
   -H 'MCP-Protocol-Version: 2026-07-28' \
   -H 'mcp-method: tools/call' -H 'mcp-name: book_appointment' \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"book_appointment\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"book_appointment\",\"arguments\":{\"patient_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
 ```
 
 **Esperas:** `"resultType": "input_required"`, un `inputRequests` con la pregunta
@@ -195,7 +195,7 @@ Reenvía **la misma llamada** añadiendo la respuesta de la persona y el estado.
 
 ```bash
   ...,\"params\":{\"name\":\"book_appointment\",\"arguments\":{ ...los mismos... },
-     \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmado\":true}}},
+     \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmed\":true}}},
      \"requestState\":\"v1....\",$META}
 ```
 
@@ -205,9 +205,9 @@ Reenvía **la misma llamada** añadiendo la respuesta de la persona y el estado.
 |---|---|
 | Cambias un carácter del `requestState` | Rechazado |
 | Usas el estado de `confirm_appointment` para ejecutar `cancel_appointment` | Rechazado: está atado a la petición |
-| Cambias `paciente_id` en la segunda ronda | Rechazado: los argumentos son parte de lo aprobado |
+| Cambias `patient_id` en la segunda ronda | Rechazado: los argumentos son parte de lo aprobado |
 | Pides el estado con un sujeto y lo canjeas con otro | Rechazado: está atado al principal |
-| Respondes `"confirmado": false` | `OPERACION_NO_APROBADA`, sin tocar nada |
+| Respondes `"confirmed": false` | `OPERACION_NO_APROBADA`, sin tocar nada |
 
 **Lo más importante:** pide la confirmación, cancela la cita desde otro lado
 (`psql` o el Inspector), y **después** responde que sí. Debe rechazarse. El
@@ -222,10 +222,10 @@ Intenta agendar en el cupo que acabas de ocupar:
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
   --method tools/call --tool-name book_appointment \
-  --tool-arg paciente_id=2 --tool-arg slot_id=EL_MISMO_SLOT
+  --tool-arg patient_id=2 --tool-arg slot_id=EL_MISMO_SLOT
 ```
 
-**Esperas:** `SLOT_NO_DISPONIBLE` con los tres cupos libres más cercanos, con hora
+**Esperas:** `SLOT_UNAVAILABLE` con los tres cupos libres más cercanos, con hora
 y profesional. Compara con lo que devuelve el 92% del ecosistema: `500`.
 
 Y nota **cuándo** falla: al proponer, no al confirmar. Pedirle a una persona que
@@ -240,7 +240,7 @@ Y prueba que un bug real no filtra nada:
 curl -s localhost:8000/citas/999999 | python3 -m json.tool
 ```
 
-**Esperas:** un JSON con `codigo`, `mensaje` y `sugerencia`. Sin `Traceback`, sin
+**Esperas:** un JSON con `code`, `message` y `suggestion`. Sin `Traceback`, sin
 SQL, sin nombres de clases internas.
 
 ### B8 · Capa 5 · La auditoría registra, sin copiar datos
@@ -252,7 +252,7 @@ docker compose logs mcp | grep tool.invocacion | tail -5 | python3 -m json.tool 
 
 **Esperas:** una línea JSON por llamada, **incluidas las rechazadas**, con
 `sujeto`, `scope_requerido`, `resultado` y `con_aprobacion_humana`. Y fíjate en
-que `documento` y `motivo` aparecen como `«redactado»`: el log registra que la
+que `document_number` y `reason` aparecen como `«redactado»`: el log registra que la
 llamada ocurrió, no el dato del paciente.
 
 Compruébalo a propósito:
@@ -268,11 +268,11 @@ Y el historial de la cita en la base:
 
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -c \
-  "select estado_anterior, estado_nuevo, usuario, momento from cita_historial
+  "select previous_status, new_status, changed_by, occurred_at from appointment_history
    order by id desc limit 5;"
 ```
 
-**Esperas:** el `usuario` es el sujeto del token (`recepcion@clinica.local`), no
+**Esperas:** el `user` es el sujeto del token (`recepcion@clinica.local`), no
 `system` ni `mcp-server`. Una auditoría con el mismo usuario en cada fila no es
 una auditoría.
 
@@ -306,11 +306,11 @@ Busca un paciente en mora y agéndale una cita:
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select paciente_id, sum(monto)::int from cargo
-   where estado='pendiente' and vencimiento < current_date
+   where status='pendiente' and vencimiento < current_date
    group by 1 order by 2 desc limit 1;"
 ```
 
-Agenda con ese `paciente_id`. **Esperas:** la propuesta sale con una advertencia
+Agenda con ese `patient_id`. **Esperas:** la propuesta sale con una advertencia
 `"...en mora... No impide agendar"` y aun así pide confirmación. La cita se
 agenda una vez aprobada. Las clínicas no niegan atención por un copago sin pagar.
 
@@ -318,7 +318,7 @@ agenda una vez aprobada. Las clínicas no niegan atención por un copago sin pag
 
 ```bash
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
-  "select id from paciente where afiliacion_activa=false and regimen<>'particular' limit 1;"
+  "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
 ```
 
 Llama `validate_afiliacion` con ese id. **Esperas:** `regimen_efectivo:
@@ -328,11 +328,11 @@ ante la EPS.
 ### C3 · La máquina de estados no admite atajos
 
 Sobre una cita en estado `scheduled`, propón y confirma `record_attendance` con
-`estado=attended` (saltándose `confirmed` y `waiting`).
+`status=attended` (saltándose `confirmed` y `waiting`).
 
-**Esperas:** `TRANSICION_INVALIDA` **antes de preguntarte nada**, listando las transiciones que
+**Esperas:** `INVALID_TRANSITION` **antes de preguntarte nada**, listando las transiciones que
 sí serían válidas. Consulta la cita primero con `get_appointment`: el campo
-`transiciones_validas` te dice exactamente qué puede pasar después, que es la
+`valid_transitions` te dice exactamente qué puede pasar después, que es la
 misma información que el modelo usa para elegir la siguiente herramienta.
 
 La comprobación se repite en la segunda ronda, y ahí es donde importa de verdad:

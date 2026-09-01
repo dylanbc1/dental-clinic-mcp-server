@@ -147,10 +147,10 @@ def current_identity(*, exigir_auth: bool) -> Identity:
     )
 
 
-def require_scope(identity: Identity, requerido: Scope, *, tool_name: str) -> Identity:
+def require_scope(identity: Identity, required: Scope, *, tool_name: str) -> Identity:
     """Least privilege, enforced. Raises with an actionable message."""
-    if not identity.has(requerido):
-        raise scope_error(tool_name, str(requerido), sorted(identity.scopes))
+    if not identity.has(required):
+        raise scope_error(tool_name, str(required), sorted(identity.scopes))
     return identity
 
 
@@ -170,7 +170,7 @@ def validate_requested_scopes(solicitados: Sequence[str]) -> list[str]:
         raise StructuredToolError(
             "SCOPE_DESCONOCIDO",
             f"Scopes no reconocidos: {', '.join(desconocidos)}.",
-            sugerencia=f"Los scopes válidos son: {', '.join(sorted(conocidos))}.",
-            detalles={"desconocidos": desconocidos},
+            suggestion=f"Los scopes válidos son: {', '.join(sorted(conocidos))}.",
+            details={"desconocidos": desconocidos},
         )
     return list(solicitados)

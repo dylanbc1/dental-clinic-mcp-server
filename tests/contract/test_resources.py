@@ -43,9 +43,9 @@ class TestRecursos:
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             info = await leer(server_, "clinica://info")
-        assert info["nombre"] == "Clínica Escenario"
-        assert info["zona_horaria"] == "America/Bogota"
-        assert {p["especialidad"] for p in info["profesionales"]} == {
+        assert info["name"] == "Clínica Escenario"
+        assert info["timezone_name"] == "America/Bogota"
+        assert {p["specialty"] for p in info["professionals"]} == {
             "general_dentistry",
             "orthodontics",
         }
@@ -55,9 +55,9 @@ class TestRecursos:
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             politicas = await leer(server_, "politicas://cartera")
-        assert politicas["tarifas_particular"]["endodontics"] == "350000"
-        assert politicas["monto_no_show"] == "40000"
-        assert "never a block" in politicas["nota"]
+        assert politicas["particular_tariffs"]["endodontics"] == "350000"
+        assert politicas["no_show_amount"] == "40000"
+        assert "never a block" in politicas["note"]
 
     async def test_agenda_hoy_responde_aunque_no_haya_citas(
         self, server_: MCPServer[Any], scenario: Scenario
@@ -65,7 +65,7 @@ class TestRecursos:
         with as_caller(SUBJECT, ["read"]):
             agenda = await leer(server_, "agenda://hoy")
         assert agenda["total"] == 0
-        assert agenda["citas"] == []
+        assert agenda["appointments"] == []
 
     async def test_agenda_hoy_refleja_las_citas_del_dia(
         self, server_: MCPServer[Any], backend_session: Any, scenario: Scenario
@@ -74,21 +74,21 @@ class TestRecursos:
         # this. Using the system date passes in Bogotá and fails on a UTC runner
         # for the five hours a day the two disagree.
         slot = backend_session.get(AgendaSlot, scenario.slots_general[0])
-        slot.fecha = now_at_clinic().date()
+        slot.day = now_at_clinic().date()
         backend_session.commit()
         book_appointment(
             backend_session,
-            paciente_id=scenario.ana_id,
+            patient_id=scenario.ana_id,
             slot_id=slot.id,
-            usuario="setup",
+            user="setup",
         )
         backend_session.commit()
 
         with as_caller(SUBJECT, ["read"]):
             agenda = await leer(server_, "agenda://hoy")
-        assert agenda["fecha"] == now_at_clinic().date().isoformat()
+        assert agenda["day"] == now_at_clinic().date().isoformat()
         assert agenda["total"] == 1
-        assert agenda["por_estado"] == {"scheduled": 1}
+        assert agenda["by_status"] == {"scheduled": 1}
 
     async def test_hoy_es_hoy_en_la_clinica_no_en_el_servidor(
         self, server_: MCPServer[Any], scenario: Scenario
@@ -98,7 +98,7 @@ class TestRecursos:
         every evening."""
         with as_caller(SUBJECT, ["read"]):
             agenda = await leer(server_, "agenda://hoy")
-        assert agenda["fecha"] == now_at_clinic().date().isoformat()
+        assert agenda["day"] == now_at_clinic().date().isoformat()
 
 
 class TestPrompt:

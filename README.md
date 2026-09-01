@@ -107,13 +107,13 @@ Prompt: `recepcionista_odontologia`.
 Requests. Calling `cancel_appointment` changes nothing; it comes back asking:
 
 ```jsonc
-// round 1  →  tools/call cancel_appointment {cita_id: 412, motivo: "…"}
+// round 1  →  tools/call cancel_appointment {appointment_id: 412, reason: "…"}
 {
   "resultType": "input_required",
   "inputRequests": {
     "…": { "method": "elicitation/create", "params": {
       "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00. Motivo: …\n\nEsto va a pasar:\n  · La cita quedará cancelada.\n  · El cupo quedará libre en la agenda.\n  · El motivo quedará registrado en el historial de la cita.\n  · Si hay lista de espera para esa especialidad, se informará al siguiente.\n\n¿Confirmas la operación?",
-      "requestedSchema": { "properties": { "confirmado": { "type": "boolean" } } }
+      "requestedSchema": { "properties": { "confirmed": { "type": "boolean" } } }
     }}
   },
   "requestState": "v1.ZZs-yBzkr3f…"          // sealed, AES-256-GCM
@@ -185,7 +185,7 @@ make inspector            # the Inspector, for reads and the catalogue
 
 `make consola` is the one to reach for. The Inspector's JavaScript SDK does not
 speak the 2026-07-28 spec yet, so it cannot answer an `input_required`: read
-tools work there, write tools return `CLIENTE_SIN_CONFIRMACION` explaining why.
+tools work there, write tools return `CLIENT_CANNOT_CONFIRM` explaining why.
 
 `make token` prints an access token obtained through the real PKCE flow, for
 curl or for pasting into any client. Try issuing a `read`-only token and calling

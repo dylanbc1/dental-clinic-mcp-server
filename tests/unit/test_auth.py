@@ -38,7 +38,7 @@ class TestIdentidad:
     def test_sin_token_y_exigiendo_auth_falla(self) -> None:
         with pytest.raises(StructuredToolError) as exc:
             current_identity(exigir_auth=True)
-        assert exc.value.codigo == "NO_AUTENTICADO"
+        assert exc.value.code == "NOT_AUTHENTICATED"
 
 
 class TestExigirScope:
@@ -50,8 +50,8 @@ class TestExigirScope:
         identity = Identity(subject="a", scopes=frozenset({"read"}))
         with pytest.raises(StructuredToolError) as exc:
             require_scope(identity, Scope.CLINICAL, tool_name="record_visit_reason")
-        assert exc.value.codigo == "SCOPE_INSUFICIENTE"
-        assert exc.value.detalles["herramienta"] == "record_visit_reason"
+        assert exc.value.code == "INSUFFICIENT_SCOPE"
+        assert exc.value.details["herramienta"] == "record_visit_reason"
 
 
 class TestScopesDeClaims:
@@ -74,8 +74,8 @@ class TestValidarScopesSolicitados:
         a permission it never got."""
         with pytest.raises(StructuredToolError) as exc:
             validate_requested_scopes(["read", "admin"])
-        assert exc.value.detalles["desconocidos"] == ["admin"]
-        assert "read" in (exc.value.sugerencia or "")
+        assert exc.value.details["desconocidos"] == ["admin"]
+        assert "read" in (exc.value.suggestion or "")
 
     def test_una_lista_vacia_es_valida(self) -> None:
         assert validate_requested_scopes([]) == []

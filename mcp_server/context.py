@@ -51,7 +51,7 @@ class ToolContext:
                 scope=str(scope),
                 arguments=arguments,
                 result="error",
-                error_code=error.codigo,
+                error_code=error.code,
             )
             raise
 
@@ -88,6 +88,6 @@ class ToolContext:
                 scope=str(scope),
                 arguments=arguments,
                 result="error",
-                error_code=error.codigo,
+                error_code=error.code,
             )
             raise

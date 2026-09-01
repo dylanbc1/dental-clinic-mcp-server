@@ -75,7 +75,7 @@ class TestEjecucion:
         assert main(self.ARGUMENTOS) == 0
         salida = capsys.readouterr().out
         assert "Seed done" in salida
-        assert "paciente" in salida
+        assert "patient" in salida
         assert cli().scalar(select(func.count()).select_from(Patient)) == 8
 
     def test_if_empty_no_toca_una_base_con_datos(
@@ -83,11 +83,11 @@ class TestEjecucion:
     ) -> None:
         main(self.ARGUMENTOS)
         session_ = cli()
-        documentos_antes = sorted(session_.scalars(select(Patient.documento)))
+        documentos_antes = sorted(session_.scalars(select(Patient.document_number)))
 
         assert main([*self.ARGUMENTOS, "--if-empty"]) == 0
         assert "skipped" in capsys.readouterr().out
-        assert sorted(session_.scalars(select(Patient.documento))) == documentos_antes
+        assert sorted(session_.scalars(select(Patient.document_number))) == documentos_antes
 
     def test_if_empty_si_siembra_una_base_vacia(
         self, cli: Callable[[], Session], empty_tables: Session

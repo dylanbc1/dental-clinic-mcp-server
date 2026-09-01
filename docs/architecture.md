@@ -143,8 +143,8 @@ fails with a clean conflict. Optimistic locking on `agenda_slot.version_id`
 covers concurrent edits to the slot itself.
 
 ```sql
-CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('scheduled','confirmed','waiting','attended');
+CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
+  WHERE status IN ('scheduled','confirmed','waiting','attended');
 ```
 
 ### Idempotency keys on booking

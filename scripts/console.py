@@ -82,29 +82,29 @@ class Console:
             return {"_rpc": payload["error"]}
         return dict(payload["result"])
 
-    def call_tool(self, nombre: str, arguments: dict[str, Any]) -> None:
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> None:
         """Call a tool, answering any confirmation it asks for."""
-        result = self.rpc("tools/call", {"name": nombre, "arguments": arguments})
+        result = self.rpc("tools/call", {"name": name, "arguments": arguments})
 
         if "_transporte" in result or "_rpc" in result:
             print(f"{ROJO}  {result.get('_transporte') or result['_rpc']}{FIN}")
             return
 
         if result.get("resultType") == "input_required":
-            self._confirm(nombre, arguments, result)
+            self._confirm(name, arguments, result)
             return
 
         self._show(result)
 
-    def _confirm(self, nombre: str, arguments: dict[str, Any], question: dict[str, Any]) -> None:
+    def _confirm(self, name: str, arguments: dict[str, Any], question: dict[str, Any]) -> None:
         key = next(iter(question["inputRequests"]))
-        mensaje = question["inputRequests"][key]["params"]["message"]
+        message = question["inputRequests"][key]["params"]["message"]
 
         print(f"\n{AZUL}{NEGRITA}  ── The server is asking for confirmation ──{FIN}")
-        for line in mensaje.splitlines():
+        for line in message.splitlines():
             print(f"{AZUL}  │{FIN} {line}")
-        estado = question["requestState"]
-        print(f"{GRIS}  │ requestState: {len(estado)} bytes, sealed and opaque{FIN}")
+        status = question["requestState"]
+        print(f"{GRIS}  │ requestState: {len(status)} bytes, sealed and opaque{FIN}")
         print(f"{GRIS}  │ nothing has changed yet{FIN}")
 
         response = input(f"{NEGRITA}  Confirm? [y/N] {FIN}").strip().lower()
@@ -114,10 +114,10 @@ class Console:
         result = self.rpc(
             "tools/call",
             {
-                "name": nombre,
+                "name": name,
                 "arguments": arguments,
-                "inputResponses": {key: {"action": "accept", "content": {"confirmado": acepta}}},
-                "requestState": estado,
+                "inputResponses": {key: {"action": "accept", "content": {"confirmed": acepta}}},
+                "requestState": status,
             },
         )
         print()
@@ -133,12 +133,12 @@ class Console:
                 for line in bloque.get("text", "").splitlines():
                     print(f"{ROJO}  {line}{FIN}")
             return
-        contenido = result.get("structuredContent")
-        if contenido is None:
+        content = result.get("structuredContent")
+        if content is None:
             for bloque in result.get("content", []):
                 print(f"  {bloque.get('text', '')}")
             return
-        payload = contenido.get("result", contenido)
+        payload = content.get("result", content)
         text_of = json.dumps(payload, ensure_ascii=False, indent=2)
         for line in text_of.splitlines()[:40]:
             print(f"{VERDE}  {line}{FIN}")
@@ -173,11 +173,11 @@ def main() -> int:
     print(f"  scopes: {AZUL}{args.scope}{FIN}   subject: {AZUL}{args.subject}{FIN}")
 
     consola = Console(args.mcp, token)
-    listado = consola.rpc("tools/list", {})
-    if "_rpc" in listado or "_transporte" in listado:
-        print(f"{ROJO}Could not connect: {listado}{FIN}")
+    listing = consola.rpc("tools/list", {})
+    if "_rpc" in listing or "_transporte" in listing:
+        print(f"{ROJO}Could not connect: {listing}{FIN}")
         return 1
-    tools = listado["tools"]
+    tools = listing["tools"]
     names = [t["name"] for t in tools]
     print(f"  connected · {len(tools)} tools · no session (stateless transport)")
     print(AYUDA)
@@ -201,11 +201,11 @@ def main() -> int:
             continue
 
         parts = entry.split(None, 1)
-        nombre = parts[0]
-        if nombre.isdigit() and 1 <= int(nombre) <= len(tools):
-            nombre = names[int(nombre) - 1]
-        if nombre not in names:
-            print(f"{ROJO}  no such tool '{nombre}'. Type 'tools'.{FIN}")
+        name = parts[0]
+        if name.isdigit() and 1 <= int(name) <= len(tools):
+            name = names[int(name) - 1]
+        if name not in names:
+            print(f"{ROJO}  no such tool '{name}'. Type 'tools'.{FIN}")
             continue
         try:
             arguments = json.loads(parts[1]) if len(parts) > 1 else {}
@@ -213,7 +213,7 @@ def main() -> int:
             print(f"{ROJO}  arguments must be JSON: {exc}{FIN}")
             continue
 
-        consola.call_tool(nombre, arguments)
+        consola.call_tool(name, arguments)
         print()
 
 

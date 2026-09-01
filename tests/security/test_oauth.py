@@ -175,10 +175,10 @@ class TestAuthorize:
 
 
 class TestToken:
-    def _canjear(self, client: TestClient, codigo: str, verifier: str, **extra: str) -> Any:
+    def _canjear(self, client: TestClient, code: str, verifier: str, **extra: str) -> Any:
         payload = {
             "grant_type": "authorization_code",
-            "code": codigo,
+            "code": code,
             "code_verifier": verifier,
             "client_id": DEMO_CLIENT,
         }
@@ -202,9 +202,9 @@ class TestToken:
 
     def test_un_codigo_no_se_puede_canjear_dos_veces(self, client: TestClient) -> None:
         verifier, response = authorize(client)
-        codigo = codigo_de(response)
-        assert self._canjear(client, codigo, verifier).status_code == 200
-        assert self._canjear(client, codigo, verifier).status_code == 400
+        code = codigo_de(response)
+        assert self._canjear(client, code, verifier).status_code == 200
+        assert self._canjear(client, code, verifier).status_code == 400
 
     def test_otro_cliente_no_puede_canjear_mi_codigo(self, client: TestClient) -> None:
         verifier, response = authorize(client)
@@ -303,7 +303,7 @@ class TestVerificadorDelResourceServer:
     ) -> None:
         """The confused-deputy defence. Same issuer, same signature, different
         resource server, and it must not be replayable here."""
-        token = as_.issue_token("x", ["read"], audiencia="http://otro-servicio.test")
+        token = as_.issue_token("x", ["read"], audience="http://otro-servicio.test")
         assert await verificador.verify_token(token) is None
 
     async def test_rechaza_un_token_firmado_con_otra_llave(self, verificador: JWTVerifier) -> None:

@@ -19,7 +19,7 @@ import httpx
 from scripts.get_token import get_token
 from scripts.smoke import HEADERS, MCPTestClient
 
-KEYCLOAK = "http://localhost:9100/realms/clinica"
+KEYCLOAK = "http://localhost:9100/realms/clinic"
 MCP_KEYCLOAK = "http://localhost:8081/mcp"
 MCP_PROPIO = "http://localhost:8080/mcp"
 
@@ -62,8 +62,8 @@ def main() -> int:
     client = MCPTestClient(MCP_KEYCLOAK, kc)
     tools = client._rpc("tools/list", {})["tools"]
     print(f"  tools visible: {len(tools)}")
-    slot = client.call_tool("check_availability", {"limite": 1})[0]
-    print(f"  a real read: free slot {slot['inicio_local']}")
+    slot = client.call_tool("check_availability", {"limit": 1})[0]
+    print(f"  a real read: free slot {slot['start_local']}")
 
     step("3 · The two issuers are not interchangeable by accident")
     if not rejected(MCP_PROPIO, kc):

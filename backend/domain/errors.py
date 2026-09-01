@@ -17,46 +17,46 @@ class ErrorCode(StrEnum):
     breaking change, so they stay generic and domain-shaped."""
 
     # --- lookup ------------------------------------------------------------
-    PACIENTE_NO_ENCONTRADO = "PACIENTE_NO_ENCONTRADO"
-    CITA_NO_ENCONTRADA = "CITA_NO_ENCONTRADA"
-    SLOT_NO_ENCONTRADO = "SLOT_NO_ENCONTRADO"
-    PROFESIONAL_NO_ENCONTRADO = "PROFESIONAL_NO_ENCONTRADO"
+    PATIENT_NOT_FOUND = "PATIENT_NOT_FOUND"
+    APPOINTMENT_NOT_FOUND = "APPOINTMENT_NOT_FOUND"
+    SLOT_NOT_FOUND = "SLOT_NOT_FOUND"
+    PROFESSIONAL_NOT_FOUND = "PROFESSIONAL_NOT_FOUND"
 
     # --- scheduling --------------------------------------------------------
-    SLOT_NO_DISPONIBLE = "SLOT_NO_DISPONIBLE"
-    SLOT_FUERA_DE_HORARIO = "SLOT_FUERA_DE_HORARIO"
-    SLOT_EN_EL_PASADO = "SLOT_EN_EL_PASADO"
-    ESPECIALIDAD_NO_COINCIDE = "ESPECIALIDAD_NO_COINCIDE"
-    PACIENTE_YA_TIENE_CITA = "PACIENTE_YA_TIENE_CITA"
+    SLOT_UNAVAILABLE = "SLOT_UNAVAILABLE"
+    SLOT_OUTSIDE_HOURS = "SLOT_OUTSIDE_HOURS"
+    SLOT_IN_THE_PAST = "SLOT_IN_THE_PAST"
+    SPECIALTY_MISMATCH = "SPECIALTY_MISMATCH"
+    PATIENT_ALREADY_BOOKED = "PATIENT_ALREADY_BOOKED"
 
     # --- state machine -----------------------------------------------------
-    TRANSICION_INVALIDA = "TRANSICION_INVALIDA"
-    MOTIVO_REQUERIDO = "MOTIVO_REQUERIDO"
-    CITA_EN_ESTADO_FINAL = "CITA_EN_ESTADO_FINAL"
+    INVALID_TRANSITION = "INVALID_TRANSITION"
+    REASON_REQUIRED = "REASON_REQUIRED"
+    APPOINTMENT_IN_FINAL_STATE = "APPOINTMENT_IN_FINAL_STATE"
 
     # --- waiting list ------------------------------------------------------
-    LISTA_ESPERA_VACIA = "LISTA_ESPERA_VACIA"
-    YA_EN_LISTA_ESPERA = "YA_EN_LISTA_ESPERA"
+    WAITING_LIST_EMPTY = "WAITING_LIST_EMPTY"
+    ALREADY_ON_WAITING_LIST = "ALREADY_ON_WAITING_LIST"
 
     # --- accounts receivable / affiliation --------------------------------
-    AFILIACION_INACTIVA = "AFILIACION_INACTIVA"
-    CARTERA_EN_MORA = "CARTERA_EN_MORA"
+    AFILIACION_INACTIVE = "AFILIACION_INACTIVE"
+    CARTERA_OVERDUE = "CARTERA_OVERDUE"
 
     # --- validation & concurrency -----------------------------------------
-    ENTRADA_INVALIDA = "ENTRADA_INVALIDA"
-    CONFLICTO_CONCURRENCIA = "CONFLICTO_CONCURRENCIA"
+    INVALID_INPUT = "INVALID_INPUT"
+    CONCURRENCY_CONFLICT = "CONCURRENCY_CONFLICT"
 
     # --- security (populated in M4/M5, declared here so the code space is
     #     defined in one place) ---------------------------------------------
-    NO_AUTENTICADO = "NO_AUTENTICADO"
-    SCOPE_INSUFICIENTE = "SCOPE_INSUFICIENTE"
-    APROBACION_REQUERIDA = "APROBACION_REQUERIDA"
-    APROBACION_INVALIDA = "APROBACION_INVALIDA"
-    APROBACION_EXPIRADA = "APROBACION_EXPIRADA"
-    APROBACION_YA_USADA = "APROBACION_YA_USADA"
-    CONSENTIMIENTO_REQUERIDO = "CONSENTIMIENTO_REQUERIDO"
-    ORIGEN_NO_PERMITIDO = "ORIGEN_NO_PERMITIDO"
-    RATE_LIMIT_EXCEDIDO = "RATE_LIMIT_EXCEDIDO"
+    NOT_AUTHENTICATED = "NOT_AUTHENTICATED"
+    INSUFFICIENT_SCOPE = "INSUFFICIENT_SCOPE"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    APPROVAL_INVALID = "APPROVAL_INVALID"
+    APPROVAL_EXPIRED = "APPROVAL_EXPIRED"
+    APPROVAL_ALREADY_USED = "APPROVAL_ALREADY_USED"
+    CONSENT_REQUIRED = "CONSENT_REQUIRED"
+    ORIGIN_NOT_ALLOWED = "ORIGIN_NOT_ALLOWED"
+    RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
 
 
 class DomainError(Exception):
@@ -66,39 +66,39 @@ class DomainError(Exception):
     single generic code, so a bug never leaks a stack trace to the model.
     """
 
-    codigo: ErrorCode = ErrorCode.ENTRADA_INVALIDA
+    code: ErrorCode = ErrorCode.INVALID_INPUT
     http_status: int = 400
 
     def __init__(
         self,
-        mensaje: str,
+        message: str,
         *,
-        sugerencia: str | None = None,
-        detalles: dict[str, Any] | None = None,
-        codigo: ErrorCode | None = None,
+        suggestion: str | None = None,
+        details: dict[str, Any] | None = None,
+        code: ErrorCode | None = None,
     ) -> None:
-        super().__init__(mensaje)
-        self.mensaje = mensaje
-        self.sugerencia = sugerencia
-        self.detalles = detalles or {}
-        if codigo is not None:
-            self.codigo = codigo
+        super().__init__(message)
+        self.message = message
+        self.suggestion = suggestion
+        self.details = details or {}
+        if code is not None:
+            self.code = code
 
     def to_dict(self) -> dict[str, Any]:
         """Wire format. Identical for the REST API and the MCP tool layer."""
         payload: dict[str, Any] = {
             "error": True,
-            "codigo": str(self.codigo),
-            "mensaje": self.mensaje,
+            "code": str(self.code),
+            "message": self.message,
         }
-        if self.sugerencia:
-            payload["sugerencia"] = self.sugerencia
-        if self.detalles:
-            payload["detalles"] = self.detalles
+        if self.suggestion:
+            payload["suggestion"] = self.suggestion
+        if self.details:
+            payload["details"] = self.details
         return payload
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"{type(self).__name__}({self.codigo}: {self.mensaje})"
+        return f"{type(self).__name__}({self.code}: {self.message})"
 
 
 # --------------------------------------------------------------------------
@@ -112,63 +112,63 @@ class NotFound(DomainError):
 
 
 class PatientNotFound(NotFound):
-    codigo = ErrorCode.PACIENTE_NO_ENCONTRADO
+    code = ErrorCode.PATIENT_NOT_FOUND
 
 
 class AppointmentNotFound(NotFound):
-    codigo = ErrorCode.CITA_NO_ENCONTRADA
+    code = ErrorCode.APPOINTMENT_NOT_FOUND
 
 
 class SlotNotFound(NotFound):
-    codigo = ErrorCode.SLOT_NO_ENCONTRADO
+    code = ErrorCode.SLOT_NOT_FOUND
 
 
 class ProfessionalNotFound(NotFound):
-    codigo = ErrorCode.PROFESIONAL_NO_ENCONTRADO
+    code = ErrorCode.PROFESSIONAL_NOT_FOUND
 
 
 class SlotUnavailable(DomainError):
-    codigo = ErrorCode.SLOT_NO_DISPONIBLE
+    code = ErrorCode.SLOT_UNAVAILABLE
     http_status = 409
 
 
 class SlotOutsideHours(DomainError):
-    codigo = ErrorCode.SLOT_FUERA_DE_HORARIO
+    code = ErrorCode.SLOT_OUTSIDE_HOURS
 
 
 class SlotInThePast(DomainError):
-    codigo = ErrorCode.SLOT_EN_EL_PASADO
+    code = ErrorCode.SLOT_IN_THE_PAST
 
 
 class SpecialtyMismatch(DomainError):
-    codigo = ErrorCode.ESPECIALIDAD_NO_COINCIDE
+    code = ErrorCode.SPECIALTY_MISMATCH
 
 
 class PatientAlreadyBooked(DomainError):
-    codigo = ErrorCode.PACIENTE_YA_TIENE_CITA
+    code = ErrorCode.PATIENT_ALREADY_BOOKED
     http_status = 409
 
 
 class InvalidTransition(DomainError):
-    codigo = ErrorCode.TRANSICION_INVALIDA
+    code = ErrorCode.INVALID_TRANSITION
     http_status = 409
 
 
 class ReasonRequired(DomainError):
-    codigo = ErrorCode.MOTIVO_REQUERIDO
+    code = ErrorCode.REASON_REQUIRED
 
 
 class WaitingListEmpty(NotFound):
-    codigo = ErrorCode.LISTA_ESPERA_VACIA
+    code = ErrorCode.WAITING_LIST_EMPTY
 
 
 class AlreadyOnWaitingList(DomainError):
-    codigo = ErrorCode.YA_EN_LISTA_ESPERA
+    code = ErrorCode.ALREADY_ON_WAITING_LIST
     http_status = 409
 
 
 class AfiliacionInactive(DomainError):
-    codigo = ErrorCode.AFILIACION_INACTIVA
+    code = ErrorCode.AFILIACION_INACTIVE
 
 
 class ConsentRequired(DomainError):
@@ -178,10 +178,10 @@ class ConsentRequired(DomainError):
     permitted to perform it on this patient (Res. 2654/2019).
     """
 
-    codigo = ErrorCode.CONSENTIMIENTO_REQUERIDO
+    code = ErrorCode.CONSENT_REQUIRED
     http_status = 403
 
 
 class ConcurrencyConflict(DomainError):
-    codigo = ErrorCode.CONFLICTO_CONCURRENCIA
+    code = ErrorCode.CONCURRENCY_CONFLICT
     http_status = 409

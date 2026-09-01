@@ -39,37 +39,37 @@ def now_at_clinic() -> datetime:
     return datetime.now(tz=CLINIC_TZ)
 
 
-def to_clinic_time(momento: datetime) -> datetime:
+def to_clinic_time(occurred_at: datetime) -> datetime:
     """Convert an aware datetime to clinic local time.
 
     Naive datetimes are rejected, not guessed. Assuming a timezone silently is
     how schedules drift.
     """
-    if momento.tzinfo is None:
+    if occurred_at.tzinfo is None:
         raise ValueError("naive datetime: every timestamp must carry a timezone")
-    return momento.astimezone(CLINIC_TZ)
+    return occurred_at.astimezone(CLINIC_TZ)
 
 
-def to_utc(momento: datetime) -> datetime:
+def to_utc(occurred_at: datetime) -> datetime:
     """Convert any aware datetime to UTC for persistence."""
-    if momento.tzinfo is None:
+    if occurred_at.tzinfo is None:
         raise ValueError("naive datetime: every timestamp must carry a timezone")
-    return momento.astimezone(UTC)
+    return occurred_at.astimezone(UTC)
 
 
-def local(fecha: date, hora: time) -> datetime:
+def local(day: date, hora: time) -> datetime:
     """Build an aware datetime from a clinic-local date and time."""
-    return datetime.combine(fecha, hora, tzinfo=CLINIC_TZ)
+    return datetime.combine(day, hora, tzinfo=CLINIC_TZ)
 
 
-def is_working_day(fecha: date) -> bool:
+def is_working_day(day: date) -> bool:
     """Monday to Saturday. Colombian dental clinics work Saturday mornings."""
-    return fecha.weekday() < 6
+    return day.weekday() < 6
 
 
-def is_within_hours(momento: datetime) -> bool:
+def is_within_hours(occurred_at: datetime) -> bool:
     """True when the instant falls inside consulting hours, lunch excluded."""
-    loc = to_clinic_time(momento)
+    loc = to_clinic_time(occurred_at)
     if not is_working_day(loc.date()):
         return False
     hora = loc.time()
@@ -80,29 +80,29 @@ def is_within_hours(momento: datetime) -> bool:
     return OPENING <= hora < CLOSING
 
 
-def hours_until(momento: datetime, *, desde: datetime | None = None) -> float:
+def hours_until(occurred_at: datetime, *, since: datetime | None = None) -> float:
     """Signed hours from `desde` (default: now) to `momento`."""
-    reference = desde if desde is not None else now_utc()
-    return (to_utc(momento) - to_utc(reference)).total_seconds() / 3600
+    reference = since if since is not None else now_utc()
+    return (to_utc(occurred_at) - to_utc(reference)).total_seconds() / 3600
 
 
 def within_confirmation_window(inicio_cita: datetime, *, now: datetime | None = None) -> bool:
     """True when the appointment is close enough that confirmation is due."""
-    restantes = hours_until(inicio_cita, desde=now)
+    restantes = hours_until(inicio_cita, since=now)
     return 0 <= restantes <= CONFIRMATION_WINDOW.total_seconds() / 3600
 
 
-def slots_for_day(fecha: date) -> list[tuple[datetime, datetime]]:
+def slots_for_day(day: date) -> list[tuple[datetime, datetime]]:
     """(start, end) pairs for every working slot of a day, in UTC."""
-    if not is_working_day(fecha):
+    if not is_working_day(day):
         return []
-    fin_jornada = LUNCH_START if fecha.weekday() == 5 else CLOSING
+    end_of_day = LUNCH_START if day.weekday() == 5 else CLOSING
     slots: list[tuple[datetime, datetime]] = []
-    cursor = local(fecha, OPENING)
-    limite = local(fecha, fin_jornada)
-    while cursor + SLOT_LENGTH <= limite:
-        fin = cursor + SLOT_LENGTH
+    cursor = local(day, OPENING)
+    limit = local(day, end_of_day)
+    while cursor + SLOT_LENGTH <= limit:
+        end = cursor + SLOT_LENGTH
         if not (LUNCH_START <= cursor.time() < LUNCH_END):
-            slots.append((to_utc(cursor), to_utc(fin)))
-        cursor = fin
+            slots.append((to_utc(cursor), to_utc(end)))
+        cursor = end
     return slots

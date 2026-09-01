@@ -60,27 +60,27 @@ def _b64(payload: bytes) -> str:
 
 
 def verify_pkce(verifier: str, challenge: str) -> bool:
-    esperado = _b64(hashlib.sha256(verifier.encode("ascii")).digest())
-    return secrets.compare_digest(esperado, challenge)
+    expected = _b64(hashlib.sha256(verifier.encode("ascii")).digest())
+    return secrets.compare_digest(expected, challenge)
 
 
 @dataclass(slots=True)
 class AuthorizationCode:
-    codigo: str
+    code: str
     client_id: str
     redirect_uri: str
     code_challenge: str
     scopes: list[str]
     subject: str
     emitido_en: float
-    usado: bool = False
+    used: bool = False
 
 
 @dataclass(slots=True)
 class RegisteredClient:
     client_id: str
     redirect_uris: list[str]
-    nombre: str = "client"
+    name: str = "client"
 
 
 @dataclass(slots=True)
@@ -92,13 +92,13 @@ class AuthorizationServerState:
 
     def purge(self, now: float) -> None:
         overdue = [c for c, d in self.codigos.items() if now - d.emitido_en > CODE_TTL]
-        for codigo in overdue:
-            del self.codigos[codigo]
+        for code in overdue:
+            del self.codigos[code]
 
 
-def _error(descripcion: str, *, codigo: str = "invalid_request", status: int = 400) -> JSONResponse:
+def _error(description: str, *, code: str = "invalid_request", status: int = 400) -> JSONResponse:
     """RFC 6749 §5.2 error shape, which is what clients actually parse."""
-    return JSONResponse({"error": codigo, "error_description": descripcion}, status_code=status)
+    return JSONResponse({"error": code, "error_description": description}, status_code=status)
 
 
 class AuthorizationServer:
@@ -116,16 +116,16 @@ class AuthorizationServer:
         self.scopes = scopes
         self.ttl_token = ttl_token
         self.signing_keys = par or signing_keys()
-        self.estado = AuthorizationServerState()
+        self.state = AuthorizationServerState()
         # A demo client so the quickstart and the MCP Inspector work with no
         # registration step. It is a *public* client: no secret, PKCE only.
-        self.estado.clientes[DEMO_CLIENT] = RegisteredClient(
+        self.state.clientes[DEMO_CLIENT] = RegisteredClient(
             client_id=DEMO_CLIENT,
             redirect_uris=[
                 "http://localhost:6274/oauth/callback",
                 "http://localhost:8080/callback",
             ],
-            nombre="Cliente de demostración",
+            name="Cliente de demostración",
         )
 
     # --- discovery ---------------------------------------------------------
@@ -162,10 +162,10 @@ class AuthorizationServer:
         if not isinstance(redirects, list) or not redirects:
             return _error("redirect_uris es obligatorio y debe ser una lista no vacía.")
         client_id = f"c-{secrets.token_urlsafe(9)}"
-        self.estado.clientes[client_id] = RegisteredClient(
+        self.state.clientes[client_id] = RegisteredClient(
             client_id=client_id,
             redirect_uris=[str(r) for r in redirects],
-            nombre=str(body.get("client_name", "client")),
+            name=str(body.get("client_name", "client")),
         )
         return JSONResponse(
             {
@@ -185,11 +185,11 @@ class AuthorizationServer:
         p = request.query_params
         client_id = p.get("client_id", "")
         redirect_uri = p.get("redirect_uri", "")
-        estado = p.get("state", "")
+        state = p.get("state", "")
 
-        client = self.estado.clientes.get(client_id)
+        client = self.state.clientes.get(client_id)
         if client is None:
-            return _error(f"client_id desconocido: {client_id}", codigo="invalid_client")
+            return _error(f"client_id desconocido: {client_id}", code="invalid_client")
         # Never redirect to an unregistered URI: that is an open redirect and an
         # authorization-code exfiltration path.
         if redirect_uri not in client.redirect_uris:
@@ -200,7 +200,7 @@ class AuthorizationServer:
                 redirect_uri,
                 "unsupported_response_type",
                 "Solo se admite response_type=code.",
-                estado,
+                state,
             )
 
         challenge = p.get("code_challenge", "")
@@ -210,7 +210,7 @@ class AuthorizationServer:
                 redirect_uri,
                 "invalid_request",
                 "PKCE es obligatorio: envía code_challenge con code_challenge_method=S256.",
-                estado,
+                state,
             )
 
         solicitados = (p.get("scope") or "read").split()
@@ -220,18 +220,18 @@ class AuthorizationServer:
                 redirect_uri,
                 "invalid_scope",
                 f"Scopes no soportados: {', '.join(desconocidos)}.",
-                estado,
+                state,
             )
 
         # A real deployment shows a consent screen here. This one auto-approves
         # and says so, because the interesting part for this project is the
         # protocol, not the login form.
         subject = p.get("login_hint") or "recepcion@clinica.local"
-        codigo = secrets.token_urlsafe(24)
+        code = secrets.token_urlsafe(24)
         now = time.time()
-        self.estado.purge(now)
-        self.estado.codigos[codigo] = AuthorizationCode(
-            codigo=codigo,
+        self.state.purge(now)
+        self.state.codigos[code] = AuthorizationCode(
+            code=code,
             client_id=client_id,
             redirect_uri=redirect_uri,
             code_challenge=challenge,
@@ -239,14 +239,14 @@ class AuthorizationServer:
             subject=subject,
             emitido_en=now,
         )
-        target = f"{redirect_uri}?{urlencode({'code': codigo, 'state': estado})}"
+        target = f"{redirect_uri}?{urlencode({'code': code, 'state': state})}"
         return RedirectResponse(target, status_code=302)
 
     @staticmethod
     def _redirect_error(
-        redirect_uri: str, codigo: str, descripcion: str, estado: str
+        redirect_uri: str, code: str, description: str, state: str
     ) -> RedirectResponse:
-        query = urlencode({"error": codigo, "error_description": descripcion, "state": estado})
+        query = urlencode({"error": code, "error_description": description, "state": state})
         return RedirectResponse(f"{redirect_uri}?{query}", status_code=302)
 
     # --- token -------------------------------------------------------------
@@ -256,40 +256,40 @@ class AuthorizationServer:
         if formulario.get("grant_type") != "authorization_code":
             return _error(
                 "Solo se admite grant_type=authorization_code (OAuth 2.1).",
-                codigo="unsupported_grant_type",
+                code="unsupported_grant_type",
             )
 
-        codigo = str(formulario.get("code", ""))
+        code = str(formulario.get("code", ""))
         verifier = str(formulario.get("code_verifier", ""))
         client_id = str(formulario.get("client_id", ""))
 
         now = time.time()
-        self.estado.purge(now)
-        emitido = self.estado.codigos.get(codigo)
-        if emitido is None:
-            return _error("El código de autorización no existe o expiró.", codigo="invalid_grant")
-        if emitido.usado:
+        self.state.purge(now)
+        issued = self.state.codigos.get(code)
+        if issued is None:
+            return _error("El código de autorización no existe o expiró.", code="invalid_grant")
+        if issued.used:
             # A replayed code means it leaked. Burn everything derived from it.
-            del self.estado.codigos[codigo]
-            return _error("El código ya fue usado.", codigo="invalid_grant")
-        if emitido.client_id != client_id:
-            return _error("El código pertenece a otro cliente.", codigo="invalid_grant")
-        if not verifier or not verify_pkce(verifier, emitido.code_challenge):
+            del self.state.codigos[code]
+            return _error("El código ya fue usado.", code="invalid_grant")
+        if issued.client_id != client_id:
+            return _error("El código pertenece a otro cliente.", code="invalid_grant")
+        if not verifier or not verify_pkce(verifier, issued.code_challenge):
             return _error(
-                "El code_verifier no corresponde al code_challenge.", codigo="invalid_grant"
+                "El code_verifier no corresponde al code_challenge.", code="invalid_grant"
             )
 
-        emitido.usado = True
-        del self.estado.codigos[codigo]
+        issued.used = True
+        del self.state.codigos[code]
 
         return JSONResponse(
             {
                 "access_token": self.issue_token(
-                    emitido.subject, emitido.scopes, client_id=client_id
+                    issued.subject, issued.scopes, client_id=client_id
                 ),
                 "token_type": "Bearer",  # nosec B105 - the RFC 6750 token type
                 "expires_in": self.ttl_token,
-                "scope": " ".join(emitido.scopes),
+                "scope": " ".join(issued.scopes),
             }
         )
 
@@ -300,19 +300,19 @@ class AuthorizationServer:
         *,
         client_id: str = DEMO_CLIENT,
         ttl: int | None = None,
-        audiencia: str | None = None,
+        audience: str | None = None,
         now: float | None = None,
     ) -> str:
         """Mint an access token. Also used by the test-suite to build tokens."""
-        emitido = int(now if now is not None else time.time())
+        issued = int(now if now is not None else time.time())
         payload = {
             "iss": self.issuer,
             "sub": subject,
-            "aud": audiencia or self.audience,
+            "aud": audience or self.audience,
             "client_id": client_id,
             "scope": " ".join(scopes),
-            "iat": emitido,
-            "exp": emitido + (ttl if ttl is not None else self.ttl_token),
+            "iat": issued,
+            "exp": issued + (ttl if ttl is not None else self.ttl_token),
             "jti": secrets.token_urlsafe(8),
         }
         return jwt.encode(

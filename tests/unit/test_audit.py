@@ -27,27 +27,27 @@ class LoggerFalso:
 
 
 class TestRedaccion:
-    @pytest.mark.parametrize("campo", sorted(REDACTED_FIELDS))
-    def test_todo_campo_sensible_se_redacta(self, campo: str) -> None:
-        assert redact({campo: "valor real"})[campo] == REDACTED
+    @pytest.mark.parametrize("field", sorted(REDACTED_FIELDS))
+    def test_todo_campo_sensible_se_redacta(self, field: str) -> None:
+        assert redact({field: "valor real"})[field] == REDACTED
 
     def test_los_demas_campos_se_conservan(self) -> None:
-        assert redact({"cita_id": 7, "estado": "attended"}) == {
-            "cita_id": 7,
-            "estado": "attended",
+        assert redact({"appointment_id": 7, "status": "attended"}) == {
+            "appointment_id": 7,
+            "status": "attended",
         }
 
     def test_un_none_no_se_redacta_innecesariamente(self) -> None:
         """Redacting an absent value hides that it was absent."""
-        assert redact({"motivo": None}) == {"motivo": None}
+        assert redact({"reason": None}) == {"reason": None}
 
     def test_el_motivo_de_consulta_esta_cubierto(self) -> None:
         # It is clinical data under Res. 2654/2019.
-        assert "motivo" in REDACTED_FIELDS
+        assert "reason" in REDACTED_FIELDS
 
     def test_el_token_de_confirmacion_esta_cubierto(self) -> None:
         # A logged token is a replayable approval.
-        assert "token_confirmacion" in REDACTED_FIELDS
+        assert "confirmation_token" in REDACTED_FIELDS
 
 
 class TestAuditor:
@@ -58,13 +58,13 @@ class TestAuditor:
             "search_patients",
             subject="ana@clinica.test",
             scope="read",
-            arguments={"documento": "123"},
+            arguments={"document_number": "123"},
             result="ok",
         )
         evento, payload = logger.llamadas[-1]
         assert evento == "tool.invocation"
         assert payload["subject"] == "ana@clinica.test"
-        assert payload["arguments"]["documento"] == REDACTED
+        assert payload["arguments"]["document_number"] == REDACTED
 
     def test_registra_el_codigo_de_error_cuando_lo_hay(self) -> None:
         auditor = Auditor(LoggerFalso())
@@ -74,9 +74,9 @@ class TestAuditor:
             scope="read",
             arguments={},
             result="error",
-            error_code="CITA_NO_ENCONTRADA",
+            error_code="APPOINTMENT_NOT_FOUND",
         )
-        assert auditor.events[-1]["error_code"] == "CITA_NO_ENCONTRADA"
+        assert auditor.events[-1]["error_code"] == "APPOINTMENT_NOT_FOUND"
 
     def test_marca_la_ejecucion_aprobada(self) -> None:
         auditor = Auditor(LoggerFalso())
@@ -94,12 +94,12 @@ class TestAuditor:
 
     def test_el_acceso_clinico_es_su_propio_tipo_de_evento(self) -> None:
         auditor = Auditor(LoggerFalso())
-        auditor.clinical_access(subject="a", cita_id=7, result="registrado")
+        auditor.clinical_access(subject="a", appointment_id=7, result="recorded")
         assert auditor.events[-1] == {
             "event": "clinical.access",
             "subject": "a",
-            "cita_id": 7,
-            "result": "registrado",
+            "appointment_id": 7,
+            "result": "recorded",
         }
 
     def test_la_memoria_esta_acotada(self) -> None:
@@ -108,15 +108,17 @@ class TestAuditor:
         auditor = Auditor(LoggerFalso())
         auditor.memory_limit = 10
         for i in range(50):
-            auditor.clinical_access(subject="a", cita_id=i, result="x")
+            auditor.clinical_access(subject="a", appointment_id=i, result="x")
         assert len(auditor.events) == 10
-        assert auditor.events[-1]["cita_id"] == 49
+        assert auditor.events[-1]["appointment_id"] == 49
 
     def test_los_eventos_son_serializables_a_json(self) -> None:
         """They are shipped to a log pipeline; an unserialisable value would be
         discovered in production rather than here."""
         auditor = Auditor(LoggerFalso())
-        auditor.tool_call("x", subject="a", scope="read", arguments={"cita_id": 1}, result="ok")
+        auditor.tool_call(
+            "x", subject="a", scope="read", arguments={"appointment_id": 1}, result="ok"
+        )
         json.dumps(auditor.events)
 
 

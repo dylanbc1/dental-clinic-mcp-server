@@ -26,12 +26,12 @@ PRIORITY_WEIGHT: dict[WaitingListPriority, int] = {
 
 @dataclass(frozen=True, slots=True)
 class WaitingListEntry:
-    entrada_id: int
-    paciente_id: int
-    especialidad: Specialty
-    prioridad: WaitingListPriority
-    creada_en: datetime
-    estado: WaitingListState = WaitingListState.ACTIVE
+    entry_id: int
+    patient_id: int
+    specialty: Specialty
+    priority: WaitingListPriority
+    created_at: datetime
+    status: WaitingListState = WaitingListState.ACTIVE
 
     @property
     def sort_key(self) -> tuple[int, datetime, int]:
@@ -41,18 +41,18 @@ class WaitingListEntry:
         Without it the queue reorders between calls and the same patient gets
         offered a slot twice.
         """
-        return (PRIORITY_WEIGHT[self.prioridad], self.creada_en, self.entrada_id)
+        return (PRIORITY_WEIGHT[self.priority], self.created_at, self.entry_id)
 
 
 def in_queue_order(entries: list[WaitingListEntry]) -> list[WaitingListEntry]:
     """Queue order for the active entries. Non-active entries are dropped."""
-    active = [e for e in entries if e.estado is WaitingListState.ACTIVE]
+    active = [e for e in entries if e.status is WaitingListState.ACTIVE]
     return sorted(active, key=lambda e: e.sort_key)
 
 
 def candidates_for_slot(
     entries: list[WaitingListEntry],
-    especialidad: Specialty,
+    specialty: Specialty,
     *,
     excluir_pacientes: frozenset[int] = frozenset(),
 ) -> list[WaitingListEntry]:
@@ -64,13 +64,13 @@ def candidates_for_slot(
     return [
         e
         for e in in_queue_order(entries)
-        if e.especialidad is especialidad and e.paciente_id not in excluir_pacientes
+        if e.specialty is specialty and e.patient_id not in excluir_pacientes
     ]
 
 
 def next_in_queue(
     entries: list[WaitingListEntry],
-    especialidad: Specialty,
+    specialty: Specialty,
     *,
     excluir_pacientes: frozenset[int] = frozenset(),
 ) -> WaitingListEntry:
@@ -79,26 +79,26 @@ def next_in_queue(
     Raises :class:`ListaEsperaVacia` with a suggestion instead of returning
     ``None``: an LLM handles a typed error better than a null.
     """
-    candidates = candidates_for_slot(entries, especialidad, excluir_pacientes=excluir_pacientes)
+    candidates = candidates_for_slot(entries, specialty, excluir_pacientes=excluir_pacientes)
     if not candidates:
         raise WaitingListEmpty(
-            f"No patients are on the waiting list for {especialidad}.",
-            sugerencia=(
+            f"No patients are on the waiting list for {specialty}.",
+            suggestion=(
                 "The slot stays free in the agenda. You can offer it directly with "
                 "check_availability and book_appointment."
             ),
-            detalles={"especialidad": str(especialidad)},
+            details={"specialty": str(specialty)},
         )
     return candidates[0]
 
 
 def position_in_queue(
     entries: list[WaitingListEntry],
-    paciente_id: int,
-    especialidad: Specialty,
+    patient_id: int,
+    specialty: Specialty,
 ) -> int | None:
     """1-based position of a patient in the queue, or ``None`` if not enrolled."""
-    for indice, entry in enumerate(candidates_for_slot(entries, especialidad), start=1):
-        if entry.paciente_id == paciente_id:
+    for indice, entry in enumerate(candidates_for_slot(entries, specialty), start=1):
+        if entry.patient_id == patient_id:
             return indice
     return None

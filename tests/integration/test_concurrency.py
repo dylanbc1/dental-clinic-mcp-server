@@ -20,19 +20,19 @@ from backend.models import AgendaSlot, Appointment
 pytestmark = pytest.mark.integration
 
 
-def _cita(payload: dict[str, int], paciente: str, **extra: object) -> Appointment:
-    campos: dict[str, object] = {
-        "paciente_id": payload[paciente],
-        "profesional_id": payload["profesional_id"],
+def _cita(payload: dict[str, int], patient: str, **extra: object) -> Appointment:
+    fields: dict[str, object] = {
+        "patient_id": payload[patient],
+        "professional_id": payload["professional_id"],
         "slot_id": payload["slot_id"],
-        "estado": AppointmentState.SCHEDULED,
-        "creada_por": f"agente-{paciente}",
+        "status": AppointmentState.SCHEDULED,
+        "created_by": f"agente-{patient}",
     }
-    campos.update(extra)
+    fields.update(extra)
     # A cancelled appointment needs its reason, exactly as the domain demands.
-    if campos["estado"] is AppointmentState.CANCELLED:
-        campos.setdefault("motivo_cancelacion", "motivo de prueba")
-    return Appointment(**campos)  # type: ignore[arg-type]
+    if fields["status"] is AppointmentState.CANCELLED:
+        fields.setdefault("cancellation_reason", "motivo de prueba")
+    return Appointment(**fields)  # type: ignore[arg-type]
 
 
 class TestDobleReserva:
@@ -51,9 +51,9 @@ class TestDobleReserva:
 
         # Exactly one appointment survives. Not two, not zero.
         session_ = sessions()
-        citas = session_.query(Appointment).filter_by(slot_id=minimal_data["slot_id"]).all()
-        assert len(citas) == 1
-        assert citas[0].paciente_id == minimal_data["paciente_a"]
+        appointments = session_.query(Appointment).filter_by(slot_id=minimal_data["slot_id"]).all()
+        assert len(appointments) == 1
+        assert appointments[0].patient_id == minimal_data["paciente_a"]
 
     def test_cancelar_libera_el_cupo_para_otro_paciente(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
@@ -65,8 +65,8 @@ class TestDobleReserva:
         session_.add(primera)
         session_.commit()
 
-        primera.estado = AppointmentState.CANCELLED
-        primera.motivo_cancelacion = "El paciente viajó"
+        primera.status = AppointmentState.CANCELLED
+        primera.cancellation_reason = "El paciente viajó"
         session_.commit()
 
         session_.add(_cita(minimal_data, "paciente_b"))
@@ -76,14 +76,14 @@ class TestDobleReserva:
             session_.query(Appointment)
             .filter(
                 Appointment.slot_id == minimal_data["slot_id"],
-                Appointment.estado != AppointmentState.CANCELLED,
+                Appointment.status != AppointmentState.CANCELLED,
             )
             .all()
         )
         assert len(active) == 1
 
     @pytest.mark.parametrize(
-        "estado",
+        "status",
         [
             AppointmentState.SCHEDULED,
             AppointmentState.CONFIRMED,
@@ -95,10 +95,10 @@ class TestDobleReserva:
         self,
         sessions: Callable[[], Session],
         minimal_data: dict[str, int],
-        estado: AppointmentState,
+        status: AppointmentState,
     ) -> None:
         session_ = sessions()
-        session_.add(_cita(minimal_data, "paciente_a", estado=estado))
+        session_.add(_cita(minimal_data, "paciente_a", status=status))
         session_.commit()
 
         otra = sessions()
@@ -108,17 +108,17 @@ class TestDobleReserva:
         otra.rollback()
 
     @pytest.mark.parametrize(
-        "estado",
+        "status",
         [AppointmentState.CANCELLED, AppointmentState.RESCHEDULED, AppointmentState.NO_SHOW],
     )
     def test_ningun_estado_liberador_bloquea_una_segunda_cita(
         self,
         sessions: Callable[[], Session],
         minimal_data: dict[str, int],
-        estado: AppointmentState,
+        status: AppointmentState,
     ) -> None:
         session_ = sessions()
-        session_.add(_cita(minimal_data, "paciente_a", estado=estado))
+        session_.add(_cita(minimal_data, "paciente_a", status=status))
         session_.commit()
 
         otra = sessions()
@@ -149,8 +149,8 @@ class TestIdempotencia:
         primera = _cita(minimal_data, "paciente_a", idempotency_key="req-1")
         session_.add(primera)
         session_.commit()
-        primera.estado = AppointmentState.CANCELLED
-        primera.motivo_cancelacion = "cambio de plan"
+        primera.status = AppointmentState.CANCELLED
+        primera.cancellation_reason = "cambio de plan"
         session_.commit()
 
         session_.add(_cita(minimal_data, "paciente_b", idempotency_key="req-2"))
@@ -165,8 +165,8 @@ class TestIdempotencia:
         primera = _cita(minimal_data, "paciente_a")
         session_.add(primera)
         session_.commit()
-        primera.estado = AppointmentState.CANCELLED
-        primera.motivo_cancelacion = "x"
+        primera.status = AppointmentState.CANCELLED
+        primera.cancellation_reason = "x"
         session_.commit()
 
         session_.add(_cita(minimal_data, "paciente_b"))
@@ -183,10 +183,10 @@ class TestBloqueoOptimista:
         assert slot_a is not None and slot_b is not None
         assert slot_a.version_id == slot_b.version_id  # both read the same version
 
-        slot_a.estado = SlotState.BUSY
+        slot_a.status = SlotState.BUSY
         agente_a.commit()
 
-        slot_b.estado = SlotState.BLOCKED
+        slot_b.status = SlotState.BLOCKED
         with pytest.raises(StaleDataError):
             agente_b.commit()
         agente_b.rollback()
@@ -199,11 +199,11 @@ class TestBloqueoOptimista:
         assert slot is not None
         inicial = slot.version_id
 
-        slot.estado = SlotState.BUSY
+        slot.status = SlotState.BUSY
         session_.commit()
         assert slot.version_id == inicial + 1
 
-        slot.estado = SlotState.FREE
+        slot.status = SlotState.FREE
         session_.commit()
         assert slot.version_id == inicial + 2
 
@@ -219,10 +219,10 @@ class TestUnicidadDeSlot:
         otra = sessions()
         otra.add(
             AgendaSlot(
-                profesional_id=original.profesional_id,
-                fecha=original.fecha,
-                inicio=original.inicio,
-                fin=original.fin,
+                professional_id=original.professional_id,
+                day=original.day,
+                start=original.start,
+                end=original.end,
             )
         )
         with pytest.raises(IntegrityError):

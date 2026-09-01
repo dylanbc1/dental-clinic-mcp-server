@@ -66,7 +66,7 @@ services:
         - CMD-SHELL
         - >-
           python -c "import urllib.request,sys;
-          sys.exit(0 if urllib.request.urlopen('http://localhost:8000/listo',
+          sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready',
           timeout=3).status == 200 else 1)"
       interval: 5s
       timeout: 5s
@@ -172,9 +172,9 @@ services:
       MCP_ALLOWED_HOSTS: localhost,127.0.0.1,mcp-keycloak
       MCP_ALLOWED_ORIGINS: http://localhost:8081,http://localhost:6274
       BACKEND_BASE_URL: http://backend:8000
-      OAUTH_ISSUER: http://localhost:9100/realms/clinica
+      OAUTH_ISSUER: http://localhost:9100/realms/clinic
       OAUTH_AUDIENCE: http://localhost:8081
-      OAUTH_JWKS_URL: http://keycloak:9100/realms/clinica/protocol/openid-connect/certs
+      OAUTH_JWKS_URL: http://keycloak:9100/realms/clinic/protocol/openid-connect/certs
       APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
     ports:
       - "8081:8081"

@@ -41,7 +41,7 @@ def date_in_spanish(when: datetime) -> str:
 
 
 RECEPTIONIST_PROMPT = """\
-Eres el asistente de recepción de {nombre}, una clínica odontológica en {ciudad}, Colombia.
+Eres el asistente de recepción de {name}, una clínica odontológica en {city}, Colombia.
 Hablas español colombiano, tratas de "usted" a los pacientes y eres breve y concreto.
 
 QUÉ PUEDES HACER
@@ -75,7 +75,7 @@ CUÁNDO ESCALAS A UN HUMANO
 - Reclamos de facturación, o cualquier caso donde el paciente esté molesto.
 - Cualquier cosa que no puedas resolver con las herramientas disponibles.
 
-Hoy es {hoy} y son las {hora} (hora de {ciudad}).
+Hoy es {today} y son las {time} (hora de {city}).
 """
 
 
@@ -90,7 +90,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         mime_type="application/json",
     )
     async def clinic_info_route() -> str:
-        return json.dumps(await ctx.client.get_object("/clinica"), ensure_ascii=False, indent=2)
+        return json.dumps(await ctx.client.get_object("/clinic"), ensure_ascii=False, indent=2)
 
     @server_.resource(
         "politicas://cartera",
@@ -105,7 +105,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
     )
     async def cartera_policies_resource() -> str:
         return json.dumps(
-            await ctx.client.get_object("/politicas/cartera"), ensure_ascii=False, indent=2
+            await ctx.client.get_object("/policies/cartera"), ensure_ascii=False, indent=2
         )
 
     @server_.resource(
@@ -136,11 +136,11 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         ),
     )
     async def recepcionista_odontologia() -> str:
-        clinica = await ctx.client.get_object("/clinica")
+        clinic = await ctx.client.get_object("/clinic")
         now = now_at_clinic()
         return RECEPTIONIST_PROMPT.format(
-            nombre=clinica["nombre"],
-            ciudad=clinica["ciudad"],
-            hoy=date_in_spanish(now),
-            hora=f"{now:%H:%M}",
+            name=clinic["name"],
+            city=clinic["city"],
+            today=date_in_spanish(now),
+            time=f"{now:%H:%M}",
         )

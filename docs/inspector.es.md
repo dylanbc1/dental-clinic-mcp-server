@@ -6,7 +6,7 @@
 > spec 2026-07-28: su SDK de JavaScript va por detrás del de Python, así que
 > negocia una versión anterior y **no puede responder un `input_required`**. Las
 > herramientas de lectura funcionan perfectamente; las de escritura te devolverán
-> `CLIENTE_SIN_CONFIRMACION` explicando exactamente eso.
+> `CLIENT_CANNOT_CONFIRM` explicando exactamente eso.
 >
 > Para las de escritura usa `make consola`, un cliente interactivo donde tú
 > respondes las confirmaciones. Los pasos 4 y 5 de abajo son con la consola.
@@ -44,7 +44,7 @@ TOKEN=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN" \
   --method tools/call --tool-name cancel_appointment \
-  --tool-arg cita_id=1 --tool-arg motivo="prueba de scope"
+  --tool-arg appointment_id=1 --tool-arg reason="prueba de scope"
 ```
 
 El rechazo nombra el scope que falta, lista los que sí tienes y le dice al modelo
@@ -59,8 +59,8 @@ También se rechaza: los scopes no anidan.
 
 ```bash
 make consola
-› check_availability {"limite": 3}
-› book_appointment {"paciente_id": 20, "slot_id": SLOT_ID}
+› check_availability {"limit": 3}
+› book_appointment {"patient_id": 20, "slot_id": SLOT_ID}
 ```
 
 La consola imprime la pregunta que devolvió el servidor en vez de un resultado:

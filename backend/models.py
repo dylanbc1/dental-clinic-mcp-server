@@ -50,12 +50,12 @@ from backend.enums import (
 )
 
 
-def _enum(enum_cls: type, nombre: str) -> SAEnum:
+def _enum(enum_cls: type, name: str) -> SAEnum:
     """Native PostgreSQL enum storing StrEnum values, not member names, so the
     database reads cleanly in plain SQL."""
     return SAEnum(
         enum_cls,
-        name=nombre,
+        name=name,
         native_enum=True,
         values_callable=lambda e: [m.value for m in e],
     )
@@ -75,8 +75,8 @@ class Base(DeclarativeBase):
 
 
 class TimestampMixin:
-    creada_en: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
-    actualizada_en: Mapped[datetime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         TS, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
@@ -87,40 +87,40 @@ class TimestampMixin:
 
 
 class Clinic(Base, TimestampMixin):
-    __tablename__ = "clinica"
+    __tablename__ = "clinic"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    nombre: Mapped[str] = mapped_column(String(160), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
     nit: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
-    especialidad: Mapped[str] = mapped_column(String(80), nullable=False)
-    direccion: Mapped[str | None] = mapped_column(String(200))
-    telefono: Mapped[str | None] = mapped_column(String(30))
-    ciudad: Mapped[str] = mapped_column(String(80), default="Bogotá", nullable=False)
-    zona_horaria: Mapped[str] = mapped_column(String(50), default="America/Bogota", nullable=False)
+    specialty: Mapped[str] = mapped_column(String(80), nullable=False)
+    address: Mapped[str | None] = mapped_column(String(200))
+    phone: Mapped[str | None] = mapped_column(String(30))
+    city: Mapped[str] = mapped_column(String(80), default="Bogotá", nullable=False)
+    timezone_name: Mapped[str] = mapped_column(String(50), default="America/Bogota", nullable=False)
 
-    profesionales: Mapped[list[Professional]] = relationship(
-        back_populates="clinica", cascade="all, delete-orphan"
+    professionals: Mapped[list[Professional]] = relationship(
+        back_populates="clinic", cascade="all, delete-orphan"
     )
 
 
 class Professional(Base, TimestampMixin):
-    __tablename__ = "profesional"
+    __tablename__ = "professional"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    clinica_id: Mapped[int] = mapped_column(
-        ForeignKey("clinica.id", ondelete="CASCADE"), index=True, nullable=False
+    clinic_id: Mapped[int] = mapped_column(
+        ForeignKey("clinic.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    nombre: Mapped[str] = mapped_column(String(160), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
     #: Colombian professional registration number (registro profesional).
-    registro: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
-    especialidad: Mapped[Specialty] = mapped_column(
+    license_number: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    specialty: Mapped[Specialty] = mapped_column(
         _enum(Specialty, "specialty_enum"), nullable=False, index=True
     )
-    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    clinica: Mapped[Clinic] = relationship(back_populates="profesionales")
+    clinic: Mapped[Clinic] = relationship(back_populates="professionals")
     slots: Mapped[list[AgendaSlot]] = relationship(
-        back_populates="profesional", cascade="all, delete-orphan"
+        back_populates="professional", cascade="all, delete-orphan"
     )
 
 
@@ -130,42 +130,42 @@ class Professional(Base, TimestampMixin):
 
 
 class Patient(Base, TimestampMixin):
-    __tablename__ = "paciente"
+    __tablename__ = "patient"
     __table_args__ = (
-        UniqueConstraint("tipo_documento", "documento", name="uq_paciente_documento"),
-        Index("ix_paciente_nombre_lower", func.lower(text("nombre"))),
-        CheckConstraint("nivel_cuota_moderadora between 1 and 3", name="ck_paciente_nivel_cuota"),
+        UniqueConstraint("document_type", "document_number", name="uq_patient_document"),
+        Index("ix_patient_name_lower", func.lower(text("name"))),
+        CheckConstraint(
+            "cuota_moderadora_level between 1 and 3", name="ck_patient_cuota_moderadora_level"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    tipo_documento: Mapped[DocumentType] = mapped_column(
+    document_type: Mapped[DocumentType] = mapped_column(
         _enum(DocumentType, "tipo_documento_enum"),
         default=DocumentType.CC,
         nullable=False,
     )
-    documento: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    nombre: Mapped[str] = mapped_column(String(160), nullable=False)
-    telefono: Mapped[str] = mapped_column(String(30), nullable=False)
+    document_number: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    phone: Mapped[str] = mapped_column(String(30), nullable=False)
     email: Mapped[str | None] = mapped_column(String(160))
-    fecha_nacimiento: Mapped[date | None] = mapped_column(Date)
+    birth_date: Mapped[date | None] = mapped_column(Date)
 
     regimen: Mapped[Regimen] = mapped_column(
         _enum(Regimen, "regimen_enum"), nullable=False, index=True
     )
-    afiliacion_activa: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    afiliacion_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     eps: Mapped[str | None] = mapped_column(String(120))
     #: Income bracket driving the cuota moderadora (1-3).
-    nivel_cuota_moderadora: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    cuota_moderadora_level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     #: Informed consent for clinical data (Res. 2654/2019). Gates the
     #: `record_visit_reason` tool, the only one that touches it.
-    consentimiento_datos_clinicos: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
-    consentimiento_otorgado_en: Mapped[datetime | None] = mapped_column(TS)
+    clinical_data_consent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    consent_granted_at: Mapped[datetime | None] = mapped_column(TS)
 
-    citas: Mapped[list[Appointment]] = relationship(back_populates="paciente")
-    cargos: Mapped[list[Charge]] = relationship(back_populates="paciente")
+    appointments: Mapped[list[Appointment]] = relationship(back_populates="patient")
+    charges: Mapped[list[Charge]] = relationship(back_populates="patient")
 
 
 # --------------------------------------------------------------------------- #
@@ -176,60 +176,64 @@ class Patient(Base, TimestampMixin):
 class AgendaSlot(Base, TimestampMixin):
     __tablename__ = "agenda_slot"
     __table_args__ = (
-        UniqueConstraint("profesional_id", "inicio", name="uq_slot_profesional_inicio"),
-        CheckConstraint("fin > inicio", name="ck_slot_rango_valido"),
-        Index("ix_slot_busqueda", "fecha", "estado", "profesional_id"),
+        UniqueConstraint("professional_id", "starts_at", name="uq_slot_professional_start"),
+        CheckConstraint("ends_at > starts_at", name="ck_slot_valid_range"),
+        Index("ix_slot_search", "day", "status", "professional_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    profesional_id: Mapped[int] = mapped_column(
-        ForeignKey("profesional.id", ondelete="CASCADE"), nullable=False
+    professional_id: Mapped[int] = mapped_column(
+        ForeignKey("professional.id", ondelete="CASCADE"), nullable=False
     )
     #: Denormalised clinic-local date, so "free slots on Tuesday" is one index
     #: scan instead of a timezone conversion per row.
-    fecha: Mapped[date] = mapped_column(Date, nullable=False)
-    inicio: Mapped[datetime] = mapped_column(TS, nullable=False)
-    fin: Mapped[datetime] = mapped_column(TS, nullable=False)
-    estado: Mapped[SlotState] = mapped_column(
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    #: `end` is a reserved word in PostgreSQL, so both columns carry an
+    #: explicit name. The Python attribute stays `start`/`end`, which is what
+    #: reads well at the call site; the table gets `starts_at`/`ends_at`, which
+    #: is what a hand-written query can use without quoting.
+    start: Mapped[datetime] = mapped_column("starts_at", TS, nullable=False)
+    end: Mapped[datetime] = mapped_column("ends_at", TS, nullable=False)
+    status: Mapped[SlotState] = mapped_column(
         _enum(SlotState, "slot_state_enum"), default=SlotState.FREE, nullable=False
     )
     #: Optimistic-locking counter, bumped and checked on every UPDATE so two
     #: concurrent bookings cannot both believe they won.
     version_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-    profesional: Mapped[Professional] = relationship(back_populates="slots")
+    professional: Mapped[Professional] = relationship(back_populates="slots")
 
     __mapper_args__ = {"version_id_col": version_id}  # noqa: RUF012
 
 
 class Appointment(Base, TimestampMixin):
-    __tablename__ = "cita"
+    __tablename__ = "appointment"
     __table_args__ = (
         # The anti-double-booking guarantee. Only states that hold the slot
         # participate, so a cancelled appointment releases it.
         Index(
-            "uq_cita_slot_activa",
+            "uq_appointment_slot_active",
             "slot_id",
             unique=True,
-            postgresql_where=text("estado in ('scheduled','confirmed','waiting','attended')"),
+            postgresql_where=text("status in ('scheduled','confirmed','waiting','attended')"),
         ),
         # An agent that resends the same booking gets the same appointment back
         # instead of a duplicate.
-        UniqueConstraint("idempotency_key", name="uq_cita_idempotency"),
-        Index("ix_cita_paciente_estado", "paciente_id", "estado"),
+        UniqueConstraint("idempotency_key", name="uq_appointment_idempotency"),
+        Index("ix_appointment_patient_status", "patient_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    paciente_id: Mapped[int] = mapped_column(
-        ForeignKey("paciente.id", ondelete="RESTRICT"), nullable=False
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patient.id", ondelete="RESTRICT"), nullable=False
     )
-    profesional_id: Mapped[int] = mapped_column(
-        ForeignKey("profesional.id", ondelete="RESTRICT"), nullable=False, index=True
+    professional_id: Mapped[int] = mapped_column(
+        ForeignKey("professional.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     slot_id: Mapped[int] = mapped_column(
         ForeignKey("agenda_slot.id", ondelete="RESTRICT"), nullable=False
     )
-    estado: Mapped[AppointmentState] = mapped_column(
+    status: Mapped[AppointmentState] = mapped_column(
         _enum(AppointmentState, "appointment_state_enum"),
         default=AppointmentState.SCHEDULED,
         nullable=False,
@@ -238,25 +242,27 @@ class Appointment(Base, TimestampMixin):
 
     #: Clinical data (Res. 2654/2019). Written only through the `clinical`
     #: scope, only with consent on file, and always audited.
-    motivo: Mapped[str | None] = mapped_column(Text)
-    motivo_registrado_en: Mapped[datetime | None] = mapped_column(TS)
-    motivo_registrado_por: Mapped[str | None] = mapped_column(String(120))
+    reason: Mapped[str | None] = mapped_column(Text)
+    reason_recorded_at: Mapped[datetime | None] = mapped_column(TS)
+    reason_recorded_by: Mapped[str | None] = mapped_column(String(120))
 
-    motivo_cancelacion: Mapped[str | None] = mapped_column(Text)
-    creada_por: Mapped[str] = mapped_column(String(120), nullable=False)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(120), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(80))
     #: Set when this appointment came from rescheduling another.
-    cita_origen_id: Mapped[int | None] = mapped_column(ForeignKey("cita.id", ondelete="SET NULL"))
-
-    paciente: Mapped[Patient] = relationship(back_populates="citas")
-    profesional: Mapped[Professional] = relationship()
-    slot: Mapped[AgendaSlot] = relationship()
-    historial: Mapped[list[AppointmentHistory]] = relationship(
-        back_populates="cita",
-        cascade="all, delete-orphan",
-        order_by="AppointmentHistory.momento",
+    source_appointment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("appointment.id", ondelete="SET NULL")
     )
-    cargos: Mapped[list[Charge]] = relationship(back_populates="cita")
+
+    patient: Mapped[Patient] = relationship(back_populates="appointments")
+    professional: Mapped[Professional] = relationship()
+    slot: Mapped[AgendaSlot] = relationship()
+    history: Mapped[list[AppointmentHistory]] = relationship(
+        back_populates="appointment",
+        cascade="all, delete-orphan",
+        order_by="AppointmentHistory.occurred_at",
+    )
+    charges: Mapped[list[Charge]] = relationship(back_populates="appointment")
 
 
 class AppointmentHistory(Base):
@@ -265,22 +271,26 @@ class AppointmentHistory(Base):
     No ``actualizada_en``: rows here are never updated. That is the point.
     """
 
-    __tablename__ = "cita_historial"
-    __table_args__ = (Index("ix_historial_cita_momento", "cita_id", "momento"),)
+    __tablename__ = "appointment_history"
+    __table_args__ = (Index("ix_history_appointment_occurred_at", "appointment_id", "occurred_at"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    cita_id: Mapped[int] = mapped_column(ForeignKey("cita.id", ondelete="CASCADE"), nullable=False)
-    estado_anterior: Mapped[AppointmentState | None] = mapped_column(
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey("appointment.id", ondelete="CASCADE"), nullable=False
+    )
+    previous_status: Mapped[AppointmentState | None] = mapped_column(
         _enum(AppointmentState, "appointment_state_enum")
     )
-    estado_nuevo: Mapped[AppointmentState] = mapped_column(
+    new_status: Mapped[AppointmentState] = mapped_column(
         _enum(AppointmentState, "appointment_state_enum"), nullable=False
     )
-    usuario: Mapped[str] = mapped_column(String(120), nullable=False)
-    motivo: Mapped[str | None] = mapped_column(Text)
-    momento: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
+    #: `user` is reserved in PostgreSQL, so the column carries an explicit
+    #: name. `changed_by` also says more in an audit table than `user` does.
+    user: Mapped[str] = mapped_column("changed_by", String(120), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
 
-    cita: Mapped[Appointment] = relationship(back_populates="historial")
+    appointment: Mapped[Appointment] = relationship(back_populates="history")
 
 
 # --------------------------------------------------------------------------- #
@@ -289,30 +299,32 @@ class AppointmentHistory(Base):
 
 
 class Charge(Base, TimestampMixin):
-    __tablename__ = "cargo"
+    __tablename__ = "charge"
     __table_args__ = (
-        CheckConstraint("monto >= 0", name="ck_cargo_monto_no_negativo"),
-        Index("ix_cargo_paciente_estado", "paciente_id", "estado"),
+        CheckConstraint("amount >= 0", name="ck_charge_amount_not_negative"),
+        Index("ix_charge_patient_status", "patient_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    paciente_id: Mapped[int] = mapped_column(
-        ForeignKey("paciente.id", ondelete="RESTRICT"), nullable=False
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patient.id", ondelete="RESTRICT"), nullable=False
     )
-    cita_id: Mapped[int | None] = mapped_column(ForeignKey("cita.id", ondelete="SET NULL"))
-    concepto: Mapped[ChargeConcept] = mapped_column(
+    appointment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("appointment.id", ondelete="SET NULL")
+    )
+    concept: Mapped[ChargeConcept] = mapped_column(
         _enum(ChargeConcept, "concepto_cargo_enum"), nullable=False
     )
-    monto: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    descripcion: Mapped[str | None] = mapped_column(String(200))
-    estado: Mapped[ChargeState] = mapped_column(
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(200))
+    status: Mapped[ChargeState] = mapped_column(
         _enum(ChargeState, "charge_state_enum"), default=ChargeState.PENDING, nullable=False
     )
-    vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
-    pagado_en: Mapped[datetime | None] = mapped_column(TS)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    paid_at: Mapped[datetime | None] = mapped_column(TS)
 
-    paciente: Mapped[Patient] = relationship(back_populates="cargos")
-    cita: Mapped[Appointment | None] = relationship(back_populates="cargos")
+    patient: Mapped[Patient] = relationship(back_populates="charges")
+    appointment: Mapped[Appointment | None] = relationship(back_populates="charges")
 
 
 # --------------------------------------------------------------------------- #
@@ -321,41 +333,39 @@ class Charge(Base, TimestampMixin):
 
 
 class WaitingList(Base, TimestampMixin):
-    __tablename__ = "lista_espera"
+    __tablename__ = "waiting_list"
     __table_args__ = (
         # One active wait per specialty. Partial, so a retired entry does not
         # block re-enrolling later.
         Index(
-            "uq_lista_espera_activa",
-            "paciente_id",
-            "especialidad",
+            "uq_waiting_list_active",
+            "patient_id",
+            "specialty",
             unique=True,
-            postgresql_where=text("estado = 'active'"),
+            postgresql_where=text("status = 'active'"),
         ),
-        Index("ix_lista_espera_cola", "especialidad", "estado", "prioridad", "creada_en"),
+        Index("ix_waiting_list_queue", "specialty", "status", "priority", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    paciente_id: Mapped[int] = mapped_column(
-        ForeignKey("paciente.id", ondelete="CASCADE"), nullable=False
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patient.id", ondelete="CASCADE"), nullable=False
     )
-    especialidad: Mapped[Specialty] = mapped_column(
-        _enum(Specialty, "specialty_enum"), nullable=False
-    )
-    prioridad: Mapped[WaitingListPriority] = mapped_column(
+    specialty: Mapped[Specialty] = mapped_column(_enum(Specialty, "specialty_enum"), nullable=False)
+    priority: Mapped[WaitingListPriority] = mapped_column(
         _enum(WaitingListPriority, "waiting_list_priority_enum"),
         default=WaitingListPriority.SENIORITY,
         nullable=False,
     )
-    estado: Mapped[WaitingListState] = mapped_column(
+    status: Mapped[WaitingListState] = mapped_column(
         _enum(WaitingListState, "waiting_list_state_enum"),
         default=WaitingListState.ACTIVE,
         nullable=False,
     )
-    notas: Mapped[str | None] = mapped_column(String(300))
-    ofrecida_en: Mapped[datetime | None] = mapped_column(TS)
-    slot_ofrecido_id: Mapped[int | None] = mapped_column(
+    notes: Mapped[str | None] = mapped_column(String(300))
+    offered_at: Mapped[datetime | None] = mapped_column(TS)
+    offered_slot_id: Mapped[int | None] = mapped_column(
         ForeignKey("agenda_slot.id", ondelete="SET NULL")
     )
 
-    paciente: Mapped[Patient] = relationship()
+    patient: Mapped[Patient] = relationship()

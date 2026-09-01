@@ -19,22 +19,22 @@ def client() -> TestClient:
 
 class TestSalud:
     def test_liveness_responde_ok(self, client: TestClient) -> None:
-        response = client.get("/salud")
+        response = client.get("/health")
         assert response.status_code == 200
-        assert response.json()["estado"] == "ok"
+        assert response.json()["status"] == "ok"
 
     def test_liveness_incluye_un_instante_con_zona(self, client: TestClient) -> None:
-        momento = client.get("/salud").json()["momento"]
-        assert momento.endswith("+00:00")
+        occurred_at = client.get("/health").json()["time"]
+        assert occurred_at.endswith("+00:00")
 
 
 class TestListo:
     def test_readiness_ok_con_base_disponible(self, client: TestClient, engine: object) -> None:
         # `engine` guarantees a live database for this test.
-        response = client.get("/listo")
+        response = client.get("/ready")
         assert response.status_code in {200, 503}
         if response.status_code == 200:
-            assert response.json()["estado"] == "listo"
+            assert response.json()["status"] == "ready"
 
     def test_readiness_nunca_lanza_aunque_la_base_falle(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -43,11 +43,11 @@ class TestListo:
             raise RuntimeError("base caída")
 
         monkeypatch.setattr("backend.api.get_engine", explotar)
-        response = client.get("/listo")
+        response = client.get("/ready")
         assert response.status_code == 503
         body = response.json()
         assert body["error"] is True
-        assert body["sugerencia"]
+        assert body["suggestion"]
 
 
 class TestEnvolturaDeErrores:
@@ -62,12 +62,12 @@ class TestEnvolturaDeErrores:
         async def no_encontrado() -> None:
             raise PatientNotFound(
                 "No existe el paciente 42",
-                sugerencia="Busca por documento con search_patients.",
+                suggestion="Busca por documento con search_patients.",
             )
 
         @prueba.get("/conflicto")
         async def conflicto() -> None:
-            raise SlotUnavailable("El cupo ya fue tomado.", detalles={"slot_id": 7})
+            raise SlotUnavailable("El cupo ya fue tomado.", details={"slot_id": 7})
 
         return prueba
 
@@ -76,14 +76,14 @@ class TestEnvolturaDeErrores:
             response = client.get("/no-encontrado")
         assert response.status_code == 404
         body = response.json()
-        assert body["codigo"] == "PACIENTE_NO_ENCONTRADO"
-        assert body["sugerencia"]
+        assert body["code"] == "PATIENT_NOT_FOUND"
+        assert body["suggestion"]
 
     def test_un_conflicto_responde_409_estructurado(self, test_app: FastAPI) -> None:
         with TestClient(test_app, raise_server_exceptions=False) as client:
             response = client.get("/conflicto")
         assert response.status_code == 409
-        assert response.json()["detalles"]["slot_id"] == 7
+        assert response.json()["details"]["slot_id"] == 7
 
 
 class TestCicloDeVida:
@@ -91,7 +91,7 @@ class TestCicloDeVida:
         """Exercises the lifespan handler: a broken startup must fail loudly in
         tests rather than at `docker compose up`."""
         with TestClient(app) as client:
-            assert client.get("/salud").status_code == 200
+            assert client.get("/health").status_code == 200
 
 
 class TestErrorInesperado:
@@ -112,8 +112,8 @@ class TestErrorInesperado:
 
         assert response.status_code == 500
         body = response.json()
-        assert body["codigo"] == "ERROR_INTERNO"
-        assert body["sugerencia"]
+        assert body["code"] == "INTERNAL_ERROR"
+        assert body["suggestion"]
         crudo = response.text
         assert "ZeroDivisionError" not in crudo
         assert "detalle interno" not in crudo
