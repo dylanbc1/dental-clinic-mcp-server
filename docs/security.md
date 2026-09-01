@@ -38,7 +38,7 @@ the patient consent, and who touched the data?", so the system answers both.
 |---|---|---|
 | 1 | OAuth 2.1 + PKCE, no API keys anywhere | `mcp_server/auth.py`, `mcp_server/oauth/` |
 | 2 | Per-tool scopes (`read`/`write`/`clinical`) | `mcp_server/auth.py` |
-| 3 | Human-in-the-loop on every mutation | `mcp_server/aprobacion.py` |
+| 3 | Human-in-the-loop on every mutation | `mcp_server/confirmation.py` |
 | 4 | Structured, actionable errors | `backend/domain/errors.py`, `mcp_server/errors.py` |
 | 5 | Audit trail + transport guards | `mcp_server/audit.py`, `mcp_server/rate_limit.py`, `backend/models.py` |
 
@@ -286,7 +286,7 @@ CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
   runs two live connections against one slot and asserts exactly one survives.
   Optimistic locking on `agenda_slot.version_id` covers concurrent edits to the
   slot itself.
-- **Retries are idempotent.** `cita.idempotency_key` is unique, so an agent
+- **Retries are idempotent.** `appointment.idempotency_key` is unique, so an agent
   retrying a timed-out booking gets a conflict instead of a second appointment.
 
 ## Threat model (STRIDE-lite)

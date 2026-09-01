@@ -53,7 +53,7 @@ Two rules govern everything else:
 2. Booking is administrative; recording the reason for consultation is clinical
    data, and needs the 'clinical' permission plus the patient's informed consent.
 
-Start with the 'recepcionista_odontologia' prompt and the 'clinica://info'
+Start with the 'recepcionista_odontologia' prompt and the 'clinic://info'
 resource. The prompt is in Spanish on purpose: it is how the agent should speak
 to a Colombian patient.
 """

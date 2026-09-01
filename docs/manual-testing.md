@@ -52,7 +52,7 @@ select count(*) as free_slots from agenda_slot where status='free';"
 ```
 
 **Expect:** all four regimes present, some with `afiliacion_activa = f` (with none,
-`validate_afiliacion` would have nothing to catch), appointments across all six
+`validate_affiliation` would have nothing to catch), appointments across all six
 states, and over a thousand free slots to book into.
 
 ### A3 · The seed is deterministic
@@ -251,8 +251,8 @@ SQL, no internal class names.
 docker compose logs mcp | grep tool.invocacion | tail -5
 ```
 
-**Expect:** one JSON line per call, **refusals included**, with `sujeto`,
-`scope_requerido`, `resultado` and `con_aprobacion_humana`. Note that `document_number`
+**Expect:** one JSON line per call, **refusals included**, with `subject`,
+`required_scope`, `result` and `with_human_approval`. Note that `document_number`
 and `reason` show as `«redactado»`: the log records that the call happened, not
 the patient's data.
 
@@ -323,7 +323,7 @@ docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
 ```
 
-Call `validate_afiliacion` with that id. **Expect:** `regimen_efectivo:
+Call `validate_affiliation` with that id. **Expect:** `regimen_efectivo:
 "particular"`, `bloquea_agendamiento: false`, and a suggestion about reactivating
 with the EPS.
 
@@ -348,7 +348,7 @@ uv run pytest tests/integration/test_concurrency.py -v 2>&1 | tail -20
 ```
 
 **Expect:** 15 green tests. The key one is
-`test_dos_agentes_sobre_el_mismo_cupo_solo_uno_gana`: two real Postgres
+`test_two_agents_on_the_same_slot_only_one_wins`: two real Postgres
 connections racing, one wins and the other gets a clean conflict. An
 application-level check loses that race every time.
 
@@ -393,7 +393,7 @@ If you want to be hard on the project, these are the questions I would ask:
 |---|---|
 | Is the security real or just comments? | B1 through B9. Every one fails verifiably. |
 | Is the domain authentic or invented? | C1 and C2: debt that does not block, and affiliation that only changes the tariff, are sector rules rather than a programmer's. |
-| Do the tests prove anything? | `tests/security/test_scopes.py` enumerates all 39 combinations, it does not sample. `test_concurrencia.py` uses two real connections. |
+| Do the tests prove anything? | `tests/security/test_scopes.py` enumerates all 39 combinations, it does not sample. `tests/integration/test_concurrency.py` uses two real connections. |
 | Does it know its own limits? | `docs/security.md`, "Known limits": in-memory AS, in-process rate limiter, unsigned `X-Actor`. Stated, not hidden. |
 | Does it work outside the author's machine? | `make up` from scratch, and the CI `e2e` job does exactly the same. |
 

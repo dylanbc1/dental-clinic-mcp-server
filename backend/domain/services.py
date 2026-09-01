@@ -169,7 +169,7 @@ def get_professional(session: Session, professional_id: int) -> Professional:
     if professional is None:
         raise ProfessionalNotFound(
             f"There is no professional with id {professional_id}.",
-            suggestion="See the list in the clinica://info resource.",
+            suggestion="See the list in the clinic://info resource.",
             details={"professional_id": professional_id},
         )
     return professional

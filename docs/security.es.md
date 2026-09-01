@@ -39,7 +39,7 @@ sistema responde las dos.
 |---|---|---|
 | 1 | OAuth 2.1 + PKCE, cero API keys | `mcp_server/auth.py`, `mcp_server/oauth/` |
 | 2 | Scopes por herramienta (`read`/`write`/`clinical`) | `mcp_server/auth.py` |
-| 3 | Human-in-the-loop en toda mutación | `mcp_server/aprobacion.py` |
+| 3 | Human-in-the-loop en toda mutación | `mcp_server/confirmation.py` |
 | 4 | Errores estructurados y accionables | `backend/domain/errors.py`, `mcp_server/errors.py` |
 | 5 | Auditoría + guardas de transporte | `mcp_server/audit.py`, `mcp_server/rate_limit.py`, `backend/models.py` |
 
@@ -294,7 +294,7 @@ CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
   `tests/integration/test_concurrency.py` corre dos conexiones vivas contra un
   cupo y verifica que sobreviva exactamente una. El bloqueo optimista sobre
   `agenda_slot.version_id` cubre las ediciones concurrentes del cupo mismo.
-- **Los reintentos son idempotentes.** `cita.idempotency_key` es única, así que
+- **Los reintentos son idempotentes.** `appointment.idempotency_key` es única, así que
   un agente que reintenta una reserva que expiró recibe un conflicto en vez de
   una segunda cita.
 

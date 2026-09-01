@@ -141,7 +141,7 @@ adivinar una zona es como una agenda se corre cinco horas sin que nadie note.
 
 Dos agentes leen «cupo libre» antes de que alguno escriba. Una validación en
 aplicación no puede ganar esa carrera. Un índice único parcial sobre
-`cita.slot_id`, restringido a los estados que realmente ocupan el cupo, hace que
+`appointment.slot_id`, restringido a los estados que realmente ocupan el cupo, hace que
 la segunda reserva falle con un conflicto limpio. El bloqueo optimista sobre
 `agenda_slot.version_id` cubre las ediciones concurrentes del cupo mismo.
 
@@ -153,7 +153,7 @@ CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
 ### Claves de idempotencia al agendar
 
 Un agente que reintenta una llamada que expiró debe recibir la misma cita, no
-una segunda. `cita.idempotency_key` es única; el reintento choca contra la
+una segunda. `appointment.idempotency_key` es única; el reintento choca contra la
 restricción en vez de crear un duplicado.
 
 ### Migraciones, no `create_all`

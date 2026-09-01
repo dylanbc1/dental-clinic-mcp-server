@@ -53,7 +53,7 @@ select count(*) as free_slots from agenda_slot where status='free';"
 ```
 
 **Esperas:** los cuatro regímenes representados, algunos con `afiliacion_activa =
-f` (si no hubiera ninguno, `validate_afiliacion` no tendría nada que atrapar),
+f` (si no hubiera ninguno, `validate_affiliation` no tendría nada que atrapar),
 citas en los seis estados, y más de mil cupos libres para agendar.
 
 ### A3 · El seed es determinista
@@ -251,7 +251,7 @@ docker compose logs mcp | grep tool.invocacion | tail -5 | python3 -m json.tool 
 ```
 
 **Esperas:** una línea JSON por llamada, **incluidas las rechazadas**, con
-`sujeto`, `scope_requerido`, `resultado` y `con_aprobacion_humana`. Y fíjate en
+`subject`, `required_scope`, `result` y `with_human_approval`. Y fíjate en
 que `document_number` y `reason` aparecen como `«redactado»`: el log registra que la
 llamada ocurrió, no el dato del paciente.
 
@@ -321,7 +321,7 @@ docker compose exec -T postgres psql -U clinic -d clinic -t -c \
   "select id from paciente where afiliacion_active=false and regimen<>'particular' limit 1;"
 ```
 
-Llama `validate_afiliacion` con ese id. **Esperas:** `regimen_efectivo:
+Llama `validate_affiliation` con ese id. **Esperas:** `regimen_efectivo:
 "particular"`, `bloquea_agendamiento: false`, y una sugerencia sobre reactivar
 ante la EPS.
 
@@ -346,7 +346,7 @@ uv run pytest tests/integration/test_concurrency.py -v 2>&1 | tail -20
 ```
 
 **Esperas:** 15 pruebas verdes. La clave es
-`test_dos_agentes_sobre_el_mismo_cupo_solo_uno_gana`: dos conexiones reales a
+`test_two_agents_on_the_same_slot_only_one_wins`: dos conexiones reales a
 Postgres compitiendo, una gana y la otra recibe un conflicto limpio. Una
 validación en aplicación pierde esa carrera siempre.
 
@@ -392,7 +392,7 @@ Si quieres ser duro con el proyecto, estas son las preguntas que yo haría:
 |---|---|
 | ¿La seguridad es real o son comentarios? | B1 a B9. Todas fallan de forma verificable. |
 | ¿El dominio es auténtico o inventado? | C1 y C2: la mora que no bloquea y la afiliación que solo cambia la tarifa son reglas del sector, no del programador. |
-| ¿Las pruebas prueban algo? | `tests/security/test_scopes.py` enumera las 39 combinaciones, no muestrea. `test_concurrencia.py` usa dos conexiones reales. |
+| ¿Las pruebas prueban algo? | `tests/security/test_scopes.py` enumera las 39 combinaciones, no muestrea. `tests/integration/test_concurrency.py` usa dos conexiones reales. |
 | ¿Sabe dónde están los límites? | `docs/security.es.md`, sección "Límites conocidos": AS en memoria, rate limiter en proceso, `X-Actor` sin firmar. Están dichos, no escondidos. |
 | ¿Funciona fuera de la máquina del autor? | `make up` desde cero, y el job `e2e` de CI hace exactamente lo mismo. |
 

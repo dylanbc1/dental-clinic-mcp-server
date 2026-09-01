@@ -137,7 +137,7 @@ the only place that converts. Naive datetimes are rejected rather than assumed: 
 ### Double-booking is prevented by the database, not by an `if`
 
 Two agents both read "slot free" before either writes. An application-level
-check cannot win that race. A partial unique index over `cita.slot_id`,
+check cannot win that race. A partial unique index over `appointment.slot_id`,
 restricted to the states that actually hold a slot, means the second booking
 fails with a clean conflict. Optimistic locking on `agenda_slot.version_id`
 covers concurrent edits to the slot itself.
@@ -150,7 +150,7 @@ CREATE UNIQUE INDEX uq_appointment_slot_active ON appointment (slot_id)
 ### Idempotency keys on booking
 
 An agent that retries a timed-out call must get the same appointment back, not a
-second one. `cita.idempotency_key` is unique; the retry hits the constraint
+second one. `appointment.idempotency_key` is unique; the retry hits the constraint
 instead of creating a duplicate.
 
 ### Migrations, not `create_all`

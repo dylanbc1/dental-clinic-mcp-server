@@ -21,7 +21,7 @@ from tests.conftest import SUBJECT, Scenario, as_caller
 pytestmark = pytest.mark.integration
 
 
-async def leer(server_: MCPServer[Any], uri: str) -> Any:
+async def read_resource(server_: MCPServer[Any], uri: str) -> Any:
     contents = list(await server_.read_resource(uri))
     assert contents, f"{uri} returned no content"
     return json.loads(contents[0].content)
@@ -30,7 +30,7 @@ async def leer(server_: MCPServer[Any], uri: str) -> Any:
 class TestResources:
     async def test_the_three_resources_are_declared(self, server_: MCPServer[Any]) -> None:
         uris = {str(r.uri) for r in await server_.list_resources()}
-        assert uris == {"clinica://info", "politicas://cartera", "agenda://hoy"}
+        assert uris == {"clinic://info", "policies://cartera", "agenda://today"}
 
     async def test_every_resource_has_a_name_and_a_description(
         self, server_: MCPServer[Any]
@@ -44,7 +44,7 @@ class TestResources:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            info = await leer(server_, "clinica://info")
+            info = await read_resource(server_, "clinic://info")
         assert info["name"] == "Clínica Escenario"
         assert info["timezone_name"] == "America/Bogota"
         assert {p["specialty"] for p in info["professionals"]} == {
@@ -56,7 +56,7 @@ class TestResources:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            policies = await leer(server_, "politicas://cartera")
+            policies = await read_resource(server_, "policies://cartera")
         assert policies["particular_tariffs"]["endodontics"] == "350000"
         assert policies["no_show_amount"] == "40000"
         assert "never a block" in policies["note"]
@@ -65,7 +65,7 @@ class TestResources:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            agenda = await leer(server_, "agenda://hoy")
+            agenda = await read_resource(server_, "agenda://today")
         assert agenda["total"] == 0
         assert agenda["appointments"] == []
 
@@ -87,7 +87,7 @@ class TestResources:
         backend_session.commit()
 
         with as_caller(SUBJECT, ["read"]):
-            agenda = await leer(server_, "agenda://hoy")
+            agenda = await read_resource(server_, "agenda://today")
         assert agenda["day"] == now_at_clinic().date().isoformat()
         assert agenda["total"] == 1
         assert agenda["by_status"] == {"scheduled": 1}
@@ -99,7 +99,7 @@ class TestResources:
         A server that answered with its own date would show the wrong agenda
         every evening."""
         with as_caller(SUBJECT, ["read"]):
-            agenda = await leer(server_, "agenda://hoy")
+            agenda = await read_resource(server_, "agenda://today")
         assert agenda["day"] == now_at_clinic().date().isoformat()
 
 

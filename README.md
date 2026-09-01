@@ -12,7 +12,7 @@
   <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="coverage 99%" src="https://img.shields.io/badge/coverage-99%25-1f8b4c">
-  <img alt="813 tests" src="https://img.shields.io/badge/tests-813-1f8b4c">
+  <img alt="829 tests" src="https://img.shields.io/badge/tests-829-1f8b4c">
 </p>
 
 ```bash
@@ -69,7 +69,7 @@ flowchart LR
       T --> A5["5· Audit + transport guards"]
     end
     subgraph be["Domain backend · FastAPI"]
-      API["REST API"] --> DOM["state machine · cartera<br/>afiliación · lista de espera"] --> DB[("PostgreSQL 16")]
+      API["REST API"] --> DOM["state machine · cartera<br/>affiliation · waiting list"] --> DB[("PostgreSQL 16")]
     end
     C --> A1
     T --> API
@@ -91,16 +91,16 @@ Full reasoning and diagrams: [`docs/architecture.md`](./docs/architecture.md).
 
 ## The tool catalogue
 
-Fourteen tools, not thirty. Model accuracy degrades past roughly 25–30 tools, so
+Thirteen tools, not thirty. Model accuracy degrades past roughly 25 to 30 tools, so
 a smaller, precisely described catalogue is the design, not a limitation.
 
 | Scope | Tools |
 |---|---|
-| `read` | `search_patients` · `check_availability` · `get_appointment` · `list_patient_appointments` · `check_cartera` · `validate_afiliacion` |
+| `read` | `search_patients` · `check_availability` · `get_appointment` · `list_patient_appointments` · `check_cartera` · `validate_affiliation` |
 | `write` | `book_appointment` · `confirm_appointment` · `cancel_appointment` · `reschedule_appointment` · `record_attendance` · `offer_slot_to_waiting_list` |
 | `clinical` | `record_visit_reason` |
 
-Resources: `clinic://info`, `politicas://cartera`, `agenda://hoy`.
+Resources: `clinic://info`, `policies://cartera`, `agenda://today`.
 Prompt: `recepcionista_odontologia`.
 
 **Every write and clinical tool pauses for a person**, over Multi Round-Trip
@@ -126,6 +126,42 @@ One tool, two calls, no session. The confirmation is resolved by the client, so
 it never appears in the tool's input schema: **the model has no field to approve
 on the user's behalf.** The resolver re-runs on the second round, so scope and
 domain checks are re-applied at the moment of effect.
+
+## Two languages, one rule
+
+The clinic is Colombian and the codebase is read by engineers who are not. The
+repository resolves that with a single line:
+
+> **English for everything an engineer or the model reads. Spanish only for
+> Colombian healthcare terms English does not carry.**
+
+So identifiers, tool names, error codes, wire keys, table and column names,
+commit messages and test names are English. `cartera`, `en_mora`, `regimen`,
+`copago`, `cuota_moderadora`, `eps`, `nit` and the document types stay Spanish,
+because `accounts receivable` is a translation of `cartera` but `overdue` is not
+a translation of `en_mora`: being *en mora* is a defined legal condition with
+consequences attached, and the English word only describes lateness. The test is
+"does English carry it faithfully", not "does the sector use the Spanish word".
+`afiliacion` failed that test and is `affiliation`; `cuota_moderadora` passes it
+and stays.
+
+There is exactly one Spanish layer, and it is the one a person reads: the
+confirmation question, the `recepcionista_odontologia` prompt, and the labels in
+`backend/domain/labels.py`. **No internal value is ever interpolated into it.**
+A receptionist in Bogotá never sees `scheduled` in the middle of a sentence,
+because the state goes through `state_label()` first, or the sentence is written
+so the state never needs naming:
+
+```python
+# backend/domain/labels.py is the only place a machine value becomes words
+state_label(AppointmentState.NO_SHOW)  # "no asistió"
+specialty_label("general_dentistry")  # "odontología general"
+```
+
+A contract test calls all four write tools and fails if any enum value appears
+in the question a human approves. It has caught two real leaks.
+
+Every document in `docs/` and this README exist in both languages, kept in step.
 
 ## Security
 
@@ -175,6 +211,43 @@ make smoke                # walks the whole client path and prints each step
 | MCP server | `http://localhost:8080/mcp` |
 | Domain API docs | `http://localhost:8000/docs` |
 | Authorization server | `http://localhost:9000/.well-known/oauth-authorization-server` |
+
+### Connect a real MCP client
+
+The server speaks **Streamable HTTP**, so any client that supports a remote MCP
+server over HTTP connects to `http://localhost:8080/mcp` with a bearer token:
+
+```bash
+make token        # walks the real OAuth 2.1 + PKCE flow and prints the token
+```
+
+```jsonc
+// Claude Code:  claude mcp add --transport http dental-clinic http://localhost:8080/mcp \
+//                 --header "Authorization: Bearer $(make -s token)"
+// Any client that takes a JSON config:
+{
+  "mcpServers": {
+    "dental-clinic": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer <token from make token>" }
+    }
+  }
+}
+```
+
+Two things to know before you connect.
+
+**Statelessness is visible.** There is no `initialize` handshake to complete and
+no session id to carry: every request stands alone, carrying its own protocol
+version and client capabilities in `params._meta`. That is what lets any replica
+serve any request.
+
+**The write tools need a client that can answer a question.** A client that
+declares `elicitation` in its capabilities gets the confirmation flow. One that
+does not gets `CLIENT_CANNOT_CONFIRM`, refusing early and clearly rather than
+failing deep inside the transport. As of today the MCP Inspector is in the
+second group, which is why `make consola` exists.
 
 ### Connect the MCP Inspector
 
@@ -232,7 +305,7 @@ exist), the real MCP server, the real authorization server.
 | `tests/security` | **The full 13 × 3 scope matrix** over the wire, the sealed request state under attack (tampering, cross-operation reuse, wrong principal, expiry, key rotation), PKCE enforcement, JWT audience and `alg=none`, Host/Origin guards, statelessness, rate limiting |
 | `scripts/smoke.py` | The whole client path over real HTTP, run in CI |
 
-813 tests: 350 unit, 231 integration, 86 contract, 146 security.
+829 tests: 359 unit, 231 integration, 89 contract, 150 security.
 **Want to check it yourself?** [`docs/manual-testing.md`](./docs/manual-testing.md)
 is a 25-minute walkthrough of thirteen checks, each saying what to run and what
 you should see. [`docs/inspector.md`](./docs/inspector.md) covers the same ground
@@ -242,19 +315,51 @@ CI gates on a 95% coverage floor (currently 99%), `mypy --strict`, `ruff`,
 `bandit`, `pip-audit`, and a grep that fails the build if a secret-shaped
 literal or a private key ever lands in the source.
 
+### Verifying the whole thing yourself
+
+Six commands, in this order, from a clean checkout. Each one fails loudly.
+
+```bash
+make reset            # empty volume, full migration chain, deterministic seed
+make lint             # ruff + ruff format --check + mypy --strict
+make audit            # bandit + pip-audit
+make test-fast        # 829 tests against the running stack, 95% coverage floor
+make smoke            # the nine-step client path over real HTTP
+make keycloak && make keycloak-verify    # the auth layer is swappable
+```
+
+`make reset` is the one people skip and the one that matters most: it drops the
+database volume and rebuilds from nothing, so the migration chain is exercised
+end to end rather than assumed. Every migration is reversible and
+`uv run alembic check` reports no drift between the models and the live schema.
+
+Two claims worth checking by hand rather than trusting:
+
+```bash
+# 1 · no row moves when the schema is renamed
+docker compose exec postgres psql -U clinic -d clinic -c "select count(*) from appointment"
+uv run alembic downgrade -1 && uv run alembic upgrade head
+docker compose exec postgres psql -U clinic -d clinic -c "select count(*) from appointment"
+
+# 2 · double-booking is refused by PostgreSQL, not by the application
+docker compose exec postgres psql -U clinic -d clinic \
+  -c "select indexdef from pg_indexes where indexname = 'uq_appointment_slot_active'"
+```
+
 ## Repository layout
 
 ```
 backend/            domain source of truth, knows nothing about MCP
-  domain/           pure logic: states, cartera, afiliacion, waiting_list, time, errors
+  domain/           pure logic: states, cartera, affiliation, waiting_list, time, errors
   models.py         SQLAlchemy 2.x schema · api.py  internal REST API
   seed.py           deterministic synthetic data (Faker, fixed seed)
 mcp_server/
   tools/            read.py · write.py · clinical.py
   auth.py           OAuth verification and scopes      (layers 1-2)
   confirmation.py   the question a person answers      (layer 3)
-  errors.py        structured, actionable failures    (layer 4)
-  audit.py      audit log · rate_limit.py rate limit  (layer 5)
+  errors.py         structured, actionable failures     (layer 4)
+  audit.py          audit log                           (layer 5)
+  rate_limit.py     sliding-window limiter              (layer 5)
   oauth/            the in-repo authorization server
 tests/              unit · integration · contract · security
 docs/               architecture.md · security.md (bilingual)

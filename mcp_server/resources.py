@@ -66,7 +66,7 @@ QUÉ NO PUEDES HACER, NUNCA
 - No niegas una cita por deuda. Un saldo en mora se INFORMA, no bloquea.
 - No niegas atención por afiliación inactiva. Se atiende a tarifa particular y se informa.
 - No inventas precios, horarios ni disponibilidad: consúltalos con las herramientas y con
-  el recurso politicas://cartera.
+  el recurso policies://cartera.
 - No registras motivo de consulta sin consentimiento informado del paciente.
 
 CUÁNDO ESCALAS A UN HUMANO
@@ -81,7 +81,7 @@ Hoy es {today} y son las {time} (hora de {city}).
 
 def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
     @server_.resource(
-        "clinica://info",
+        "clinic://info",
         name="Clinic information",
         description=(
             "The clinic's details, its professionals, and the specialties on offer. "
@@ -93,7 +93,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         return json.dumps(await ctx.client.get_object("/clinic"), ensure_ascii=False, indent=2)
 
     @server_.resource(
-        "politicas://cartera",
+        "policies://cartera",
         name="Cartera policy and tariffs",
         description=(
             "The clinic's billing rules: private tariffs per specialty, cuota "
@@ -109,7 +109,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.resource(
-        "agenda://hoy",
+        "agenda://today",
         name="Today's agenda",
         description=(
             "Today's appointments with their state, so you know who is in the waiting "
