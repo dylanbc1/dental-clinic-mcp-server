@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import os
+import secrets
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -48,14 +49,14 @@ class KeyPair:
         ).decode()
 
     def public_jwk(self) -> dict[str, Any]:
-        numeros = self.public_key.public_numbers()
+        numbers = self.public_key.public_numbers()
         return {
             "kty": "RSA",
             "use": "sig",
             "alg": "RS256",
             "kid": self.kid,
-            "n": _b64uint(numeros.n),
-            "e": _b64uint(numeros.e),
+            "n": _b64uint(numbers.n),
+            "e": _b64uint(numbers.e),
         }
 
     def jwks(self) -> dict[str, Any]:
@@ -64,7 +65,14 @@ class KeyPair:
 
 def generate() -> KeyPair:
     private = rsa.generate_private_key(public_exponent=65537, key_size=KEY_SIZE)
-    return KeyPair(private=private, kid="dev-ephemeral", ephemeral=True)
+    # A fresh `kid` per boot, not a fixed "dev-ephemeral". A resource server
+    # refetches JWKS when it meets a kid it does not know, which is how key
+    # rotation recovers on its own; reusing one kid for new key material
+    # defeats exactly that path, because the cached entry still matches and
+    # every token is rejected until the *resource server* is restarted too.
+    # Real rotation issues a new kid, so this makes development behave the way
+    # production does instead of hiding the mechanism.
+    return KeyPair(private=private, kid=f"dev-{secrets.token_hex(4)}", ephemeral=True)
 
 
 def load_from_env() -> KeyPair | None:
