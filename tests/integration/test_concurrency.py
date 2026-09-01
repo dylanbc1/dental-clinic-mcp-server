@@ -35,8 +35,8 @@ def _cita(payload: dict[str, int], patient: str, **extra: object) -> Appointment
     return Appointment(**fields)  # type: ignore[arg-type]
 
 
-class TestDobleReserva:
-    def test_dos_agentes_sobre_el_mismo_cupo_solo_uno_gana(
+class TestDoubleBooking:
+    def test_two_agents_on_the_same_slot_only_one_wins(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         agente_a, agente_b = sessions(), sessions()
@@ -55,18 +55,18 @@ class TestDobleReserva:
         assert len(appointments) == 1
         assert appointments[0].patient_id == minimal_data["paciente_a"]
 
-    def test_cancelar_libera_el_cupo_para_otro_paciente(
+    def test_cancelling_frees_the_slot_for_another_patient(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         """The uniqueness is partial: a cancelled appointment must not keep the
         slot hostage, otherwise cancellation would be pointless."""
         session_ = sessions()
-        primera = _cita(minimal_data, "paciente_a")
-        session_.add(primera)
+        first = _cita(minimal_data, "paciente_a")
+        session_.add(first)
         session_.commit()
 
-        primera.status = AppointmentState.CANCELLED
-        primera.cancellation_reason = "El paciente viajó"
+        first.status = AppointmentState.CANCELLED
+        first.cancellation_reason = "El paciente viajó"
         session_.commit()
 
         session_.add(_cita(minimal_data, "paciente_b"))
@@ -91,7 +91,7 @@ class TestDobleReserva:
             AppointmentState.ATTENDED,
         ],
     )
-    def test_todo_estado_que_ocupa_bloquea_una_segunda_cita(
+    def test_every_holding_state_blocks_a_second_appointment(
         self,
         sessions: Callable[[], Session],
         minimal_data: dict[str, int],
@@ -111,7 +111,7 @@ class TestDobleReserva:
         "status",
         [AppointmentState.CANCELLED, AppointmentState.RESCHEDULED, AppointmentState.NO_SHOW],
     )
-    def test_ningun_estado_liberador_bloquea_una_segunda_cita(
+    def test_no_releasing_state_blocks_a_second_appointment(
         self,
         sessions: Callable[[], Session],
         minimal_data: dict[str, int],
@@ -126,8 +126,8 @@ class TestDobleReserva:
         otra.commit()  # must not raise
 
 
-class TestIdempotencia:
-    def test_reenviar_la_misma_clave_no_crea_un_duplicado(
+class TestIdempotency:
+    def test_resending_the_same_key_creates_no_duplicate(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         """An agent that retries a timed-out booking must not end up with two
@@ -142,39 +142,39 @@ class TestIdempotencia:
             reintento.commit()
         reintento.rollback()
 
-    def test_claves_distintas_no_se_estorban(
+    def test_different_keys_do_not_interfere(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         session_ = sessions()
-        primera = _cita(minimal_data, "paciente_a", idempotency_key="req-1")
-        session_.add(primera)
+        first = _cita(minimal_data, "paciente_a", idempotency_key="req-1")
+        session_.add(first)
         session_.commit()
-        primera.status = AppointmentState.CANCELLED
-        primera.cancellation_reason = "cambio de plan"
+        first.status = AppointmentState.CANCELLED
+        first.cancellation_reason = "cambio de plan"
         session_.commit()
 
         session_.add(_cita(minimal_data, "paciente_b", idempotency_key="req-2"))
         session_.commit()
 
-    def test_varias_citas_pueden_no_tener_clave(
+    def test_several_appointments_may_have_no_key(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         """NULL is not equal to NULL in SQL: appointments created without an
         idempotency key must not collide with each other."""
         session_ = sessions()
-        primera = _cita(minimal_data, "paciente_a")
-        session_.add(primera)
+        first = _cita(minimal_data, "paciente_a")
+        session_.add(first)
         session_.commit()
-        primera.status = AppointmentState.CANCELLED
-        primera.cancellation_reason = "x"
+        first.status = AppointmentState.CANCELLED
+        first.cancellation_reason = "x"
         session_.commit()
 
         session_.add(_cita(minimal_data, "paciente_b"))
         session_.commit()
 
 
-class TestBloqueoOptimista:
-    def test_dos_escrituras_sobre_el_mismo_slot_detectan_el_conflicto(
+class TestOptimisticLocking:
+    def test_two_writes_on_the_same_slot_detect_the_conflict(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         agente_a, agente_b = sessions(), sessions()
@@ -191,7 +191,7 @@ class TestBloqueoOptimista:
             agente_b.commit()
         agente_b.rollback()
 
-    def test_la_version_avanza_en_cada_escritura(
+    def test_the_version_advances_on_every_write(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         session_ = sessions()
@@ -208,8 +208,8 @@ class TestBloqueoOptimista:
         assert slot.version_id == inicial + 2
 
 
-class TestUnicidadDeSlot:
-    def test_un_profesional_no_puede_tener_dos_slots_a_la_misma_hora(
+class TestSlotUniqueness:
+    def test_a_professional_cannot_have_two_slots_at_the_same_time(
         self, sessions: Callable[[], Session], minimal_data: dict[str, int]
     ) -> None:
         session_ = sessions()

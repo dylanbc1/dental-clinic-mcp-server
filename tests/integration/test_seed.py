@@ -104,32 +104,34 @@ def seeded(sessions: Callable[[], Session]) -> Session:
     return session_
 
 
-class TestDeterminismo:
-    def test_dos_corridas_con_la_misma_semilla_dan_lo_mismo(
+class TestDeterminism:
+    def test_two_runs_with_the_same_seed_give_the_same_result(
         self, sessions: Callable[[], Session]
     ) -> None:
         session_ = sessions()
         seed_database(session_, PARAMS)
         session_.commit()
-        primera = fingerprint(session_)
+        first = fingerprint(session_)
 
         seed_database(session_, PARAMS)
         session_.commit()
-        assert fingerprint(session_) == primera
+        assert fingerprint(session_) == first
 
-    def test_otra_semilla_da_otro_resultado(self, sessions: Callable[[], Session]) -> None:
+    def test_another_seed_gives_another_result(self, sessions: Callable[[], Session]) -> None:
         session_ = sessions()
         seed_database(session_, PARAMS)
         session_.commit()
-        primera = fingerprint(session_)
+        first = fingerprint(session_)
 
         from dataclasses import replace
 
         seed_database(session_, replace(PARAMS, seed=PARAMS.seed + 1))
         session_.commit()
-        assert fingerprint(session_) != primera
+        assert fingerprint(session_) != first
 
-    def test_no_depende_de_la_hora_de_ejecucion(self, sessions: Callable[[], Session]) -> None:
+    def test_it_does_not_depend_on_the_time_of_the_run(
+        self, sessions: Callable[[], Session]
+    ) -> None:
         """The past/future split must come from the base date, never from the
         wall clock, otherwise the same seed drifts through the day."""
         session_ = sessions()
@@ -146,14 +148,14 @@ class TestDeterminismo:
         assert estados_primera == estados_segunda
 
 
-class TestIdempotenciaDelComando:
-    def test_sembrar_deja_la_base_no_vacia(self, seeded: Session) -> None:
+class TestCommandIdempotency:
+    def test_seeding_leaves_the_database_non_empty(self, seeded: Session) -> None:
         assert not database_is_empty(seeded)
 
-    def test_base_vacia_detecta_una_base_limpia(self, empty_tables: Session) -> None:
+    def test_empty_database_is_detected_as_clean(self, empty_tables: Session) -> None:
         assert database_is_empty(empty_tables)
 
-    def test_sembrar_dos_veces_no_duplica(self, sessions: Callable[[], Session]) -> None:
+    def test_seeding_twice_does_not_duplicate(self, sessions: Callable[[], Session]) -> None:
         session_ = sessions()
         seed_database(session_, PARAMS)
         session_.commit()
@@ -164,18 +166,18 @@ class TestIdempotenciaDelComando:
         assert session_.scalar(select(func.count()).select_from(Patient)) == patients
 
 
-class TestConsistenciaDelDataset:
-    def test_hay_exactamente_una_clinica(self, seeded: Session) -> None:
+class TestDatasetConsistency:
+    def test_there_is_exactly_one_clinic(self, seeded: Session) -> None:
         assert seeded.scalar(select(func.count()).select_from(Clinic)) == 1
 
-    def test_se_generan_los_pacientes_pedidos(self, seeded: Session) -> None:
+    def test_it_generates_the_patients_asked_for(self, seeded: Session) -> None:
         assert seeded.scalar(select(func.count()).select_from(Patient)) == PARAMS.patients
 
-    def test_los_documentos_no_se_repiten(self, seeded: Session) -> None:
+    def test_documents_are_not_repeated(self, seeded: Session) -> None:
         documentos = list(seeded.scalars(select(Patient.document_number)))
         assert len(documentos) == len(set(documentos))
 
-    def test_ninguna_cita_ocupa_un_slot_ya_ocupado(self, seeded: Session) -> None:
+    def test_no_appointment_takes_an_already_taken_slot(self, seeded: Session) -> None:
         """If the partial unique index were wrong, the seed itself would be the
         first thing to violate it."""
         active = [
@@ -185,18 +187,18 @@ class TestConsistenciaDelDataset:
         ]
         assert len(active) == len(set(active))
 
-    def test_el_estado_del_slot_concuerda_con_su_cita(self, seeded: Session) -> None:
+    def test_the_slot_status_agrees_with_its_appointment(self, seeded: Session) -> None:
         for appointment in seeded.scalars(select(Appointment)):
             if appointment.status in STATES_HOLDING_SLOT:
                 assert appointment.slot.status is SlotState.BUSY, appointment.id
 
-    def test_todo_historial_describe_un_camino_legal(self, seeded: Session) -> None:
+    def test_every_history_describes_a_legal_path(self, seeded: Session) -> None:
         """Every seeded appointment must have a history the state machine would
         actually have accepted. A seed that fabricates impossible histories
         makes every downstream test meaningless."""
         for appointment in seeded.scalars(select(Appointment)):
             history = sorted(appointment.history, key=lambda h: h.occurred_at)
-            assert history, f"cita {appointment.id} sin historial"
+            assert history, f"appointment {appointment.id} has no history"
             assert history[0].previous_status is None
             assert history[0].new_status is AppointmentState.SCHEDULED
             for previous, next_up in itertools.pairwise(history):
@@ -204,15 +206,13 @@ class TestConsistenciaDelDataset:
                 assert is_valid_transition(previous.new_status, next_up.new_status)
             assert history[-1].new_status is appointment.status
 
-    def test_toda_transicion_quedo_auditada(self, seeded: Session) -> None:
+    def test_every_transition_was_audited(self, seeded: Session) -> None:
         filas = seeded.scalar(select(func.count()).select_from(AppointmentHistory))
         appointments = seeded.scalar(select(func.count()).select_from(Appointment))
         assert filas is not None and appointments is not None
         assert filas >= appointments  # at least the creation row per appointment
 
-    def test_los_cargos_solo_cuelgan_de_citas_atendidas_o_no_asistidas(
-        self, seeded: Session
-    ) -> None:
+    def test_charges_only_hang_off_attended_or_no_show_appointments(self, seeded: Session) -> None:
         for charge in seeded.scalars(select(Charge)):
             if charge.appointment is not None:
                 assert charge.appointment.status in {
@@ -220,10 +220,10 @@ class TestConsistenciaDelDataset:
                     AppointmentState.NO_SHOW,
                 }
 
-    def test_ningun_cargo_es_negativo(self, seeded: Session) -> None:
+    def test_no_charge_is_negative(self, seeded: Session) -> None:
         assert all(c.amount >= 0 for c in seeded.scalars(select(Charge)))
 
-    def test_un_paciente_soat_activo_no_acumula_cargos_de_atencion(self, seeded: Session) -> None:
+    def test_an_active_soat_patient_accrues_no_visit_charges(self, seeded: Session) -> None:
         for charge in seeded.scalars(select(Charge)):
             if (
                 charge.appointment is not None
@@ -235,49 +235,49 @@ class TestConsistenciaDelDataset:
                 )
 
 
-class TestRealismoDelDataset:
+class TestDatasetRealism:
     """A seed nobody can demo against is a seed that failed."""
 
-    def test_quedan_cupos_libres_para_agendar(self, seeded: Session) -> None:
+    def test_free_slots_remain_to_book_into(self, seeded: Session) -> None:
         free_slots = seeded.scalar(
             select(func.count()).select_from(AgendaSlot).where(AgendaSlot.status == SlotState.FREE)
         )
         assert free_slots is not None and free_slots > 50
 
-    def test_hay_citas_en_varios_estados(self, seeded: Session) -> None:
-        estados = {c.status for c in seeded.scalars(select(Appointment))}
+    def test_there_are_appointments_in_several_states(self, seeded: Session) -> None:
+        states = {c.status for c in seeded.scalars(select(Appointment))}
         assert {
             AppointmentState.SCHEDULED,
             AppointmentState.CONFIRMED,
             AppointmentState.ATTENDED,
-        } <= estados
+        } <= states
 
-    def test_hay_no_shows_que_es_el_dolor_que_ataca_el_proyecto(self, seeded: Session) -> None:
+    def test_there_are_no_shows_the_pain_this_project_targets(self, seeded: Session) -> None:
         no_shows = [
             c for c in seeded.scalars(select(Appointment)) if c.status is AppointmentState.NO_SHOW
         ]
         assert no_shows
 
-    def test_hay_afiliaciones_inactivas(self, seeded: Session) -> None:
+    def test_there_are_inactive_afiliaciones(self, seeded: Session) -> None:
         inactivos = [
             p
             for p in seeded.scalars(select(Patient))
             if not p.afiliacion_active and p.regimen is not Regimen.PARTICULAR
         ]
-        assert inactivos, "sin afiliaciones inactivas, validate_afiliacion no tiene qué atrapar"
+        assert inactivos, "with no inactive afiliaciones, validate_afiliacion has nothing to catch"
 
-    def test_hay_pacientes_sin_consentimiento_clinico(self, seeded: Session) -> None:
+    def test_there_are_patients_without_clinical_consent(self, seeded: Session) -> None:
         """The clinical tool must have real cases where it is correctly refused."""
-        sin_consentimiento = [
+        without_consent = [
             p for p in seeded.scalars(select(Patient)) if not p.clinical_data_consent
         ]
-        assert sin_consentimiento
+        assert without_consent
 
-    def test_hay_cargos_pendientes_para_cobrar(self, seeded: Session) -> None:
+    def test_there_are_pending_charges_to_collect(self, seeded: Session) -> None:
         outstanding = [c for c in seeded.scalars(select(Charge)) if c.status == "pending"]
         assert outstanding
 
-    def test_hay_cartera_realmente_vencida(self, seeded: Session) -> None:
+    def test_there_is_genuinely_overdue_cartera(self, seeded: Session) -> None:
         """Charges fall due 30 days after the visit, and the seeded agenda only
         reaches a couple of weeks back. Without carried-over balances every
         patient reads `al_dia`, and the rule that debt warns without blocking
@@ -287,19 +287,19 @@ class TestRealismoDelDataset:
             for c in seeded.scalars(select(Charge))
             if c.status == ChargeState.PENDING and c.due_date < FECHA_BASE
         ]
-        assert overdue, "el dataset no tiene ni un cargo vencido"
+        assert overdue, "the dataset has not a single overdue charge"
         assert len({c.patient_id for c in overdue}) >= 3
 
-    def test_la_mora_cubre_varios_tramos_de_antiguedad(self, seeded: Session) -> None:
+    def test_mora_spans_several_ageing_buckets(self, seeded: Session) -> None:
         """A ledger where everything is 20 days late exercises one bucket."""
-        dias = {
+        days = {
             (FECHA_BASE - c.due_date).days
             for c in seeded.scalars(select(Charge))
             if c.status == ChargeState.PENDING and c.due_date < FECHA_BASE
         }
-        assert max(dias) > 60, f"la mora más antigua es de {max(dias)} días"
+        assert max(days) > 60, f"the oldest mora is {max(days)} days"
 
-    def test_algun_paciente_supera_el_umbral_de_alerta(self, seeded: Session) -> None:
+    def test_some_patient_is_above_the_alert_threshold(self, seeded: Session) -> None:
         """Otherwise `alerta_al_agendar` never fires on the demo data."""
         from collections import defaultdict
 
@@ -313,20 +313,20 @@ class TestRealismoDelDataset:
             total >= DEFAULT_POLICY.overdue_alert_threshold for total in por_paciente.values()
         )
 
-    def test_hay_pacientes_en_lista_de_espera(self, seeded: Session) -> None:
+    def test_there_are_patients_on_the_waiting_list(self, seeded: Session) -> None:
         assert seeded.scalar(select(func.count()).select_from(WaitingList))
 
-    def test_estan_representados_los_cuatro_regimenes(self, seeded: Session) -> None:
+    def test_the_four_regimenes_are_represented(self, seeded: Session) -> None:
         regimenes = {p.regimen for p in seeded.scalars(select(Patient))}
         assert regimenes == set(Regimen)
 
-    def test_la_agenda_cubre_pasado_y_futuro(self, seeded: Session) -> None:
-        fechas = [s.day for s in seeded.scalars(select(AgendaSlot))]
-        assert min(fechas) < FECHA_BASE < max(fechas)
+    def test_the_agenda_covers_past_and_future(self, seeded: Session) -> None:
+        dates = [s.day for s in seeded.scalars(select(AgendaSlot))]
+        assert min(dates) < FECHA_BASE < max(dates)
 
 
-class TestSinPiiReal:
-    def test_ningun_dato_de_contacto_apunta_a_un_dominio_real(self, seeded: Session) -> None:
+class TestNoRealPii:
+    def test_no_contact_detail_points_at_a_real_domain(self, seeded: Session) -> None:
         """Cheap but explicit: the project's headline claim is that no real
         patient data exists here, so it gets an assertion."""
         for patient in seeded.scalars(select(Patient)):

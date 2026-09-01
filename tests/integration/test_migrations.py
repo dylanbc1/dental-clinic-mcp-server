@@ -26,33 +26,33 @@ pytestmark = pytest.mark.integration
 DIFERENCIAS_ESPERADAS = {"ix_paciente_nombre_lower"}
 
 
-def _diferencias_reales(engine: Engine) -> list[object]:
+def _real_differences(engine: Engine) -> list[object]:
     with engine.connect() as conn:
         context = MigrationContext.configure(conn, opts={"compare_type": True})
         crudas = compare_metadata(context, Base.metadata)
-    reales = []
-    for diferencia in crudas:
-        text_of = repr(diferencia)
-        if any(esperada in text_of for esperada in DIFERENCIAS_ESPERADAS):
+    real = []
+    for difference in crudas:
+        text_of = repr(difference)
+        if any(expected in text_of for expected in DIFERENCIAS_ESPERADAS):
             continue
-        reales.append(diferencia)
-    return reales
+        real.append(difference)
+    return real
 
 
-class TestSincronizacion:
-    def test_el_esquema_migrado_coincide_con_los_modelos(self, engine: Engine) -> None:
+class TestSynchronisation:
+    def test_the_migrated_schema_matches_the_models(self, engine: Engine) -> None:
         """The test that catches "I edited the model and forgot the migration"."""
-        diferencias = _diferencias_reales(engine)
-        assert diferencias == [], f"El esquema y los modelos divergieron: {diferencias}"
+        differences = _real_differences(engine)
+        assert differences == [], f"The schema and the models drifted apart: {differences}"
 
 
-class TestHistorialDeMigraciones:
-    def test_hay_una_sola_cabeza(self, alembic_config: Config) -> None:
+class TestMigrationHistory:
+    def test_there_is_a_single_head(self, alembic_config: Config) -> None:
         """Two heads mean a merge nobody performed; upgrades become ambiguous."""
         script = ScriptDirectory.from_config(alembic_config)
         assert len(script.get_heads()) == 1
 
-    def test_toda_revision_declara_upgrade_y_downgrade(self, alembic_config: Config) -> None:
+    def test_every_revision_declares_upgrade_and_downgrade(self, alembic_config: Config) -> None:
         script = ScriptDirectory.from_config(alembic_config)
         revisiones = list(script.walk_revisions())
         assert revisiones
@@ -61,7 +61,7 @@ class TestHistorialDeMigraciones:
             assert callable(modulo.upgrade)
             assert callable(modulo.downgrade)
 
-    def test_la_base_esta_marcada_en_la_cabeza(
+    def test_the_database_is_stamped_at_the_head(
         self, engine: Engine, alembic_config: Config
     ) -> None:
         script = ScriptDirectory.from_config(alembic_config)
@@ -70,8 +70,8 @@ class TestHistorialDeMigraciones:
         assert current == script.get_current_head()
 
 
-class TestReversibilidad:
-    def test_downgrade_y_upgrade_reconstruyen_el_mismo_esquema(
+class TestReversibility:
+    def test_downgrade_and_upgrade_rebuild_the_same_schema(
         self, engine: Engine, alembic_config: Config
     ) -> None:
         """A migration you cannot roll back is a migration you cannot deploy
@@ -84,8 +84,8 @@ class TestReversibilidad:
         }
 
         command.downgrade(alembic_config, "base")
-        vacio = [t for t in inspect(engine).get_table_names() if t != "alembic_version"]
-        assert vacio == [], f"downgrade dejó tablas huérfanas: {vacio}"
+        leftover = [t for t in inspect(engine).get_table_names() if t != "alembic_version"]
+        assert leftover == [], f"downgrade left orphan tables: {leftover}"
 
         command.upgrade(alembic_config, "head")
         despues = {
@@ -95,5 +95,5 @@ class TestReversibilidad:
         }
         assert despues == antes
 
-    def test_tras_reconstruir_sigue_sin_diferencias(self, engine: Engine) -> None:
-        assert _diferencias_reales(engine) == []
+    def test_after_rebuilding_there_is_still_no_drift(self, engine: Engine) -> None:
+        assert _real_differences(engine) == []

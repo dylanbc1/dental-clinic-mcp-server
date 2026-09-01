@@ -20,16 +20,16 @@ from mcp_server.errors import (
 pytestmark = pytest.mark.security
 
 
-class TestRenderizado:
-    def test_lo_minimo_es_codigo_y_mensaje(self) -> None:
+class TestRendering:
+    def test_the_minimum_is_a_code_and_a_message(self) -> None:
         error = StructuredToolError("X", "algo pasó")
         assert error.render() == "[X] algo pasó"
 
-    def test_la_sugerencia_se_etiqueta_como_tal(self) -> None:
+    def test_the_suggestion_is_labelled_as_such(self) -> None:
         error = StructuredToolError("X", "algo pasó", suggestion="haz esto otro")
         assert "Suggestion: haz esto otro" in error.render()
 
-    def test_los_errores_de_permiso_piden_escalar_no_reintentar(self) -> None:
+    def test_permission_errors_ask_to_escalate_not_to_retry(self) -> None:
         """ "Sugerencia" invites a retry. A missing permission never resolves by
         retrying, so those get a stronger lead-in."""
         error = StructuredToolError(
@@ -37,21 +37,21 @@ class TestRenderizado:
         )
         assert "Action required: pide write" in error.render()
 
-    def test_los_detalles_viajan_como_json_legible(self) -> None:
+    def test_the_details_travel_as_readable_json(self) -> None:
         error = StructuredToolError("X", "y", details={"slot_id": 4, "libres": [1, 2]})
         assert '"slot_id": 4' in error.render()
 
-    def test_los_detalles_no_reventan_con_tipos_raros(self) -> None:
+    def test_the_details_do_not_blow_up_on_odd_types(self) -> None:
         from datetime import date
 
         error = StructuredToolError("X", "y", details={"cuando": date(2026, 9, 1)})
         assert "2026-09-01" in error.render()
 
-    def test_el_mensaje_de_la_excepcion_es_el_render(self) -> None:
+    def test_the_exception_message_is_the_rendered_question(self) -> None:
         error = StructuredToolError("X", "y", suggestion="z")
         assert str(error) == error.render()
 
-    def test_to_dict_omite_lo_vacio(self) -> None:
+    def test_to_dict_omits_what_is_empty(self) -> None:
         assert StructuredToolError("X", "y").to_dict() == {
             "error": True,
             "code": "X",
@@ -59,8 +59,8 @@ class TestRenderizado:
         }
 
 
-class TestConversiones:
-    def test_reconstruye_desde_la_envoltura_del_backend(self) -> None:
+class TestConversions:
+    def test_it_rebuilds_from_the_backend_envelope(self) -> None:
         error = StructuredToolError.from_envelope(
             {
                 "error": True,
@@ -73,34 +73,34 @@ class TestConversiones:
         assert error.code == "SLOT_UNAVAILABLE"
         assert error.details == {"slot_id": 3}
 
-    def test_una_envoltura_incompleta_no_revienta(self) -> None:
+    def test_an_incomplete_envelope_does_not_blow_up(self) -> None:
         error = StructuredToolError.from_envelope({})
         assert error.code == "INTERNAL_ERROR"
         assert error.message
 
-    def test_convierte_un_error_de_dominio(self) -> None:
+    def test_converts_a_domain_error(self) -> None:
         as_entries = SlotUnavailable("ocupado", suggestion="prueba otro", details={"a": 1})
         error = StructuredToolError.from_domain(as_entries)
         assert error.code == "SLOT_UNAVAILABLE"
         assert error.suggestion == "prueba otro"
 
 
-class TestErroresPrefabricados:
-    def test_no_autenticado_apunta_al_descubrimiento(self) -> None:
+class TestPrebuiltErrors:
+    def test_unauthenticated_points_at_discovery(self) -> None:
         error = unauthenticated_error("http://localhost:8080")
         assert error.code == "NOT_AUTHENTICATED"
         assert "oauth-protected-resource" in (error.suggestion or "")
 
-    def test_el_de_scope_nombra_lo_que_falta_y_lo_que_hay(self) -> None:
+    def test_the_scope_error_names_what_is_missing_and_what_is_held(self) -> None:
         error = scope_error("cancel_appointment", "write", ["read"])
         assert error.details["scope_requerido"] == "write"
         assert error.details["scopes_del_token"] == ["read"]
         assert "do not call this tool again" in (error.suggestion or "").lower()
 
-    def test_el_de_scope_sin_scopes_lo_dice_explicitamente(self) -> None:
+    def test_the_scope_error_with_no_scopes_says_so_explicitly(self) -> None:
         assert "no scopes" in (scope_error("x", "read", []).suggestion or "")
 
-    def test_el_de_backend_caido_deslinda_al_llamador(self) -> None:
+    def test_the_backend_down_error_absolves_the_caller(self) -> None:
         """The model must not conclude its own arguments were wrong."""
         error = backend_down_error("connection refused")
         assert "not a problem with your request" in (error.suggestion or "")

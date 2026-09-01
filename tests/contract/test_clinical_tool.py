@@ -44,8 +44,8 @@ def appointment_without_consent(backend_session: Session, scenario: Scenario) ->
     return appointment.id
 
 
-class TestConConsentimiento:
-    async def test_el_ciclo_completo_registra_el_motivo(
+class TestWithConsent:
+    async def test_the_full_cycle_records_the_reason(
         self, mcp: MCPTestClient, backend_session: Session, appointment_with_consent: int
     ) -> None:
         args = {"appointment_id": appointment_with_consent, "reason": "Dolor en molar inferior"}
@@ -58,7 +58,7 @@ class TestConConsentimiento:
             get_appointment(backend_session, appointment_with_consent).reason_recorded_by == SUBJECT
         )
 
-    async def test_la_pregunta_advierte_de_la_regulacion(
+    async def test_the_question_warns_about_the_regulation(
         self, mcp: MCPTestClient, appointment_with_consent: int
     ) -> None:
         args = {"appointment_id": appointment_with_consent, "reason": "Dolor"}
@@ -67,7 +67,7 @@ class TestConConsentimiento:
         assert "2654" in message
         assert "1581" in message
 
-    async def test_preguntar_no_escribe_nada_todavia(
+    async def test_asking_writes_nothing_yet(
         self, mcp: MCPTestClient, backend_session: Session, appointment_with_consent: int
     ) -> None:
         args = {"appointment_id": appointment_with_consent, "reason": "Dolor agudo"}
@@ -77,8 +77,8 @@ class TestConConsentimiento:
         assert get_appointment(backend_session, appointment_with_consent).reason is None
 
 
-class TestSinConsentimiento:
-    async def test_ni_el_scope_ni_la_aprobacion_alcanzan(
+class TestWithoutConsent:
+    async def test_neither_the_scope_nor_the_approval_is_enough(
         self, mcp: MCPTestClient, appointment_without_consent: int
     ) -> None:
         """Every gate open except the patient's own authorisation, and that is
@@ -90,7 +90,7 @@ class TestSinConsentimiento:
         assert "2654" in exc.value.text_of
         assert "Action required" in exc.value.text_of
 
-    async def test_el_rechazo_no_deja_el_motivo_escrito(
+    async def test_the_refusal_leaves_no_reason_written(
         self, mcp: MCPTestClient, backend_session: Session, appointment_without_consent: int
     ) -> None:
         args = {"appointment_id": appointment_without_consent, "reason": "Dolor severo"}
@@ -100,8 +100,8 @@ class TestSinConsentimiento:
         assert get_appointment(backend_session, appointment_without_consent).reason is None
 
 
-class TestAuditoriaClinica:
-    async def test_el_acceso_clinico_tiene_su_propio_evento(
+class TestClinicalAudit:
+    async def test_clinical_access_has_its_own_event(
         self, mcp: MCPTestClient, ctx: Any, appointment_with_consent: int
     ) -> None:
         """Res. 2654 asks who touched clinical data. Burying that in the generic
@@ -115,7 +115,7 @@ class TestAuditoriaClinica:
         assert all(e["subject"] == "odontologa@clinica.test" for e in clinicos)
         assert all(e["appointment_id"] == appointment_with_consent for e in clinicos)
 
-    async def test_un_rechazo_tambien_queda_auditado(
+    async def test_a_refusal_is_audited_too(
         self, mcp: MCPTestClient, ctx: Any, appointment_without_consent: int
     ) -> None:
         args = {"appointment_id": appointment_without_consent, "reason": "Dolor"}
@@ -124,7 +124,7 @@ class TestAuditoriaClinica:
         clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
         assert clinicos[-1]["result"] == "refused:CONSENT_REQUIRED"
 
-    async def test_el_motivo_no_se_copia_al_log(
+    async def test_the_reason_is_not_copied_into_the_log(
         self, mcp: MCPTestClient, ctx: Any, appointment_with_consent: int
     ) -> None:
         """The reason for consultation is the clinical datum itself. Auditing
@@ -142,7 +142,7 @@ class TestAuditoriaClinica:
             if e["event"] == "tool.invocation"
         )
 
-    async def test_el_motivo_clinico_no_viaja_en_el_mensaje_al_humano(
+    async def test_the_clinical_reason_does_not_travel_in_the_human_message(
         self, mcp: MCPTestClient, appointment_with_consent: int
     ) -> None:
         """The person approving needs to know *that* a reason is being recorded,

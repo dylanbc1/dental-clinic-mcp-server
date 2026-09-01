@@ -26,32 +26,32 @@ class LoggerFalso:
         self.llamadas.append((evento, payload))
 
 
-class TestRedaccion:
+class TestRedaction:
     @pytest.mark.parametrize("field", sorted(REDACTED_FIELDS))
-    def test_todo_campo_sensible_se_redacta(self, field: str) -> None:
+    def test_every_sensitive_field_is_redacted(self, field: str) -> None:
         assert redact({field: "valor real"})[field] == REDACTED
 
-    def test_los_demas_campos_se_conservan(self) -> None:
+    def test_the_other_fields_are_preserved(self) -> None:
         assert redact({"appointment_id": 7, "status": "attended"}) == {
             "appointment_id": 7,
             "status": "attended",
         }
 
-    def test_un_none_no_se_redacta_innecesariamente(self) -> None:
+    def test_a_none_is_not_redacted_unnecessarily(self) -> None:
         """Redacting an absent value hides that it was absent."""
         assert redact({"reason": None}) == {"reason": None}
 
-    def test_el_motivo_de_consulta_esta_cubierto(self) -> None:
+    def test_the_visit_reason_is_covered(self) -> None:
         # It is clinical data under Res. 2654/2019.
         assert "reason" in REDACTED_FIELDS
 
-    def test_el_token_de_confirmacion_esta_cubierto(self) -> None:
+    def test_the_confirmation_token_is_covered(self) -> None:
         # A logged token is a replayable approval.
         assert "confirmation_token" in REDACTED_FIELDS
 
 
 class TestAuditor:
-    def test_registra_una_invocacion_exitosa(self) -> None:
+    def test_it_records_a_successful_invocation(self) -> None:
         logger = LoggerFalso()
         auditor = Auditor(logger)
         auditor.tool_call(
@@ -66,7 +66,7 @@ class TestAuditor:
         assert payload["subject"] == "ana@clinica.test"
         assert payload["arguments"]["document_number"] == REDACTED
 
-    def test_registra_el_codigo_de_error_cuando_lo_hay(self) -> None:
+    def test_it_records_the_error_code_when_there_is_one(self) -> None:
         auditor = Auditor(LoggerFalso())
         auditor.tool_call(
             "x",
@@ -78,12 +78,12 @@ class TestAuditor:
         )
         assert auditor.events[-1]["error_code"] == "APPOINTMENT_NOT_FOUND"
 
-    def test_marca_la_ejecucion_aprobada(self) -> None:
+    def test_marks_the_execution_as_approved(self) -> None:
         auditor = Auditor(LoggerFalso())
         auditor.tool_call("x", subject="a", scope="write", arguments={}, result="ok", approved=True)
         assert auditor.events[-1]["with_human_approval"] is True
 
-    def test_propuesta_y_confirmacion_son_eventos_distintos(self) -> None:
+    def test_proposal_and_confirmation_are_distinct_events(self) -> None:
         auditor = Auditor(LoggerFalso())
         auditor.question_asked("cancel_appointment", subject="a", nonce="n1")
         auditor.question_answered("cancel_appointment", subject="a", nonce="n1")
@@ -92,7 +92,7 @@ class TestAuditor:
             "approval.confirmed",
         ]
 
-    def test_el_acceso_clinico_es_su_propio_tipo_de_evento(self) -> None:
+    def test_clinical_access_is_its_own_event_type(self) -> None:
         auditor = Auditor(LoggerFalso())
         auditor.clinical_access(subject="a", appointment_id=7, result="recorded")
         assert auditor.events[-1] == {
@@ -102,7 +102,7 @@ class TestAuditor:
             "result": "recorded",
         }
 
-    def test_la_memoria_esta_acotada(self) -> None:
+    def test_the_memory_is_bounded(self) -> None:
         """An audit log is a log, not a data store: the in-memory mirror must
         not grow without bound in a long-running process."""
         auditor = Auditor(LoggerFalso())
@@ -112,7 +112,7 @@ class TestAuditor:
         assert len(auditor.events) == 10
         assert auditor.events[-1]["appointment_id"] == 49
 
-    def test_los_eventos_son_serializables_a_json(self) -> None:
+    def test_the_events_are_json_serialisable(self) -> None:
         """They are shipped to a log pipeline; an unserialisable value would be
         discovered in production rather than here."""
         auditor = Auditor(LoggerFalso())
@@ -122,10 +122,10 @@ class TestAuditor:
         json.dumps(auditor.events)
 
 
-class TestConfiguracionDeLogging:
-    def test_configurar_no_revienta_con_un_nivel_valido(self) -> None:
+class TestLoggingConfiguration:
+    def test_configuring_does_not_blow_up_on_a_valid_level(self) -> None:
         configure_logging("DEBUG")
         configure_logging("INFO")
 
-    def test_un_nivel_desconocido_cae_a_info(self) -> None:
+    def test_an_unknown_level_falls_back_to_info(self) -> None:
         configure_logging("NO-EXISTE")

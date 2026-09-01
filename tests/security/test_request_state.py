@@ -41,8 +41,8 @@ def args(scenario: Scenario) -> dict[str, Any]:
     return {"patient_id": scenario.ana_id, "slot_id": scenario.slots_general[0]}
 
 
-class TestConfidencialidad:
-    async def test_el_estado_no_revela_la_operacion(
+class TestConfidentiality:
+    async def test_the_state_does_not_reveal_the_operation(
         self, mcp: MCPTestClient, args: dict[str, Any], scenario: Scenario
     ) -> None:
         """Sealed, not merely signed.
@@ -62,15 +62,13 @@ class TestConfidencialidad:
         assert SUBJECT not in status
         assert scenario.ana_documento not in status
 
-    async def test_el_estado_esta_versionado(
-        self, mcp: MCPTestClient, args: dict[str, Any]
-    ) -> None:
+    async def test_the_state_is_versioned(self, mcp: MCPTestClient, args: dict[str, Any]) -> None:
         """A version prefix is what makes the format changeable later."""
         with as_caller(SUBJECT, ESCRITURA):
             status = (await mcp.ask("book_appointment", args))["requestState"]
         assert status.startswith("v1.")
 
-    async def test_cada_pregunta_produce_un_estado_distinto(
+    async def test_every_question_produces_a_distinct_state(
         self, mcp: MCPTestClient, args: dict[str, Any]
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA):
@@ -79,8 +77,8 @@ class TestConfidencialidad:
         assert primero != segundo
 
 
-class TestIntegridad:
-    async def test_un_estado_alterado_se_rechaza(
+class TestIntegrity:
+    async def test_a_tampered_state_is_refused(
         self, mcp: MCPTestClient, backend_session: Session, args: dict[str, Any]
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA):
@@ -90,7 +88,7 @@ class TestIntegridad:
                 await mcp.respond("book_appointment", args, tampered)
         assert contar_citas(backend_session) == 0
 
-    async def test_un_estado_inventado_se_rechaza(
+    async def test_an_invented_state_is_refused(
         self, mcp: MCPTestClient, args: dict[str, Any]
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA):
@@ -100,7 +98,7 @@ class TestIntegridad:
                 await mcp.respond("book_appointment", args, falso)
 
     @pytest.mark.parametrize("basura", ["", "no-es-un-estado", "v1.", "v9.abc"])
-    async def test_un_estado_malformado_no_revienta_el_servidor(
+    async def test_a_malformed_state_does_not_crash_the_server(
         self, mcp: MCPTestClient, args: dict[str, Any], basura: str
     ) -> None:
         with as_caller(SUBJECT, ESCRITURA):
@@ -109,8 +107,8 @@ class TestIntegridad:
                 await mcp.respond("book_appointment", args, {**question, "requestState": basura})
 
 
-class TestAtadoALaOperacion:
-    async def test_un_estado_de_otra_tool_no_sirve(
+class TestBoundToTheOperation:
+    async def test_a_state_from_another_tool_does_not_work(
         self, mcp: MCPTestClient, backend_session: Session, args: dict[str, Any]
     ) -> None:
         """The attack this defeats: get an approval for something harmless, then
@@ -134,7 +132,7 @@ class TestAtadoALaOperacion:
                     inocua,
                 )
 
-    async def test_un_estado_no_sirve_con_otros_argumentos(
+    async def test_a_state_does_not_work_with_other_arguments(
         self, mcp: MCPTestClient, scenario: Scenario, args: dict[str, Any]
     ) -> None:
         """Approving a booking for one patient must not book another."""
@@ -145,8 +143,8 @@ class TestAtadoALaOperacion:
                 await mcp.respond("book_appointment", otros, question)
 
 
-class TestAtadoAlPrincipal:
-    async def test_otro_usuario_no_puede_canjear_mi_aprobacion(
+class TestBoundToThePrincipal:
+    async def test_another_user_cannot_redeem_my_approval(
         self, mcp: MCPTestClient, backend_session: Session, args: dict[str, Any]
     ) -> None:
         """`bind_principal` ties the sealed state to the authenticated subject,
@@ -159,8 +157,8 @@ class TestAtadoAlPrincipal:
         assert contar_citas(backend_session) == 0
 
 
-class TestExpiracion:
-    async def test_un_estado_vencido_se_rechaza(
+class TestExpiry:
+    async def test_an_expired_state_is_refused(
         self,
         ctx: ToolContext,
         mcp_settings: Settings,
@@ -178,7 +176,7 @@ class TestExpiracion:
                     await corto.respond("book_appointment", args, question)
         assert contar_citas(backend_session) == 0
 
-    async def test_dentro_del_plazo_todavia_sirve(
+    async def test_within_the_window_it_still_works(
         self, ctx: ToolContext, mcp_settings: Settings, args: dict[str, Any]
     ) -> None:
         breve = mcp_settings.model_copy(update={"request_state_ttl_seconds": 30.0})
@@ -189,11 +187,11 @@ class TestExpiracion:
         assert result["appointment"]["status"] == "scheduled"
 
 
-class TestRotacionDeClaves:
+class TestKeyRotation:
     """`keys[0]` seals, every key unseals. That is what makes rotation
     zero-downtime: ship [old, new], then [new, old], then [new] after one TTL."""
 
-    async def test_una_clave_nueva_sigue_abriendo_lo_sellado_con_la_vieja(
+    async def test_a_new_key_still_opens_what_the_old_one_sealed(
         self, ctx: ToolContext, mcp_settings: Settings, args: dict[str, Any]
     ) -> None:
         vieja = "clave-vieja-de-treinta-y-dos-bytes-ok"
@@ -213,7 +211,7 @@ class TestRotacionDeClaves:
                 result = await durante.respond("book_appointment", args, question)
         assert result["appointment"]["status"] == "scheduled"
 
-    async def test_retirada_la_clave_vieja_su_estado_deja_de_valer(
+    async def test_once_the_old_key_is_withdrawn_its_state_stops_working(
         self,
         ctx: ToolContext,
         mcp_settings: Settings,
@@ -237,8 +235,8 @@ class TestRotacionDeClaves:
         assert contar_citas(backend_session) == 0
 
 
-class TestSinEstadoEnElServidor:
-    async def test_otro_proceso_puede_atender_la_segunda_ronda(
+class TestNoStateOnTheServer:
+    async def test_another_process_can_serve_the_second_round(
         self, ctx: ToolContext, mcp_settings: Settings, args: dict[str, Any]
     ) -> None:
         """The whole point of MRTR: the pending operation lives in the client's

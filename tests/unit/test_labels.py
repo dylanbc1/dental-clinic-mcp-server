@@ -18,44 +18,44 @@ from backend.domain.labels import (
 from backend.enums import AppointmentState, Specialty
 
 
-class TestCobertura:
-    def test_todo_estado_tiene_etiqueta(self) -> None:
+class TestCoverage:
+    def test_every_state_has_a_label(self) -> None:
         """A new state without a label would otherwise leak English into the
         question a human approves."""
         assert set(APPOINTMENT_STATE_LABELS) == set(AppointmentState)
 
-    def test_ninguna_etiqueta_es_el_valor_interno(self) -> None:
+    def test_no_label_is_the_internal_value(self) -> None:
         for state, label in APPOINTMENT_STATE_LABELS.items():
             assert label != state.value, f"{state.value} was never translated"
 
-    def test_ninguna_etiqueta_lleva_guion_bajo(self) -> None:
+    def test_no_label_carries_an_underscore(self) -> None:
         """`no_show` is a machine value. A person reads `no asistió`."""
         for label in APPOINTMENT_STATE_LABELS.values():
             assert "_" not in label
 
 
-class TestEtiqueta:
-    def test_acepta_el_enum(self) -> None:
+class TestLabel:
+    def test_accepts_the_enum(self) -> None:
         assert state_label(AppointmentState.CANCELLED) == "cancelada"
 
-    def test_acepta_la_cadena_que_viene_del_backend(self) -> None:
+    def test_accepts_the_string_from_the_backend(self) -> None:
         """Callers hold decoded JSON, not enum members."""
         assert state_label("no_show") == "no asistió"
 
-    def test_un_estado_desconocido_falla_en_vez_de_filtrar_ingles(self) -> None:
+    def test_an_unknown_state_fails_instead_of_leaking_english(self) -> None:
         with pytest.raises(ValueError, match="inventado"):
             state_label("inventado")
 
 
-class TestEspecialidades:
-    def test_toda_especialidad_tiene_etiqueta(self) -> None:
+class TestSpecialties:
+    def test_every_specialty_has_a_label(self) -> None:
         assert set(SPECIALTY_LABELS) == set(Specialty)
 
-    def test_ninguna_etiqueta_es_el_valor_interno(self) -> None:
+    def test_no_label_is_the_internal_value(self) -> None:
         for specialty, label in SPECIALTY_LABELS.items():
             assert label != specialty.value, f"{specialty.value} was never translated"
 
-    def test_la_etiqueta_lleva_tilde_donde_corresponde(self) -> None:
+    def test_the_label_carries_its_accents(self) -> None:
         """`odontología general`, not `odontologia general`. The clinic writes
         Spanish properly."""
         assert specialty_label("general_dentistry") == "odontología general"

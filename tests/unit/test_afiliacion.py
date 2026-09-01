@@ -23,7 +23,7 @@ from backend.enums import ChargeConcept, Regimen, Specialty
 
 
 class TestRegimenContributivo:
-    def test_activo_aplica_cuota_moderadora(self) -> None:
+    def test_active_applies_cuota_moderadora(self) -> None:
         r = validate_afiliacion(Regimen.CONTRIBUTIVO, afiliacion_active=True)
         assert r.active
         assert r.covered
@@ -32,14 +32,14 @@ class TestRegimenContributivo:
         assert r.effective_regimen is Regimen.CONTRIBUTIVO
 
     @pytest.mark.parametrize("level", [1, 2, 3])
-    def test_el_nivel_cambia_el_monto_informado(self, level: int) -> None:
+    def test_the_level_changes_the_reported_amount(self, level: int) -> None:
         r = validate_afiliacion(
             Regimen.CONTRIBUTIVO, afiliacion_active=True, cuota_moderadora_level=level
         )
         expected = CUOTA_MODERADORA_BY_BRACKET[level]
         assert f"{expected:,.0f}" in r.message
 
-    def test_nivel_desconocido_cae_al_nivel_1(self) -> None:
+    def test_an_unknown_level_falls_back_to_level_1(self) -> None:
         r = validate_afiliacion(
             Regimen.CONTRIBUTIVO, afiliacion_active=True, cuota_moderadora_level=99
         )
@@ -47,7 +47,7 @@ class TestRegimenContributivo:
 
 
 class TestRegimenSubsidiado:
-    def test_activo_aplica_copago(self) -> None:
+    def test_active_applies_copago(self) -> None:
         r = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_active=True)
         assert r.charge_concept is ChargeConcept.COPAGO
         assert r.requires_copago
@@ -55,13 +55,13 @@ class TestRegimenSubsidiado:
 
 
 class TestParticular:
-    def test_nunca_tiene_copago(self) -> None:
+    def test_it_never_has_a_copago(self) -> None:
         r = validate_afiliacion(Regimen.PARTICULAR, afiliacion_active=True)
         assert not r.requires_copago
         assert not r.covered
         assert r.charge_concept is ChargeConcept.PARTICULAR
 
-    def test_el_flag_de_afiliacion_es_irrelevante_para_un_particular(self) -> None:
+    def test_the_afiliacion_flag_is_irrelevant_for_a_particular(self) -> None:
         """A private patient has nothing to be affiliated to."""
         active = validate_afiliacion(Regimen.PARTICULAR, afiliacion_active=True)
         inactivo = validate_afiliacion(Regimen.PARTICULAR, afiliacion_active=False)
@@ -70,16 +70,16 @@ class TestParticular:
 
 
 class TestSoat:
-    def test_cubre_totalmente_y_no_genera_copago(self) -> None:
+    def test_fully_covered_creates_no_copago(self) -> None:
         r = validate_afiliacion(Regimen.SOAT, afiliacion_active=True)
         assert r.covered
         assert not r.requires_copago
         assert r.effective_regimen is Regimen.SOAT
 
 
-class TestAfiliacionInactiva:
+class TestInactiveAfiliacion:
     @pytest.mark.parametrize("regimen", [Regimen.CONTRIBUTIVO, Regimen.SUBSIDIADO, Regimen.SOAT])
-    def test_cae_a_tarifa_particular(self, regimen: Regimen) -> None:
+    def test_falls_back_to_the_particular_tariff(self, regimen: Regimen) -> None:
         r = validate_afiliacion(regimen, afiliacion_active=False)
         assert not r.active
         assert r.effective_regimen is Regimen.PARTICULAR
@@ -87,18 +87,18 @@ class TestAfiliacionInactiva:
         assert not r.covered
         assert not r.requires_copago
 
-    def test_conserva_el_regimen_original_para_informar(self) -> None:
+    def test_keeps_the_original_regimen_to_report_it(self) -> None:
         r = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_active=False)
         assert r.regimen is Regimen.SUBSIDIADO
         assert "is inactive" in r.message
 
-    def test_da_una_sugerencia_accionable(self) -> None:
+    def test_gives_an_actionable_suggestion(self) -> None:
         r = validate_afiliacion(Regimen.CONTRIBUTIVO, afiliacion_active=False)
         assert r.suggestion is not None
         assert "EPS" in r.suggestion
 
 
-class TestNoBloqueaAgendamiento:
+class TestDoesNotBlockBooking:
     """The rule that separates this from a naive implementation."""
 
     @given(
@@ -106,33 +106,33 @@ class TestNoBloqueaAgendamiento:
         active=st.booleans(),
         level=st.integers(min_value=1, max_value=3),
     )
-    def test_ninguna_combinacion_impide_agendar(
+    def test_no_combination_prevents_booking(
         self, regimen: Regimen, active: bool, level: int
     ) -> None:
         r = validate_afiliacion(regimen, active, cuota_moderadora_level=level)
         assert r.blocks_booking is False
 
 
-class TestTarifas:
+class TestTariffs:
     @pytest.mark.parametrize("specialty", list(Specialty))
-    def test_toda_especialidad_tiene_tarifa(self, specialty: Specialty) -> None:
+    def test_every_specialty_has_a_tariff(self, specialty: Specialty) -> None:
         assert str(specialty) in PRIVATE_TARIFF
         assert base_tariff(str(specialty)) > Decimal("0")
 
-    def test_especialidad_desconocida_usa_la_tarifa_por_defecto(self) -> None:
+    def test_an_unknown_specialty_uses_the_default_tariff(self) -> None:
         assert base_tariff("cirugia_espacial") == DEFAULT_PRIVATE_TARIFF
 
-    def test_endodoncia_es_la_mas_costosa(self) -> None:
+    def test_endodontics_is_the_most_expensive(self) -> None:
         assert base_tariff("endodontics") == max(PRIVATE_TARIFF.values())
 
 
-class TestInvariantes:
+class TestInvariants:
     @given(
         regimen=st.sampled_from(list(Regimen)),
         active=st.booleans(),
         level=st.integers(min_value=1, max_value=3),
     )
-    def test_el_resultado_siempre_esta_bien_formado(
+    def test_the_result_is_always_well_formed(
         self, regimen: Regimen, active: bool, level: int
     ) -> None:
         r = validate_afiliacion(regimen, active, cuota_moderadora_level=level)

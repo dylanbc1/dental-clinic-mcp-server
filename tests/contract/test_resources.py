@@ -23,22 +23,24 @@ pytestmark = pytest.mark.integration
 
 async def leer(server_: MCPServer[Any], uri: str) -> Any:
     contenidos = list(await server_.read_resource(uri))
-    assert contenidos, f"{uri} no devolvió contenido"
+    assert contenidos, f"{uri} returned no content"
     return json.loads(contenidos[0].content)
 
 
-class TestRecursos:
-    async def test_los_tres_recursos_estan_declarados(self, server_: MCPServer[Any]) -> None:
+class TestResources:
+    async def test_the_three_resources_are_declared(self, server_: MCPServer[Any]) -> None:
         uris = {str(r.uri) for r in await server_.list_resources()}
         assert uris == {"clinica://info", "politicas://cartera", "agenda://hoy"}
 
-    async def test_todo_recurso_tiene_nombre_y_descripcion(self, server_: MCPServer[Any]) -> None:
+    async def test_every_resource_has_a_name_and_a_description(
+        self, server_: MCPServer[Any]
+    ) -> None:
         for recurso in await server_.list_resources():
             assert recurso.name
             assert recurso.description and len(recurso.description) > 40
             assert recurso.mime_type == "application/json"
 
-    async def test_clinica_info_trae_los_profesionales_reales(
+    async def test_clinic_info_carries_the_real_professionals(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -50,7 +52,7 @@ class TestRecursos:
             "orthodontics",
         }
 
-    async def test_politicas_trae_las_tarifas_para_no_inventarlas(
+    async def test_policies_carry_the_tariffs_so_nobody_invents_them(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -59,7 +61,7 @@ class TestRecursos:
         assert politicas["no_show_amount"] == "40000"
         assert "never a block" in politicas["note"]
 
-    async def test_agenda_hoy_responde_aunque_no_haya_citas(
+    async def test_todays_agenda_answers_even_with_no_appointments(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -67,7 +69,7 @@ class TestRecursos:
         assert agenda["total"] == 0
         assert agenda["appointments"] == []
 
-    async def test_agenda_hoy_refleja_las_citas_del_dia(
+    async def test_todays_agenda_reflects_the_days_appointments(
         self, server_: MCPServer[Any], backend_session: Any, scenario: Scenario
     ) -> None:
         # "Today" means today at the clinic, not on whatever machine is running
@@ -90,7 +92,7 @@ class TestRecursos:
         assert agenda["total"] == 1
         assert agenda["by_status"] == {"scheduled": 1}
 
-    async def test_hoy_es_hoy_en_la_clinica_no_en_el_servidor(
+    async def test_today_is_today_at_the_clinic_not_on_the_server(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         """America/Bogota is UTC-5, so for five hours a day the two disagree.
@@ -102,11 +104,11 @@ class TestRecursos:
 
 
 class TestPrompt:
-    async def test_el_prompt_esta_declarado(self, server_: MCPServer[Any]) -> None:
+    async def test_the_prompt_is_declared(self, server_: MCPServer[Any]) -> None:
         prompts = await server_.list_prompts()
         assert [p.name for p in prompts] == ["recepcionista_odontologia"]
 
-    async def test_se_personaliza_con_los_datos_de_la_clinica(
+    async def test_it_is_personalised_with_the_clinics_data(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -126,7 +128,7 @@ class TestPrompt:
             "No registras motivo de consulta sin consentimiento",
         ],
     )
-    async def test_el_prompt_declara_los_limites_del_agente(
+    async def test_the_prompt_states_the_agents_limits(
         self, server_: MCPServer[Any], scenario: Scenario, regla: str
     ) -> None:
         """Every rule the domain enforces is also stated in the prompt, so the
@@ -136,7 +138,7 @@ class TestPrompt:
         text_of = "\n".join(getattr(m.content, "text", "") for m in result.messages)
         assert regla in text_of
 
-    async def test_el_prompt_dice_cuando_escalar(
+    async def test_the_prompt_says_when_to_escalate(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):

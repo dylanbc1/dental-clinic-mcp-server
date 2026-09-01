@@ -49,31 +49,31 @@ TABLAS_ESPERADAS = {
 }
 
 
-class TestFormaDelEsquema:
-    def test_existen_las_ocho_tablas_del_modelo(self, engine: object) -> None:
+class TestSchemaShape:
+    def test_the_models_eight_tables_exist(self, engine: object) -> None:
         names = set(inspect(engine).get_table_names())  # type: ignore[arg-type]
         assert names >= TABLAS_ESPERADAS
 
-    def test_los_metadatos_declaran_exactamente_esas_tablas(self) -> None:
+    def test_the_metadata_declares_exactly_those_tables(self) -> None:
         assert set(Base.metadata.tables) == TABLAS_ESPERADAS
 
-    def test_los_timestamps_llevan_zona_horaria(self, engine: object) -> None:
+    def test_the_timestamps_carry_a_timezone(self, engine: object) -> None:
         """A `timestamp without time zone` column is a five-hour bug waiting.
 
         Checked on the reflected type's own flag rather than on its rendered
         SQL: ``str()`` uses the generic compiler, which drops the qualifier.
         """
         inspector = inspect(engine)  # type: ignore[arg-type]
-        revisadas = 0
+        checked = 0
         for table in TABLAS_ESPERADAS:
-            for columna in inspector.get_columns(table):
-                tipo = columna["type"]
-                if isinstance(tipo, DateTime):
-                    assert tipo.timezone is True, f"{table}.{columna['name']} sin zona"
-                    revisadas += 1
-        assert revisadas >= 20, "no se inspeccionó ninguna columna de tiempo"
+            for column in inspector.get_columns(table):
+                kind = column["type"]
+                if isinstance(kind, DateTime):
+                    assert kind.timezone is True, f"{table}.{column['name']} has no timezone"
+                    checked += 1
+        assert checked >= 20, "no time column was inspected at all"
 
-    def test_los_enums_son_nativos_de_postgres(self, session: Session) -> None:
+    def test_the_enums_are_native_postgres_types(self, session: Session) -> None:
         tipos = (
             session.execute(text("select typname from pg_type where typtype = 'e'")).scalars().all()
         )
@@ -81,7 +81,7 @@ class TestFormaDelEsquema:
         assert "regimen_enum" in tipos
 
 
-class TestUnicidad:
+class TestUniqueness:
     def _patient(self, document_number: str = "1020304050") -> Patient:
         return Patient(
             document_type=DocumentType.CC,
@@ -92,14 +92,14 @@ class TestUnicidad:
             afiliacion_active=True,
         )
 
-    def test_no_se_repite_el_documento_para_el_mismo_tipo(self, empty_tables: Session) -> None:
+    def test_the_document_is_not_repeated_for_the_same_type(self, empty_tables: Session) -> None:
         empty_tables.add(self._patient())
         empty_tables.flush()
         empty_tables.add(self._patient())
         with pytest.raises(IntegrityError):
             empty_tables.flush()
 
-    def test_el_mismo_numero_con_otro_tipo_si_se_permite(self, empty_tables: Session) -> None:
+    def test_the_same_number_with_another_type_is_allowed(self, empty_tables: Session) -> None:
         """A minor's TI and an adult's CC can legitimately share digits."""
         cc = self._patient()
         ti = self._patient()
@@ -107,7 +107,7 @@ class TestUnicidad:
         empty_tables.add_all([cc, ti])
         empty_tables.flush()  # must not raise
 
-    def test_no_se_repite_el_registro_profesional(self, empty_tables: Session) -> None:
+    def test_the_professional_license_is_not_repeated(self, empty_tables: Session) -> None:
         clinic = Clinic(name="C", nit="900.1-1", specialty="Odontología")
         empty_tables.add(clinic)
         empty_tables.flush()
@@ -125,7 +125,7 @@ class TestUnicidad:
 
 
 class TestChecks:
-    def test_un_slot_no_puede_terminar_antes_de_empezar(self, empty_tables: Session) -> None:
+    def test_a_slot_cannot_end_before_it_starts(self, empty_tables: Session) -> None:
         clinic = Clinic(name="C", nit="900.2-2", specialty="O")
         empty_tables.add(clinic)
         empty_tables.flush()
@@ -150,7 +150,7 @@ class TestChecks:
         with pytest.raises(IntegrityError):
             empty_tables.flush()
 
-    def test_un_cargo_no_puede_ser_negativo(self, empty_tables: Session) -> None:
+    def test_a_charge_cannot_be_negative(self, empty_tables: Session) -> None:
         patient = Patient(
             document_type=DocumentType.CC,
             document_number="777",
@@ -173,7 +173,7 @@ class TestChecks:
         with pytest.raises(IntegrityError):
             empty_tables.flush()
 
-    def test_el_nivel_de_cuota_moderadora_esta_acotado(self, empty_tables: Session) -> None:
+    def test_the_cuota_moderadora_level_is_bounded(self, empty_tables: Session) -> None:
         empty_tables.add(
             Patient(
                 document_type=DocumentType.CC,
@@ -188,7 +188,7 @@ class TestChecks:
         with pytest.raises(IntegrityError):
             empty_tables.flush()
 
-    def test_un_estado_inexistente_es_rechazado_por_el_enum(self, empty_tables: Session) -> None:
+    def test_a_nonexistent_state_is_refused_by_the_enum(self, empty_tables: Session) -> None:
         with pytest.raises((DataError, IntegrityError)):
             empty_tables.execute(
                 text(
@@ -199,7 +199,7 @@ class TestChecks:
             )
 
 
-class TestListaEsperaUnicidadParcial:
+class TestWaitingListPartialUniqueness:
     def _patient(self, session: Session, document_number: str) -> Patient:
         patient = Patient(
             document_type=DocumentType.CC,
@@ -213,7 +213,7 @@ class TestListaEsperaUnicidadParcial:
         session.flush()
         return patient
 
-    def test_un_paciente_no_se_inscribe_dos_veces_en_la_misma_especialidad(
+    def test_a_patient_does_not_enrol_twice_in_the_same_specialty(
         self, empty_tables: Session
     ) -> None:
         patient = self._patient(empty_tables, "555")
@@ -229,7 +229,7 @@ class TestListaEsperaUnicidadParcial:
         with pytest.raises(IntegrityError):
             empty_tables.flush()
 
-    def test_puede_reinscribirse_si_la_anterior_ya_no_esta_activa(
+    def test_re_enrolment_is_allowed_once_the_previous_one_is_inactive(
         self, empty_tables: Session
     ) -> None:
         """The uniqueness is partial on purpose: a retired entry must not block
@@ -252,9 +252,7 @@ class TestListaEsperaUnicidadParcial:
         )
         empty_tables.flush()  # must not raise
 
-    def test_la_misma_persona_puede_esperar_en_dos_especialidades(
-        self, empty_tables: Session
-    ) -> None:
+    def test_the_same_person_can_wait_in_two_specialties(self, empty_tables: Session) -> None:
         patient = self._patient(empty_tables, "557")
         empty_tables.add_all(
             [
@@ -265,8 +263,8 @@ class TestListaEsperaUnicidadParcial:
         empty_tables.flush()
 
 
-class TestAuditoria:
-    def test_el_historial_admite_estado_anterior_nulo(self, empty_tables: Session) -> None:
+class TestAudit:
+    def test_the_history_allows_a_null_previous_status(self, empty_tables: Session) -> None:
         """The very first row of an appointment's history has no predecessor."""
         license_number = AppointmentHistory(
             appointment_id=1,
@@ -276,13 +274,13 @@ class TestAuditoria:
         )
         assert license_number.previous_status is None
 
-    def test_la_tabla_de_historial_no_tiene_columna_de_actualizacion(self) -> None:
+    def test_the_history_table_has_no_updated_column(self) -> None:
         # Append-only by construction: there is nothing to update.
         assert "updated_at" not in AppointmentHistory.__table__.columns
 
-    def test_toda_columna_de_historial_es_no_nula_donde_importa(self) -> None:
-        columnas = AppointmentHistory.__table__.columns
-        assert not columnas["new_status"].nullable
+    def test_every_history_column_is_not_null_where_it_matters(self) -> None:
+        columns = AppointmentHistory.__table__.columns
+        assert not columns["new_status"].nullable
         # `user` is reserved in PostgreSQL, so the column is `changed_by`.
-        assert not columnas["changed_by"].nullable
-        assert not columnas["occurred_at"].nullable
+        assert not columns["changed_by"].nullable
+        assert not columns["occurred_at"].nullable

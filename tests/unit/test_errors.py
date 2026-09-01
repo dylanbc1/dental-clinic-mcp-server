@@ -29,8 +29,8 @@ CLASES_CONCRETAS = [
 ]
 
 
-class TestFormaDelError:
-    def test_lo_minimo_es_codigo_y_mensaje(self) -> None:
+class TestErrorShape:
+    def test_the_minimum_is_a_code_and_a_message(self) -> None:
         payload = PatientNotFound("No existe el paciente 42").to_dict()
         assert payload == {
             "error": True,
@@ -38,7 +38,7 @@ class TestFormaDelError:
             "message": "No existe el paciente 42",
         }
 
-    def test_incluye_sugerencia_y_detalles_cuando_los_hay(self) -> None:
+    def test_includes_suggestion_and_details_when_present(self) -> None:
         error = SlotUnavailable(
             "El cupo ya fue tomado.",
             suggestion="Los más cercanos son 09:00, 09:30 y 11:00.",
@@ -48,63 +48,61 @@ class TestFormaDelError:
         assert payload["suggestion"].startswith("Los más cercanos")
         assert payload["details"]["slot_id"] == 88
 
-    def test_las_claves_opcionales_se_omiten_no_se_ponen_en_null(self) -> None:
+    def test_optional_keys_are_omitted_not_set_to_null(self) -> None:
         payload = PatientNotFound("x").to_dict()
         assert "suggestion" not in payload
         assert "details" not in payload
 
-    def test_el_codigo_se_puede_forzar_en_construccion(self) -> None:
+    def test_the_code_can_be_forced_at_construction(self) -> None:
         error = InvalidTransition("x", code=ErrorCode.APPOINTMENT_IN_FINAL_STATE)
         assert error.to_dict()["code"] == "APPOINTMENT_IN_FINAL_STATE"
 
-    def test_sigue_siendo_una_excepcion_normal(self) -> None:
+    def test_it_is_still_an_ordinary_exception(self) -> None:
         with pytest.raises(DomainError, match="algo pasó"):
             raise PatientNotFound("algo pasó")
 
 
-class TestContratoDeLaJerarquia:
-    @pytest.mark.parametrize("clase", CLASES_CONCRETAS, ids=lambda c: c.__name__)
-    def test_toda_clase_fija_un_codigo_propio(self, clase: type[DomainError]) -> None:
-        assert clase.code is not DomainError.code or clase is DomainError
+class TestHierarchyContract:
+    @pytest.mark.parametrize("klass", CLASES_CONCRETAS, ids=lambda c: c.__name__)
+    def test_every_class_pins_its_own_code(self, klass: type[DomainError]) -> None:
+        assert klass.code is not DomainError.code or klass is DomainError
 
-    @pytest.mark.parametrize("clase", CLASES_CONCRETAS, ids=lambda c: c.__name__)
-    def test_todo_error_serializa_sin_reventar(self, clase: type[DomainError]) -> None:
-        payload = clase("mensaje de prueba").to_dict()
+    @pytest.mark.parametrize("klass", CLASES_CONCRETAS, ids=lambda c: c.__name__)
+    def test_every_error_serialises_without_blowing_up(self, klass: type[DomainError]) -> None:
+        payload = klass("mensaje de prueba").to_dict()
         assert payload["error"] is True
         assert payload["message"] == "mensaje de prueba"
         assert payload["code"] in set(ErrorCode)
 
-    @pytest.mark.parametrize("clase", CLASES_CONCRETAS, ids=lambda c: c.__name__)
-    def test_el_status_http_es_un_codigo_de_error_del_cliente(
-        self, clase: type[DomainError]
-    ) -> None:
+    @pytest.mark.parametrize("klass", CLASES_CONCRETAS, ids=lambda c: c.__name__)
+    def test_the_http_status_is_a_client_error_code(self, klass: type[DomainError]) -> None:
         # Every modelled failure is the caller's to fix. A domain error that
         # mapped to 5xx would mean the server broke, which is a different thing.
-        assert 400 <= clase.http_status < 500
+        assert 400 <= klass.http_status < 500
 
-    def test_los_no_encontrados_son_404(self) -> None:
+    def test_not_found_is_404(self) -> None:
         assert PatientNotFound.http_status == 404
 
-    def test_los_conflictos_son_409(self) -> None:
+    def test_conflicts_are_409(self) -> None:
         assert SlotUnavailable.http_status == 409
         assert ConcurrencyConflict.http_status == 409
         assert InvalidTransition.http_status == 409
 
-    def test_no_hay_codigos_duplicados_entre_clases(self) -> None:
+    def test_there_are_no_duplicate_codes_across_classes(self) -> None:
         vistos: dict[ErrorCode, str] = {}
-        for clase in CLASES_CONCRETAS:
-            previous = vistos.get(clase.code)
-            assert previous is None, f"{clase.__name__} repite el código de {previous}"
-            vistos[clase.code] = clase.__name__
+        for klass in CLASES_CONCRETAS:
+            previous = vistos.get(klass.code)
+            assert previous is None, f"{klass.__name__} repeats the code of {previous}"
+            vistos[klass.code] = klass.__name__
 
 
-class TestEspacioDeCodigos:
-    def test_los_codigos_son_str_estables(self) -> None:
+class TestCodeSpace:
+    def test_the_codes_are_stable_strings(self) -> None:
         # They are part of the tool contract: renaming one breaks callers.
         for code in ErrorCode:
             assert str(code) == code.value == code.name
 
-    def test_el_espacio_de_seguridad_ya_esta_declarado(self) -> None:
+    def test_the_security_scheme_is_already_declared(self) -> None:
         """Declared in M2 even though layers 3-5 land later, so the code space
         is defined in one place instead of growing ad hoc."""
         for expected in (

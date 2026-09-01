@@ -11,35 +11,35 @@ from mcp_server.oauth.keys import KEY_ENV_VAR, generate, load_from_env, signing_
 pytestmark = pytest.mark.security
 
 
-class TestGeneracion:
-    def test_genera_una_llave_rsa_utilizable(self) -> None:
+class TestGeneration:
+    def test_generates_a_usable_rsa_key(self) -> None:
         par = generate()
         assert isinstance(par.private, rsa.RSAPrivateKey)
         assert par.ephemeral is True
 
-    def test_el_pem_es_pkcs8_sin_cifrar(self) -> None:
+    def test_the_pem_is_unencrypted_pkcs8(self) -> None:
         pem = generate().private_pem()
         assert pem.startswith("-----BEGIN PRIVATE KEY-----")
 
-    def test_el_jwks_tiene_exactamente_una_clave_publica(self) -> None:
+    def test_the_jwks_holds_exactly_one_public_key(self) -> None:
         jwks = generate().jwks()
         assert len(jwks["keys"]) == 1
         assert "d" not in jwks["keys"][0]
 
 
-class TestCargaDesdeEntorno:
-    def test_sin_variable_no_carga_nada(self, monkeypatch: pytest.MonkeyPatch) -> None:
+class TestLoadingFromEnv:
+    def test_with_no_variable_it_loads_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(KEY_ENV_VAR, raising=False)
         assert load_from_env() is None
 
-    def test_carga_una_llave_provista(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_loads_a_supplied_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(KEY_ENV_VAR, generate().private_pem())
         par = load_from_env()
         assert par is not None
         assert par.ephemeral is False
-        assert par.kid == "entorno"
+        assert par.kid == "environment"
 
-    def test_una_llave_que_no_es_rsa_se_rechaza(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_key_that_is_not_rsa_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ed25519
 
@@ -56,14 +56,14 @@ class TestCargaDesdeEntorno:
         with pytest.raises(ValueError, match="RSA"):
             load_from_env()
 
-    def test_la_llave_del_proceso_esta_cacheada(self) -> None:
+    def test_the_process_key_is_cached(self) -> None:
         mod.signing_keys.cache_clear()
         try:
             assert signing_keys() is signing_keys()
         finally:
             mod.signing_keys.cache_clear()
 
-    def test_prefiere_la_del_entorno_sobre_una_generada(
+    def test_it_prefers_the_env_key_over_a_generated_one(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv(KEY_ENV_VAR, generate().private_pem())

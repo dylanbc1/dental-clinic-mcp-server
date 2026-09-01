@@ -12,23 +12,19 @@ from tests.conftest import SUBJECT, Scenario, as_caller, error_from, payload
 pytestmark = pytest.mark.integration
 
 
-class TestBuscarPaciente:
-    async def test_encuentra_por_documento(
-        self, server_: MCPServer[Any], scenario: Scenario
-    ) -> None:
+class TestSearchPatient:
+    async def test_finds_by_document(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool("search_patients", {"document_number": "11111111"})
-        encontrados = payload(result)
-        assert [p["id"] for p in encontrados] == [scenario.ana_id]
+        found = payload(result)
+        assert [p["id"] for p in found] == [scenario.ana_id]
 
-    async def test_encuentra_por_nombre_parcial(
-        self, server_: MCPServer[Any], scenario: Scenario
-    ) -> None:
+    async def test_finds_by_partial_name(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool("search_patients", {"name": "bruno"})
         assert payload(result)[0]["regimen"] == "subsidiado"
 
-    async def test_sin_criterio_devuelve_un_error_accionable(
+    async def test_with_no_criterion_it_returns_an_actionable_error(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -36,7 +32,7 @@ class TestBuscarPaciente:
         assert "PATIENT_NOT_FOUND" in message
         assert "Suggestion:" in message
 
-    async def test_un_limite_fuera_de_rango_lo_rechaza_el_esquema(
+    async def test_a_limit_out_of_range_is_refused_by_the_schema(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         """Typed input validation is layer 4's cheapest half: the bad call never
@@ -48,24 +44,22 @@ class TestBuscarPaciente:
         assert "limit" in message
 
 
-class TestDisponibilidad:
-    async def test_devuelve_cupos_con_hora_local(
+class TestAvailability:
+    async def test_returns_slots_with_local_time(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool("check_availability", {})
-        cupos = payload(result)
-        assert cupos
-        assert cupos[0]["start_local"].startswith(str(scenario.fecha_futura))
+        slots = payload(result)
+        assert slots
+        assert slots[0]["start_local"].startswith(str(scenario.fecha_futura))
 
-    async def test_filtra_por_especialidad(
-        self, server_: MCPServer[Any], scenario: Scenario
-    ) -> None:
+    async def test_filters_by_specialty(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool("check_availability", {"specialty": "orthodontics"})
         assert all(c["specialty"] == "orthodontics" for c in payload(result))
 
-    async def test_una_especialidad_inventada_da_error_estructurado(
+    async def test_an_invented_specialty_gives_a_structured_error(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -76,13 +70,13 @@ class TestDisponibilidad:
         assert "specialty" in message
 
 
-class TestCarteraYAfiliacion:
+class TestCarteraAndAfiliacion:
     async def test_cartera_al_dia(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool("check_cartera", {"patient_id": scenario.ana_id})
         assert payload(result)["status"] == "al_dia"
 
-    async def test_cartera_en_mora_reporta_el_detalle(
+    async def test_cartera_en_mora_reports_the_detail(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -91,7 +85,7 @@ class TestCarteraYAfiliacion:
         assert body["status"] == "en_mora"
         assert body["above_alert_threshold"] is True
 
-    async def test_afiliacion_inactiva_explica_la_consecuencia(
+    async def test_inactive_afiliacion_explains_the_consequence(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -102,7 +96,7 @@ class TestCarteraYAfiliacion:
         assert body["effective_regimen"] == "particular"
         assert body["blocks_booking"] is False
 
-    async def test_un_paciente_inexistente_da_404_traducido(
+    async def test_a_nonexistent_patient_gives_a_translated_404(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -110,15 +104,15 @@ class TestCarteraYAfiliacion:
         assert "PATIENT_NOT_FOUND" in message
 
 
-class TestCitas:
-    async def test_consultar_una_cita_inexistente(
+class TestAppointments:
+    async def test_reading_a_nonexistent_appointment(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             message = await error_from(server_, "get_appointment", {"appointment_id": 999999})
         assert "APPOINTMENT_NOT_FOUND" in message
 
-    async def test_listar_citas_de_un_paciente_sin_citas(
+    async def test_listing_appointments_for_a_patient_with_none(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
@@ -128,8 +122,8 @@ class TestCitas:
         assert payload(result) == []
 
 
-class TestAuditoriaDeLectura:
-    async def test_toda_lectura_queda_registrada(
+class TestReadAudit:
+    async def test_every_read_is_recorded(
         self, server_: MCPServer[Any], ctx: Any, scenario: Scenario
     ) -> None:
         with as_caller("auditor@clinica.test", ["read"]):
@@ -140,7 +134,7 @@ class TestAuditoriaDeLectura:
         assert evento["subject"] == "auditor@clinica.test"
         assert evento["result"] == "ok"
 
-    async def test_las_lecturas_fallidas_tambien_se_registran(
+    async def test_failed_reads_are_recorded_too(
         self, server_: MCPServer[Any], ctx: Any, scenario: Scenario
     ) -> None:
         """A log that only records successes cannot tell you an agent spent an
@@ -151,7 +145,7 @@ class TestAuditoriaDeLectura:
         assert evento["result"] == "error"
         assert evento["error_code"] == "APPOINTMENT_NOT_FOUND"
 
-    async def test_el_documento_no_se_copia_al_log(
+    async def test_the_document_is_not_copied_into_the_log(
         self, server_: MCPServer[Any], ctx: Any, scenario: Scenario
     ) -> None:
         """An audit log is not an excuse to duplicate identifiers somewhere less

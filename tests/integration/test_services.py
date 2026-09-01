@@ -84,56 +84,58 @@ def historial_de(session_: Session, appointment_id: int) -> list[AppointmentHist
 # --------------------------------------------------------------------------- #
 
 
-class TestBusquedas:
-    def test_busca_por_documento_exacto(
+class TestSearches:
+    def test_searches_by_exact_document(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
         assert [p.id for p in search_patients(s, document_number="11111111")] == [scenario.ana_id]
 
-    def test_el_documento_no_hace_match_parcial(
+    def test_the_document_does_not_match_partially(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         """A partial document match is how you hand an agent the wrong record."""
         assert search_patients(sessions(), document_number="1111") == []
 
-    def test_busca_por_nombre_sin_distinguir_mayusculas(
+    def test_searches_by_name_case_insensitively(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         assert [p.id for p in search_patients(sessions(), name="ANA gómez")] == [scenario.ana_id]
 
-    def test_busca_por_fragmento_de_nombre(
+    def test_searches_by_name_fragment(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         assert len(search_patients(sessions(), name="Ruiz")) == 2
 
-    def test_sin_criterio_lanza_error_accionable(
+    def test_with_no_criterion_it_raises_an_actionable_error(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(PatientNotFound) as exc:
             search_patients(sessions())
         assert "search_patients" in (exc.value.suggestion or "")
 
-    def test_respeta_el_limite(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
-        assert len(search_patients(sessions(), name="a", limit=2)) <= 2
-
-    def test_paciente_inexistente(
+    def test_it_respects_the_limit(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
+        assert len(search_patients(sessions(), name="a", limit=2)) <= 2
+
+    def test_nonexistent_patient(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
         with pytest.raises(PatientNotFound):
             get_patient(sessions(), 999_999)
 
-    def test_cita_inexistente(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
+    def test_nonexistent_appointment(
+        self, sessions: Callable[[], Session], scenario: Scenario
+    ) -> None:
         with pytest.raises(AppointmentNotFound) as exc:
             get_appointment(sessions(), 999_999)
         assert "list_patient_appointments" in (exc.value.suggestion or "")
 
-    def test_hay_clinica(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
+    def test_there_is_a_clinic(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
         assert get_clinic(sessions()).id == scenario.clinic_id
 
 
-class TestDisponibilidad:
-    def test_devuelve_solo_cupos_libres_y_futuros(
+class TestAvailability:
+    def test_returns_only_free_and_future_slots(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         free_slots = list_available_slots(sessions())
@@ -141,48 +143,48 @@ class TestDisponibilidad:
         assert scenario.slot_pasado_id not in ids
         assert ids >= set(scenario.slots_general[:3])
 
-    def test_filtra_por_especialidad(
+    def test_filters_by_specialty(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         free_slots = list_available_slots(sessions(), specialty=Specialty.ORTHODONTICS)
         assert free_slots
         assert all(s.specialty is Specialty.ORTHODONTICS for s in free_slots)
 
-    def test_filtra_por_fecha(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
+    def test_filters_by_date(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
         assert list_available_slots(sessions(), day=scenario.fecha_futura)
         assert list_available_slots(sessions(), day=date(2000, 1, 3)) == []
 
-    def test_filtra_por_profesional(
+    def test_filters_by_professional(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         free_slots = list_available_slots(sessions(), professional_id=scenario.orto_id)
         assert all(s.professional_id == scenario.orto_id for s in free_slots)
 
-    def test_profesional_inexistente_es_un_error_no_una_lista_vacia(
+    def test_a_nonexistent_professional_is_an_error_not_an_empty_list(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(ProfessionalNotFound):
             list_available_slots(sessions(), professional_id=999_999)
 
-    def test_los_cupos_vienen_en_orden_cronologico(
+    def test_the_slots_come_in_chronological_order(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         free_slots = list_available_slots(sessions())
         assert [s.start for s in free_slots] == sorted(s.start for s in free_slots)
 
-    def test_la_etiqueta_esta_en_hora_local(
+    def test_the_label_is_in_local_time(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         label = list_available_slots(sessions())[0].label
         assert label.startswith(str(scenario.fecha_futura))
 
 
-class TestAfiliacionYCartera:
-    def test_afiliacion_activa(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
+class TestAfiliacionAndCartera:
+    def test_active_afiliacion(self, sessions: Callable[[], Session], scenario: Scenario) -> None:
         r = validate_patient_afiliacion(sessions(), scenario.ana_id)
         assert r.active and r.requires_copago
 
-    def test_afiliacion_inactiva_cae_a_particular(
+    def test_inactive_afiliacion_falls_back_to_particular(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         r = validate_patient_afiliacion(sessions(), scenario.bruno_id)
@@ -204,8 +206,8 @@ class TestAfiliacionYCartera:
 # --------------------------------------------------------------------------- #
 
 
-class TestAgendar:
-    def test_crea_la_cita_ocupa_el_cupo_y_audita(
+class TestBooking:
+    def test_creates_the_appointment_takes_the_slot_and_audits(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -224,7 +226,7 @@ class TestAgendar:
         assert history[0].new_status is AppointmentState.SCHEDULED
         assert history[0].user == ACTOR
 
-    def test_devuelve_la_afiliacion_para_informar_la_tarifa(
+    def test_returns_the_afiliacion_to_report_the_tariff(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         result = book_appointment(
@@ -235,7 +237,7 @@ class TestAgendar:
         )
         assert result.afiliacion.effective_regimen is Regimen.PARTICULAR
 
-    def test_la_mora_alerta_pero_no_bloquea(
+    def test_mora_alerts_but_does_not_block(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         """The rule from §2.3 that a naive implementation gets wrong."""
@@ -249,7 +251,7 @@ class TestAgendar:
         assert result.cartera_alert is not None
         assert "can still be booked" in result.cartera_alert
 
-    def test_sin_mora_no_hay_alerta(
+    def test_with_no_mora_there_is_no_alert(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         result = book_appointment(
@@ -260,7 +262,7 @@ class TestAgendar:
         )
         assert result.cartera_alert is None
 
-    def test_un_cupo_ocupado_sugiere_alternativas_concretas(
+    def test_a_taken_slot_suggests_concrete_alternatives(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -280,7 +282,7 @@ class TestAgendar:
         assert exc.value.details["alternativas"]
         assert "closest free slots" in (exc.value.suggestion or "")
 
-    def test_un_cupo_pasado_se_rechaza(
+    def test_a_past_slot_is_refused(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(SlotInThePast):
@@ -291,13 +293,13 @@ class TestAgendar:
                 user=ACTOR,
             )
 
-    def test_un_cupo_inexistente_se_rechaza(
+    def test_a_nonexistent_slot_is_refused(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(SlotNotFound):
             book_appointment(sessions(), patient_id=scenario.ana_id, slot_id=999_999, user=ACTOR)
 
-    def test_la_especialidad_esperada_se_verifica(
+    def test_the_expected_specialty_is_checked(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         """Guards against the model picking a slot from the wrong list."""
@@ -311,7 +313,7 @@ class TestAgendar:
             )
         assert exc.value.details["especialidad_del_cupo"] == "general_dentistry"
 
-    def test_la_especialidad_correcta_pasa(
+    def test_the_right_specialty_passes(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         book_appointment(
@@ -322,7 +324,7 @@ class TestAgendar:
             expected_specialty=Specialty.ORTHODONTICS,
         )
 
-    def test_no_se_puede_agendar_dos_citas_solapadas_al_mismo_paciente(
+    def test_a_patient_cannot_be_booked_into_two_overlapping_appointments(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         """Same time slot, two professionals: the patient cannot be in both."""
@@ -337,7 +339,7 @@ class TestAgendar:
             )
         assert "cita_existente_id" in exc.value.details
 
-    def test_horarios_distintos_si_se_permiten(
+    def test_different_times_are_allowed(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -352,12 +354,12 @@ class TestAgendar:
         assert len(list_patient_appointments(s, scenario.ana_id)) == 2
 
 
-class TestIdempotencia:
-    def test_la_misma_clave_devuelve_la_misma_cita(
+class TestIdempotency:
+    def test_the_same_key_returns_the_same_appointment(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
-        primera = book_appointment(
+        first = book_appointment(
             s,
             patient_id=scenario.ana_id,
             slot_id=scenario.slots_general[0],
@@ -365,18 +367,18 @@ class TestIdempotencia:
             idempotency_key="peticion-1",
         )
         s.commit()
-        segunda = book_appointment(
+        second = book_appointment(
             s,
             patient_id=scenario.ana_id,
             slot_id=scenario.slots_general[1],
             user=ACTOR,
             idempotency_key="peticion-1",
         )
-        assert segunda.appointment.id == primera.appointment.id
-        assert segunda.reused is True
+        assert second.appointment.id == first.appointment.id
+        assert second.reused is True
         assert s.scalar(select(func.count()).select_from(Appointment)) == 1
 
-    def test_sin_clave_cada_llamada_crea_una_cita(
+    def test_without_a_key_every_call_creates_an_appointment(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -406,8 +408,8 @@ def booked_appointment(sessions: Callable[[], Session], scenario: Scenario) -> t
     return s, result.appointment.id
 
 
-class TestConfirmar:
-    def test_confirma_y_audita(self, booked_appointment: tuple[Session, int]) -> None:
+class TestConfirming:
+    def test_confirms_and_audits(self, booked_appointment: tuple[Session, int]) -> None:
         s, appointment_id = booked_appointment
         result = confirm_appointment(s, appointment_id, user=ACTOR)
         s.commit()
@@ -416,7 +418,7 @@ class TestConfirmar:
         assert history[-1].previous_status is AppointmentState.SCHEDULED
         assert history[-1].new_status is AppointmentState.CONFIRMED
 
-    def test_no_libera_el_cupo_ni_genera_cargo(
+    def test_it_neither_frees_the_slot_nor_creates_a_charge(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -424,7 +426,7 @@ class TestConfirmar:
         assert not result.effects.libera_slot
         assert result.created_charge is None
 
-    def test_confirmar_dos_veces_falla_con_error_tipado(
+    def test_confirming_twice_fails_with_a_typed_error(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -434,8 +436,8 @@ class TestConfirmar:
             confirm_appointment(s, appointment_id, user=ACTOR)
 
 
-class TestCancelar:
-    def test_cancela_libera_el_cupo_y_guarda_el_motivo(
+class TestCancelling:
+    def test_cancelling_frees_the_slot_and_records_the_reason(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -448,12 +450,12 @@ class TestCancelar:
         assert s.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
         assert historial_de(s, appointment_id)[-1].reason == "El paciente viajó"
 
-    def test_sin_motivo_se_rechaza(self, booked_appointment: tuple[Session, int]) -> None:
+    def test_without_a_reason_it_is_refused(self, booked_appointment: tuple[Session, int]) -> None:
         s, appointment_id = booked_appointment
         with pytest.raises(ReasonRequired):
             change_state(s, appointment_id, AppointmentState.CANCELLED, user=ACTOR)
 
-    def test_el_cupo_liberado_vuelve_a_estar_disponible(
+    def test_the_freed_slot_becomes_available_again(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -462,7 +464,7 @@ class TestCancelar:
         free_slots = {x.slot_id for x in list_available_slots(s)}
         assert scenario.slots_general[0] in free_slots
 
-    def test_sin_lista_de_espera_no_hay_siguiente(
+    def test_with_no_waiting_list_there_is_no_next_one(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         """Cancelling with an empty queue is normal, not an error."""
@@ -470,7 +472,7 @@ class TestCancelar:
         result = cancel_appointment(s, appointment_id, reason="x", user=ACTOR)
         assert result.siguiente_en_espera is None
 
-    def test_con_lista_de_espera_devuelve_al_siguiente(
+    def test_with_a_waiting_list_it_returns_the_next_one(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -494,8 +496,8 @@ class TestCancelar:
         assert result.siguiente_en_espera is None
 
 
-class TestAsistencia:
-    def test_flujo_completo_hasta_atendida_genera_cargo(
+class TestAttendance:
+    def test_the_full_flow_up_to_attended_creates_a_charge(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -511,7 +513,7 @@ class TestAsistencia:
         assert result.created_charge.amount == Decimal("5500")
         assert result.created_charge.status is ChargeState.PENDING
 
-    def test_el_cargo_vence_a_30_dias(self, booked_appointment: tuple[Session, int]) -> None:
+    def test_the_charge_falls_due_in_30_days(self, booked_appointment: tuple[Session, int]) -> None:
         s, appointment_id = booked_appointment
         confirm_appointment(s, appointment_id, user=ACTOR)
         record_attendance(s, appointment_id, AppointmentState.WAITING, user=ACTOR)
@@ -521,7 +523,7 @@ class TestAsistencia:
         expected = appointment.slot.start.date() + timedelta(days=30)
         assert abs((result.created_charge.due_date - expected).days) <= 1
 
-    def test_afiliacion_inactiva_liquida_tarifa_particular(
+    def test_inactive_afiliacion_charges_the_particular_tariff(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -536,7 +538,7 @@ class TestAsistencia:
         assert result.created_charge.concept is ChargeConcept.PARTICULAR
         assert result.created_charge.amount == Decimal("120000")
 
-    def test_no_show_desde_confirmada_penaliza(
+    def test_a_no_show_from_confirmed_is_penalised(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -547,7 +549,7 @@ class TestAsistencia:
         assert result.created_charge.concept is ChargeConcept.NO_SHOW
         assert result.created_charge.amount == Decimal("40000")
 
-    def test_no_show_sin_confirmar_no_penaliza(
+    def test_a_no_show_without_confirming_is_not_penalised(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         """The default policy only charges a patient who had committed."""
@@ -556,7 +558,7 @@ class TestAsistencia:
         s.commit()
         assert result.created_charge is None
 
-    def test_el_no_show_libera_el_cupo(
+    def test_the_no_show_frees_the_slot(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -564,13 +566,13 @@ class TestAsistencia:
         s.commit()
         assert s.get(AgendaSlot, scenario.slots_general[0]).status is SlotState.FREE
 
-    def test_saltarse_en_espera_se_rechaza(self, booked_appointment: tuple[Session, int]) -> None:
+    def test_skipping_waiting_is_refused(self, booked_appointment: tuple[Session, int]) -> None:
         s, appointment_id = booked_appointment
         confirm_appointment(s, appointment_id, user=ACTOR)
         with pytest.raises(InvalidTransition):
             record_attendance(s, appointment_id, AppointmentState.ATTENDED, user=ACTOR)
 
-    def test_el_cargo_aparece_en_la_cartera(
+    def test_the_charge_shows_up_in_the_cartera(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -583,8 +585,8 @@ class TestAsistencia:
         assert summary.pending_total == Decimal("5500")
 
 
-class TestReprogramar:
-    def test_libera_el_viejo_ocupa_el_nuevo_y_encadena(
+class TestRescheduling:
+    def test_frees_the_old_takes_the_new_and_chains_them(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -603,7 +605,7 @@ class TestReprogramar:
         assert nueva.status is AppointmentState.SCHEDULED
         assert nueva.source_appointment_id == appointment_id
 
-    def test_la_nueva_cita_tiene_su_propio_historial(
+    def test_the_new_appointment_has_its_own_history(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -615,7 +617,7 @@ class TestReprogramar:
         assert len(history) == 1
         assert "Rescheduled from" in (history[0].reason or "")
 
-    def test_no_reprograma_a_un_cupo_ocupado(
+    def test_it_does_not_reschedule_onto_a_taken_slot(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -626,14 +628,14 @@ class TestReprogramar:
         with pytest.raises(SlotUnavailable):
             reschedule_appointment(s, appointment_id, scenario.slots_general[3], user=ACTOR)
 
-    def test_no_reprograma_al_pasado(
+    def test_it_does_not_reschedule_into_the_past(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
         with pytest.raises(SlotInThePast):
             reschedule_appointment(s, appointment_id, scenario.slot_pasado_id, user=ACTOR)
 
-    def test_una_cita_reprogramada_es_final(
+    def test_a_rescheduled_appointment_is_final(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         s, appointment_id = booked_appointment
@@ -648,8 +650,8 @@ class TestReprogramar:
 # --------------------------------------------------------------------------- #
 
 
-class TestListaEspera:
-    def test_inscribe_y_evita_duplicados(
+class TestWaitingList:
+    def test_enrols_and_avoids_duplicates(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -658,13 +660,13 @@ class TestListaEspera:
         with pytest.raises(AlreadyOnWaitingList):
             join_waiting_list(s, patient_id=scenario.ana_id, specialty=Specialty.ORTHODONTICS)
 
-    def test_paciente_inexistente_no_se_inscribe(
+    def test_a_nonexistent_patient_is_not_enrolled(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(PatientNotFound):
             join_waiting_list(sessions(), patient_id=999_999, specialty=Specialty.ORTHODONTICS)
 
-    def test_ofrece_el_cupo_al_primero_de_la_cola(
+    def test_it_offers_the_slot_to_the_first_in_the_queue(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -685,7 +687,7 @@ class TestListaEspera:
         assert oferta.entry.status is WaitingListState.OFFERED
         assert oferta.entry.offered_slot_id == scenario.slots_orto[0]
 
-    def test_ofrecer_no_agenda_nada(
+    def test_offering_books_nothing(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         """Offering is a contact instruction, not a booking. Booking the slot is
@@ -698,14 +700,14 @@ class TestListaEspera:
         assert s.scalar(select(func.count()).select_from(Appointment)) == 0
         assert s.get(AgendaSlot, scenario.slots_orto[0]).status is SlotState.FREE
 
-    def test_lista_vacia_da_un_error_accionable(
+    def test_an_empty_list_gives_an_actionable_error(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         with pytest.raises(WaitingListEmpty) as exc:
             offer_slot_to_waiting_list(sessions(), scenario.slots_orto[0], user=ACTOR)
         assert "check_availability" in (exc.value.suggestion or "")
 
-    def test_no_ofrece_de_otra_especialidad(
+    def test_it_does_not_offer_from_another_specialty(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -714,7 +716,7 @@ class TestListaEspera:
         with pytest.raises(WaitingListEmpty):
             offer_slot_to_waiting_list(s, scenario.slots_orto[0], user=ACTOR)
 
-    def test_una_entrada_ofrecida_sale_de_la_cola(
+    def test_an_offered_entry_leaves_the_queue(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -733,8 +735,8 @@ class TestListaEspera:
 # --------------------------------------------------------------------------- #
 
 
-class TestMotivoDeConsulta:
-    def test_con_consentimiento_registra_y_audita(
+class TestVisitReason:
+    def test_with_consent_it_records_and_audits(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -751,7 +753,7 @@ class TestMotivoDeConsulta:
         assert "clinical data" in (ultimo.reason or "")
         assert ultimo.user == "odontologa@clinica.test"
 
-    def test_sin_consentimiento_se_rechaza(
+    def test_without_consent_it_is_refused(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         """Carla has no consent on file. Scope alone must not be enough."""
@@ -765,7 +767,7 @@ class TestMotivoDeConsulta:
         assert "2654" in (exc.value.suggestion or "")
         assert exc.value.http_status == 403
 
-    def test_el_rechazo_no_deja_rastro_del_motivo(
+    def test_the_refusal_leaves_no_trace_of_the_reason(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -778,7 +780,7 @@ class TestMotivoDeConsulta:
         s.rollback()
         assert get_appointment(s, appointment.id).reason is None
 
-    def test_el_registro_clinico_no_cambia_el_estado(
+    def test_recording_clinical_data_does_not_change_the_status(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -793,8 +795,8 @@ class TestMotivoDeConsulta:
 # --------------------------------------------------------------------------- #
 
 
-class TestAgendaDelDia:
-    def test_lista_las_citas_del_dia_en_orden(
+class TestDayAgenda:
+    def test_lists_the_days_appointments_in_order(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         s = sessions()
@@ -809,12 +811,12 @@ class TestAgendaDelDia:
         assert [c.slot.start for c in appointments] == sorted(c.slot.start for c in appointments)
         assert len(appointments) == 2
 
-    def test_un_dia_sin_citas_devuelve_vacio(
+    def test_a_day_with_no_appointments_returns_empty(
         self, sessions: Callable[[], Session], scenario: Scenario
     ) -> None:
         assert agenda_for_day(sessions(), date(2000, 1, 3)) == []
 
-    def test_incluye_las_canceladas(
+    def test_includes_the_cancelled_ones(
         self, booked_appointment: tuple[Session, int], scenario: Scenario
     ) -> None:
         """The front desk needs to see what was cancelled today, not a clean slate."""
@@ -825,8 +827,8 @@ class TestAgendaDelDia:
         assert [c.status for c in appointments] == [AppointmentState.CANCELLED]
 
 
-class TestAuditoriaCompleta:
-    def test_cada_transicion_deja_exactamente_una_fila(
+class TestCompleteAudit:
+    def test_every_transition_leaves_exactly_one_row(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -844,7 +846,7 @@ class TestAuditoriaCompleta:
         ]
         assert all(h.user == ACTOR for h in history)
 
-    def test_una_transicion_rechazada_no_deja_rastro(
+    def test_a_refused_transition_leaves_no_trace(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         s, appointment_id = booked_appointment
@@ -854,7 +856,7 @@ class TestAuditoriaCompleta:
         s.rollback()
         assert len(historial_de(s, appointment_id)) == antes
 
-    def test_el_actor_queda_registrado_por_operacion(
+    def test_the_actor_is_recorded_per_operation(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         """An audit trail with the same user in every row is not an audit trail."""
@@ -865,7 +867,7 @@ class TestAuditoriaCompleta:
         usuarios = [h.user for h in historial_de(s, appointment_id)]
         assert usuarios == [ACTOR, "ana@clinica.test", "jefe@clinica.test"]
 
-    def test_todo_cargo_derivado_de_una_cita_queda_ligado_a_ella(
+    def test_every_charge_from_an_appointment_stays_linked_to_it(
         self, booked_appointment: tuple[Session, int]
     ) -> None:
         """A charge produced by a transition must point back at it, so the

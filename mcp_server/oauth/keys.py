@@ -64,7 +64,7 @@ class KeyPair:
 
 def generate() -> KeyPair:
     private = rsa.generate_private_key(public_exponent=65537, key_size=KEY_SIZE)
-    return KeyPair(private=private, kid="dev-efimera", ephemeral=True)
+    return KeyPair(private=private, kid="dev-ephemeral", ephemeral=True)
 
 
 def load_from_env() -> KeyPair | None:
@@ -74,7 +74,7 @@ def load_from_env() -> KeyPair | None:
     private = serialization.load_pem_private_key(pem.encode(), password=None)
     if not isinstance(private, rsa.RSAPrivateKey):
         raise ValueError(f"{KEY_ENV_VAR} no contiene una llave RSA privada")
-    return KeyPair(private=private, kid="entorno", ephemeral=False)
+    return KeyPair(private=private, kid="environment", ephemeral=False)
 
 
 @lru_cache(maxsize=1)

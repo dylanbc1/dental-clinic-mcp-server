@@ -193,13 +193,13 @@ def sessions(engine: Engine) -> Iterator[Callable[[], Session]]:
         for session_ in abiertas:
             session_.rollback()
             session_.close()
-        limpieza = factory()
+        cleanup = factory()
         try:
             for table in reversed(Base.metadata.sorted_tables):
-                limpieza.execute(table.delete())
-            limpieza.commit()
+                cleanup.execute(table.delete())
+            cleanup.commit()
         finally:
-            limpieza.close()
+            cleanup.close()
 
 
 @pytest.fixture
@@ -310,7 +310,7 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
         regimen: Regimen,
         *,
         active: bool = True,
-        consentimiento: bool = True,
+        consent: bool = True,
     ) -> Patient:
         return Patient(
             document_type=DocumentType.CC,
@@ -321,12 +321,12 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
             regimen=regimen,
             afiliacion_active=active,
             cuota_moderadora_level=1,
-            clinical_data_consent=consentimiento,
+            clinical_data_consent=consent,
         )
 
     ana = patient("11111111", "Ana Gómez Ruiz", Regimen.CONTRIBUTIVO)
     bruno = patient("22222222", "Bruno Díaz Peña", Regimen.SUBSIDIADO, active=False)
-    carla = patient("33333333", "Carla Ríos Mora", Regimen.PARTICULAR, consentimiento=False)
+    carla = patient("33333333", "Carla Ríos Mora", Regimen.PARTICULAR, consent=False)
     deudor = patient("44444444", "Diego Mora Ruiz", Regimen.CONTRIBUTIVO)
     session_.add_all([ana, bruno, carla, deudor])
     session_.flush()
@@ -363,17 +363,17 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
             target.append(slot)
 
     # One slot in the past, to prove the domain refuses to book backwards.
-    pasada = now_at_clinic().date() - timedelta(days=5)
-    while not slots_for_day(pasada):
-        pasada -= timedelta(days=1)
-    inicio_pasado, fin_pasado = slots_for_day(pasada)[0]
-    slot_pasado = AgendaSlot(
+    past = now_at_clinic().date() - timedelta(days=5)
+    while not slots_for_day(past):
+        past -= timedelta(days=1)
+    past_start, past_end = slots_for_day(past)[0]
+    past_slot = AgendaSlot(
         professional_id=general.id,
-        day=to_clinic_time(inicio_pasado).date(),
-        start=inicio_pasado,
-        end=fin_pasado,
+        day=to_clinic_time(past_start).date(),
+        start=past_start,
+        end=past_end,
     )
-    session_.add(slot_pasado)
+    session_.add(past_slot)
     session_.commit()
 
     return Scenario(
@@ -387,7 +387,7 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
         deudor_id=deudor.id,
         slots_general=[s.id for s in slots_general],
         slots_orto=[s.id for s in slots_orto],
-        slot_pasado_id=slot_pasado.id,
+        slot_pasado_id=past_slot.id,
         fecha_futura=futura,
     )
 
@@ -400,7 +400,7 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
 SUBJECT = "recepcion@clinica.test"
 
 #: Key ring for the sealed request state. Test-only, 32 bytes as the codec wants.
-CLAVES_ESTADO = ["clave-de-pruebas-para-request-state-32"]
+STATE_KEYS = ["clave-de-pruebas-para-request-state-32"]
 
 #: What a 2026-07-28 client must send on every call once there is no session to
 #: remember the handshake. This is the visible cost of a stateless transport.
@@ -430,7 +430,7 @@ def mcp_settings() -> Settings:
         mcp_public_url="http://localhost:8080",
         oauth_issuer="http://localhost:9000",
         oauth_audience="http://localhost:8080",
-        request_state_keys=CLAVES_ESTADO,
+        request_state_keys=STATE_KEYS,
     )
 
 
@@ -661,6 +661,6 @@ async def call_tool(server_: MCPServer[Any], name: str, arguments: dict[str, Any
 
 async def error_from(server_: MCPServer[Any], name: str, arguments: dict[str, Any]) -> str:
     """Call a read tool expecting failure; return the message the model reads."""
-    with pytest.raises(ToolError) as capturado:
+    with pytest.raises(ToolError) as captured:
         await server_.call_tool(name, arguments)
-    return str(capturado.value)
+    return str(captured.value)
