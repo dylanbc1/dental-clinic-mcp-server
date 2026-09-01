@@ -22,7 +22,7 @@ from typing import Any
 
 import httpx
 
-from scripts.get_token import obtener_token
+from scripts.get_token import get_token
 
 VERDE, ROJO, AZUL, GRIS, NEGRITA, FIN = (
     "\033[32m",
@@ -33,24 +33,24 @@ VERDE, ROJO, AZUL, GRIS, NEGRITA, FIN = (
     "\033[0m",
 )
 
-SOBRE = {
+ENVELOPE = {
     "_meta": {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientCapabilities": {"elicitation": {}},
     }
 }
-CABECERAS = {
+HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
     "MCP-Protocol-Version": "2026-07-28",
 }
 
 
-class Consola:
+class Console:
     def __init__(self, url: str, token: str) -> None:
         self.url = url
         self.http = httpx.Client(
-            timeout=30, headers={**CABECERAS, "Authorization": f"Bearer {token}"}
+            timeout=30, headers={**HEADERS, "Authorization": f"Bearer {token}"}
         )
         self.id = 0
 
@@ -65,85 +65,85 @@ class Consola:
                 "jsonrpc": "2.0",
                 "id": self.id,
                 "method": metodo,
-                "params": {**params, **SOBRE},
+                "params": {**params, **ENVELOPE},
             },
             headers=cabeceras,
         )
-        cuerpo = r.text
-        for linea in cuerpo.splitlines():
-            if linea.startswith("data:"):
-                cuerpo = linea[5:].strip()
+        body = r.text
+        for line in body.splitlines():
+            if line.startswith("data:"):
+                body = line[5:].strip()
                 break
         try:
-            datos = json.loads(cuerpo)
+            payload = json.loads(body)
         except json.JSONDecodeError:
-            return {"_transporte": f"HTTP {r.status_code}: {cuerpo[:200]}"}
-        if "error" in datos:
-            return {"_rpc": datos["error"]}
-        return dict(datos["result"])
+            return {"_transporte": f"HTTP {r.status_code}: {body[:200]}"}
+        if "error" in payload:
+            return {"_rpc": payload["error"]}
+        return dict(payload["result"])
 
-    def llamar(self, nombre: str, argumentos: dict[str, Any]) -> None:
+    def call_tool(self, nombre: str, arguments: dict[str, Any]) -> None:
         """Call a tool, answering any confirmation it asks for."""
-        resultado = self.rpc("tools/call", {"name": nombre, "arguments": argumentos})
+        result = self.rpc("tools/call", {"name": nombre, "arguments": arguments})
 
-        if "_transporte" in resultado or "_rpc" in resultado:
-            print(f"{ROJO}  {resultado.get('_transporte') or resultado['_rpc']}{FIN}")
+        if "_transporte" in result or "_rpc" in result:
+            print(f"{ROJO}  {result.get('_transporte') or result['_rpc']}{FIN}")
             return
 
-        if resultado.get("resultType") == "input_required":
-            self._confirmar(nombre, argumentos, resultado)
+        if result.get("resultType") == "input_required":
+            self._confirm(nombre, arguments, result)
             return
 
-        self._mostrar(resultado)
+        self._show(result)
 
-    def _confirmar(self, nombre: str, argumentos: dict[str, Any], pregunta: dict[str, Any]) -> None:
-        clave = next(iter(pregunta["inputRequests"]))
-        mensaje = pregunta["inputRequests"][clave]["params"]["message"]
+    def _confirm(self, nombre: str, arguments: dict[str, Any], question: dict[str, Any]) -> None:
+        key = next(iter(question["inputRequests"]))
+        mensaje = question["inputRequests"][key]["params"]["message"]
 
         print(f"\n{AZUL}{NEGRITA}  ── The server is asking for confirmation ──{FIN}")
-        for linea in mensaje.splitlines():
-            print(f"{AZUL}  │{FIN} {linea}")
-        estado = pregunta["requestState"]
+        for line in mensaje.splitlines():
+            print(f"{AZUL}  │{FIN} {line}")
+        estado = question["requestState"]
         print(f"{GRIS}  │ requestState: {len(estado)} bytes, sealed and opaque{FIN}")
         print(f"{GRIS}  │ nothing has changed yet{FIN}")
 
-        respuesta = input(f"{NEGRITA}  Confirm? [y/N] {FIN}").strip().lower()
+        response = input(f"{NEGRITA}  Confirm? [y/N] {FIN}").strip().lower()
         # Both languages accepted: the person at the keyboard may type either.
-        acepta = respuesta in {"y", "yes", "s", "si", "sí"}
+        acepta = response in {"y", "yes", "s", "si", "sí"}
 
-        resultado = self.rpc(
+        result = self.rpc(
             "tools/call",
             {
                 "name": nombre,
-                "arguments": argumentos,
-                "inputResponses": {clave: {"action": "accept", "content": {"confirmado": acepta}}},
+                "arguments": arguments,
+                "inputResponses": {key: {"action": "accept", "content": {"confirmado": acepta}}},
                 "requestState": estado,
             },
         )
         print()
-        if "_transporte" in resultado or "_rpc" in resultado:
-            print(f"{ROJO}  {resultado.get('_transporte') or resultado['_rpc']}{FIN}")
+        if "_transporte" in result or "_rpc" in result:
+            print(f"{ROJO}  {result.get('_transporte') or result['_rpc']}{FIN}")
             return
-        self._mostrar(resultado)
+        self._show(result)
 
     @staticmethod
-    def _mostrar(resultado: dict[str, Any]) -> None:
-        if resultado.get("isError"):
-            for bloque in resultado.get("content", []):
-                for linea in bloque.get("text", "").splitlines():
-                    print(f"{ROJO}  {linea}{FIN}")
+    def _show(result: dict[str, Any]) -> None:
+        if result.get("isError"):
+            for bloque in result.get("content", []):
+                for line in bloque.get("text", "").splitlines():
+                    print(f"{ROJO}  {line}{FIN}")
             return
-        contenido = resultado.get("structuredContent")
+        contenido = result.get("structuredContent")
         if contenido is None:
-            for bloque in resultado.get("content", []):
+            for bloque in result.get("content", []):
                 print(f"  {bloque.get('text', '')}")
             return
-        datos = contenido.get("result", contenido)
-        texto = json.dumps(datos, ensure_ascii=False, indent=2)
-        for linea in texto.splitlines()[:40]:
-            print(f"{VERDE}  {linea}{FIN}")
-        if len(texto.splitlines()) > 40:
-            print(f"{GRIS}  … ({len(texto.splitlines())} lines){FIN}")
+        payload = contenido.get("result", contenido)
+        text_of = json.dumps(payload, ensure_ascii=False, indent=2)
+        for line in text_of.splitlines()[:40]:
+            print(f"{VERDE}  {line}{FIN}")
+        if len(text_of.splitlines()) > 40:
+            print(f"{GRIS}  … ({len(text_of.splitlines())} lines){FIN}")
 
 
 AYUDA = f"""
@@ -165,55 +165,55 @@ def main() -> int:
     parser.add_argument("--mcp", default="http://localhost:8080/mcp")
     parser.add_argument("--issuer", default="http://localhost:9000")
     parser.add_argument("--scope", default="read write clinical")
-    parser.add_argument("--sujeto", default="recepcion@clinica.local")
+    parser.add_argument("--subject", default="recepcion@clinica.local")
     args = parser.parse_args()
 
     print(f"{NEGRITA}Getting a token over OAuth 2.1 + PKCE…{FIN}")
-    token = obtener_token(args.issuer, args.scope, args.sujeto)
-    print(f"  scopes: {AZUL}{args.scope}{FIN}   subject: {AZUL}{args.sujeto}{FIN}")
+    token = get_token(args.issuer, args.scope, args.subject)
+    print(f"  scopes: {AZUL}{args.scope}{FIN}   subject: {AZUL}{args.subject}{FIN}")
 
-    consola = Consola(args.mcp, token)
+    consola = Console(args.mcp, token)
     listado = consola.rpc("tools/list", {})
     if "_rpc" in listado or "_transporte" in listado:
         print(f"{ROJO}Could not connect: {listado}{FIN}")
         return 1
     tools = listado["tools"]
-    nombres = [t["name"] for t in tools]
+    names = [t["name"] for t in tools]
     print(f"  connected · {len(tools)} tools · no session (stateless transport)")
     print(AYUDA)
 
     while True:
         try:
-            entrada = input(f"{NEGRITA}› {FIN}").strip()
+            entry = input(f"{NEGRITA}› {FIN}").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
-        if not entrada:
+        if not entry:
             continue
-        if entrada in {"quit", "exit", "salir"}:
+        if entry in {"quit", "exit", "salir"}:
             return 0
-        if entrada in {"help", "ayuda", "?"}:
+        if entry in {"help", "ayuda", "?"}:
             print(AYUDA)
             continue
-        if entrada == "tools":
+        if entry == "tools":
             for i, t in enumerate(tools, 1):
                 print(f"  {GRIS}{i:>2}{FIN} {AZUL}{t['name']:<28}{FIN}{t['title']}")
             continue
 
-        partes = entrada.split(None, 1)
-        nombre = partes[0]
+        parts = entry.split(None, 1)
+        nombre = parts[0]
         if nombre.isdigit() and 1 <= int(nombre) <= len(tools):
-            nombre = nombres[int(nombre) - 1]
-        if nombre not in nombres:
+            nombre = names[int(nombre) - 1]
+        if nombre not in names:
             print(f"{ROJO}  no such tool '{nombre}'. Type 'tools'.{FIN}")
             continue
         try:
-            argumentos = json.loads(partes[1]) if len(partes) > 1 else {}
+            arguments = json.loads(parts[1]) if len(parts) > 1 else {}
         except json.JSONDecodeError as exc:
             print(f"{ROJO}  arguments must be JSON: {exc}{FIN}")
             continue
 
-        consola.llamar(nombre, argumentos)
+        consola.call_tool(nombre, arguments)
         print()
 
 

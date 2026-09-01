@@ -20,35 +20,35 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-VARIABLE_LLAVE = "OAUTH_PRIVATE_KEY_PEM"
-TAMANO_LLAVE = 2048
+KEY_ENV_VAR = "OAUTH_PRIVATE_KEY_PEM"
+KEY_SIZE = 2048
 
 
-def _b64uint(valor: int) -> str:
-    crudo = valor.to_bytes((valor.bit_length() + 7) // 8, "big")
+def _b64uint(value: int) -> str:
+    crudo = value.to_bytes((value.bit_length() + 7) // 8, "big")
     return base64.urlsafe_b64encode(crudo).decode().rstrip("=")
 
 
 @dataclass(frozen=True, slots=True)
-class ParDeLlaves:
-    privada: rsa.RSAPrivateKey
+class KeyPair:
+    private: rsa.RSAPrivateKey
     kid: str
     #: True when the key was generated in-process rather than provided.
-    efimera: bool
+    ephemeral: bool
 
     @property
-    def publica(self) -> rsa.RSAPublicKey:
-        return self.privada.public_key()
+    def public_key(self) -> rsa.RSAPublicKey:
+        return self.private.public_key()
 
-    def pem_privada(self) -> str:
-        return self.privada.private_bytes(
+    def private_pem(self) -> str:
+        return self.private.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         ).decode()
 
-    def jwk_publica(self) -> dict[str, Any]:
-        numeros = self.publica.public_numbers()
+    def public_jwk(self) -> dict[str, Any]:
+        numeros = self.public_key.public_numbers()
         return {
             "kty": "RSA",
             "use": "sig",
@@ -59,24 +59,24 @@ class ParDeLlaves:
         }
 
     def jwks(self) -> dict[str, Any]:
-        return {"keys": [self.jwk_publica()]}
+        return {"keys": [self.public_jwk()]}
 
 
-def generar() -> ParDeLlaves:
-    privada = rsa.generate_private_key(public_exponent=65537, key_size=TAMANO_LLAVE)
-    return ParDeLlaves(privada=privada, kid="dev-efimera", efimera=True)
+def generate() -> KeyPair:
+    private = rsa.generate_private_key(public_exponent=65537, key_size=KEY_SIZE)
+    return KeyPair(private=private, kid="dev-efimera", ephemeral=True)
 
 
-def cargar_desde_entorno() -> ParDeLlaves | None:
-    pem = os.getenv(VARIABLE_LLAVE)
+def load_from_env() -> KeyPair | None:
+    pem = os.getenv(KEY_ENV_VAR)
     if not pem:
         return None
-    privada = serialization.load_pem_private_key(pem.encode(), password=None)
-    if not isinstance(privada, rsa.RSAPrivateKey):
-        raise ValueError(f"{VARIABLE_LLAVE} no contiene una llave RSA privada")
-    return ParDeLlaves(privada=privada, kid="entorno", efimera=False)
+    private = serialization.load_pem_private_key(pem.encode(), password=None)
+    if not isinstance(private, rsa.RSAPrivateKey):
+        raise ValueError(f"{KEY_ENV_VAR} no contiene una llave RSA privada")
+    return KeyPair(private=private, kid="entorno", ephemeral=False)
 
 
 @lru_cache(maxsize=1)
-def llaves() -> ParDeLlaves:
-    return cargar_desde_entorno() or generar()
+def signing_keys() -> KeyPair:
+    return load_from_env() or generate()

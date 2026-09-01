@@ -17,27 +17,27 @@ from backend.enums import ConceptoCargo, Regimen
 
 #: Reference tariffs in COP for a standard consultation. Mock 2026 values,
 #: illustrative rather than a published fee schedule.
-TARIFA_PARTICULAR: dict[str, Decimal] = {
+PRIVATE_TARIFF: dict[str, Decimal] = {
     "odontologia_general": Decimal("120000"),
     "ortodoncia": Decimal("180000"),
     "endodoncia": Decimal("350000"),
     "periodoncia": Decimal("200000"),
     "odontopediatria": Decimal("140000"),
 }
-TARIFA_PARTICULAR_DEFECTO = Decimal("120000")
+DEFAULT_PRIVATE_TARIFF = Decimal("120000")
 
 #: Contributory pays a cuota moderadora, a fixed fee bracketed by income.
 #: Subsidised pays a copago proportional to the service. SOAT covers it fully.
-CUOTA_MODERADORA_POR_NIVEL: dict[int, Decimal] = {
+CUOTA_MODERADORA_BY_BRACKET: dict[int, Decimal] = {
     1: Decimal("5500"),
     2: Decimal("22000"),
     3: Decimal("57500"),
 }
-PORCENTAJE_COPAGO_SUBSIDIADO = Decimal("0.10")
+SUBSIDIADO_COPAGO_RATE = Decimal("0.10")
 
 
 @dataclass(frozen=True, slots=True)
-class ResultadoAfiliacion:
+class AfiliacionResult:
     """The verdict returned by :func:`validar_afiliacion`."""
 
     regimen: Regimen
@@ -61,15 +61,15 @@ class ResultadoAfiliacion:
         return False
 
 
-def validar_afiliacion(
+def validate_afiliacion(
     regimen: Regimen,
     afiliacion_activa: bool,
     *,
     nivel_cuota_moderadora: int = 1,
-) -> ResultadoAfiliacion:
+) -> AfiliacionResult:
     """Resolve the billing consequences of a patient's affiliation status."""
     if regimen is Regimen.PARTICULAR:
-        return ResultadoAfiliacion(
+        return AfiliacionResult(
             regimen=regimen,
             activa=True,  # a private patient is by definition "active"
             regimen_efectivo=Regimen.PARTICULAR,
@@ -80,7 +80,7 @@ def validar_afiliacion(
         )
 
     if not afiliacion_activa:
-        return ResultadoAfiliacion(
+        return AfiliacionResult(
             regimen=regimen,
             activa=False,
             regimen_efectivo=Regimen.PARTICULAR,
@@ -98,7 +98,7 @@ def validar_afiliacion(
         )
 
     if regimen is Regimen.SOAT:
-        return ResultadoAfiliacion(
+        return AfiliacionResult(
             regimen=regimen,
             activa=True,
             regimen_efectivo=Regimen.SOAT,
@@ -109,10 +109,10 @@ def validar_afiliacion(
         )
 
     if regimen is Regimen.CONTRIBUTIVO:
-        cuota = CUOTA_MODERADORA_POR_NIVEL.get(
-            nivel_cuota_moderadora, CUOTA_MODERADORA_POR_NIVEL[1]
+        fee = CUOTA_MODERADORA_BY_BRACKET.get(
+            nivel_cuota_moderadora, CUOTA_MODERADORA_BY_BRACKET[1]
         )
-        return ResultadoAfiliacion(
+        return AfiliacionResult(
             regimen=regimen,
             activa=True,
             regimen_efectivo=Regimen.CONTRIBUTIVO,
@@ -120,12 +120,12 @@ def validar_afiliacion(
             requiere_copago=True,
             concepto_cargo=ConceptoCargo.CUOTA_MODERADORA,
             mensaje=(
-                f"Contributivo afiliación active. A cuota moderadora of ${cuota:,.0f} COP applies."
+                f"Contributivo afiliación active. A cuota moderadora of ${fee:,.0f} COP applies."
             ),
         )
 
     # Regimen.SUBSIDIADO
-    return ResultadoAfiliacion(
+    return AfiliacionResult(
         regimen=regimen,
         activa=True,
         regimen_efectivo=Regimen.SUBSIDIADO,
@@ -134,11 +134,11 @@ def validar_afiliacion(
         concepto_cargo=ConceptoCargo.COPAGO,
         mensaje=(
             "Subsidiado afiliación active. A copago of "
-            f"{PORCENTAJE_COPAGO_SUBSIDIADO:.0%} of the tariff applies."
+            f"{SUBSIDIADO_COPAGO_RATE:.0%} of the tariff applies."
         ),
     )
 
 
-def tarifa_base(especialidad: str) -> Decimal:
+def base_tariff(especialidad: str) -> Decimal:
     """Full private tariff for a specialty, in COP."""
-    return TARIFA_PARTICULAR.get(especialidad, TARIFA_PARTICULAR_DEFECTO)
+    return PRIVATE_TARIFF.get(especialidad, DEFAULT_PRIVATE_TARIFF)

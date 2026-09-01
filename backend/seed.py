@@ -27,12 +27,12 @@ from sqlalchemy.orm import Session
 
 from backend.config import get_settings
 from backend.database import session_scope
-from backend.domain.afiliacion import validar_afiliacion
+from backend.domain.afiliacion import validate_afiliacion
 from backend.domain.cartera import (
-    calcular_cargo_por_atencion,
-    calcular_cargo_por_no_show,
+    charge_for_no_show,
+    charge_for_visit,
 )
-from backend.domain.time import a_local, ahora_local, local, slots_del_dia
+from backend.domain.time import local, now_at_clinic, slots_for_day, to_clinic_time
 from backend.enums import (
     Especialidad,
     EstadoCargo,
@@ -45,30 +45,30 @@ from backend.enums import (
 )
 from backend.models import (
     AgendaSlot,
-    Cargo,
-    Cita,
-    CitaHistorial,
-    Clinica,
-    ListaEspera,
-    Paciente,
-    Profesional,
+    Appointment,
+    AppointmentHistory,
+    Charge,
+    Clinic,
+    Patient,
+    Professional,
+    WaitingList,
 )
 
-USUARIO_SEED = "seed@clinica.local"
+SEED_USER = "seed@clinica.local"
 
 #: Clinic-local instant the seeded agenda pivots around. Slots before it are
 #: history (attended / no-show / cancelled), slots after it are upcoming.
-HORA_REFERENCIA = time(9, 0)
+REFERENCE_HOUR = time(9, 0)
 
 #: Distribution of affiliation regimes, roughly matching Colombian coverage.
-DISTRIBUCION_REGIMEN: list[tuple[Regimen, int]] = [
+REGIMEN_MIX: list[tuple[Regimen, int]] = [
     (Regimen.CONTRIBUTIVO, 48),
     (Regimen.SUBSIDIADO, 38),
     (Regimen.PARTICULAR, 10),
     (Regimen.SOAT, 4),
 ]
 
-PROFESIONALES: list[tuple[str, Especialidad]] = [
+PROFESSIONALS: list[tuple[str, Especialidad]] = [
     ("Dra. Marcela Ospina Rivera", Especialidad.ODONTOLOGIA_GENERAL),
     ("Dr. Andrés Felipe Cadena", Especialidad.ODONTOLOGIA_GENERAL),
     ("Dra. Laura Betancur Gómez", Especialidad.ORTODONCIA),
@@ -79,52 +79,52 @@ PROFESIONALES: list[tuple[str, Especialidad]] = [
 
 
 @dataclass(frozen=True, slots=True)
-class ParametrosSeed:
+class SeedParams:
     seed: int
-    pacientes: int
+    patients: int
     dias_agenda: int
     fecha_base: date
 
     @property
-    def dias_historia(self) -> int:
+    def history_days(self) -> int:
         """How far back the agenda (and therefore the history) reaches."""
         return max(7, self.dias_agenda // 2)
 
 
-def _elegir_ponderado(rng: random.Random, opciones: list[tuple[Regimen, int]]) -> Regimen:
+def _weighted_choice(rng: random.Random, opciones: list[tuple[Regimen, int]]) -> Regimen:
     total = sum(peso for _, peso in opciones)
     tirada = rng.randrange(total)
     acumulado = 0
-    for valor, peso in opciones:
+    for value, peso in opciones:
         acumulado += peso
         if tirada < acumulado:
-            return valor
+            return value
     return opciones[-1][0]  # pragma: no cover - unreachable, guards float drift
 
 
-def base_vacia(session: Session) -> bool:
-    return session.scalar(select(func.count()).select_from(Clinica)) == 0
+def database_is_empty(session: Session) -> bool:
+    return session.scalar(select(func.count()).select_from(Clinic)) == 0
 
 
-def limpiar(session: Session) -> None:
+def wipe(session: Session) -> None:
     """Wipe every table. Ordered by dependency so foreign keys stay satisfied."""
-    orden = (
-        ListaEspera,
-        Cargo,
-        CitaHistorial,
-        Cita,
+    order = (
+        WaitingList,
+        Charge,
+        AppointmentHistory,
+        Appointment,
         AgendaSlot,
-        Paciente,
-        Profesional,
-        Clinica,
+        Patient,
+        Professional,
+        Clinic,
     )
-    for modelo in orden:
-        session.query(modelo).delete()
+    for model in order:
+        session.query(model).delete()
     session.flush()
 
 
-def _crear_clinica(session: Session) -> Clinica:
-    clinica = Clinica(
+def _create_clinic(session: Session) -> Clinic:
+    clinica = Clinic(
         nombre="Clínica Odontológica Sonrisa Viva",
         nit="901.455.782-3",
         especialidad="Odontología integral",
@@ -138,35 +138,35 @@ def _crear_clinica(session: Session) -> Clinica:
     return clinica
 
 
-def _crear_profesionales(session: Session, clinica: Clinica) -> list[Profesional]:
+def _create_professionals(session: Session, clinica: Clinic) -> list[Professional]:
     profesionales = [
-        Profesional(
+        Professional(
             clinica_id=clinica.id,
             nombre=nombre,
             registro=f"RM-{4100 + indice}",
             especialidad=especialidad,
             activo=True,
         )
-        for indice, (nombre, especialidad) in enumerate(PROFESIONALES)
+        for indice, (nombre, especialidad) in enumerate(PROFESSIONALS)
     ]
     session.add_all(profesionales)
     session.flush()
     return profesionales
 
 
-def _crear_pacientes(
-    session: Session, fake: Faker, rng: random.Random, params: ParametrosSeed
-) -> list[Paciente]:
-    pacientes: list[Paciente] = []
+def _create_patients(
+    session: Session, fake: Faker, rng: random.Random, params: SeedParams
+) -> list[Patient]:
+    patients: list[Patient] = []
     documentos: set[str] = set()
 
-    for _ in range(params.pacientes):
+    for _ in range(params.patients):
         documento = str(rng.randrange(10_000_000, 1_300_000_000))
         while documento in documentos:
             documento = str(rng.randrange(10_000_000, 1_300_000_000))
         documentos.add(documento)
 
-        regimen = _elegir_ponderado(rng, DISTRIBUCION_REGIMEN)
+        regimen = _weighted_choice(rng, REGIMEN_MIX)
         # ~12% of affiliated patients have lapsed. This is what makes
         # validar_afiliacion worth calling instead of assuming.
         activa = regimen is Regimen.PARTICULAR or rng.random() > 0.12
@@ -175,8 +175,8 @@ def _crear_pacientes(
         edad = params.fecha_base.year - nacimiento.year
         tipo_doc = TipoDocumento.TI if edad < 18 else TipoDocumento.CC
 
-        pacientes.append(
-            Paciente(
+        patients.append(
+            Patient(
                 tipo_documento=tipo_doc,
                 documento=documento,
                 nombre=fake.name(),
@@ -192,19 +192,19 @@ def _crear_pacientes(
                 consentimiento_datos_clinicos=rng.random() > 0.35,
             )
         )
-    session.add_all(pacientes)
+    session.add_all(patients)
     session.flush()
-    return pacientes
+    return patients
 
 
-def _crear_agenda(
-    session: Session, profesionales: list[Profesional], params: ParametrosSeed
+def _create_agenda(
+    session: Session, profesionales: list[Professional], params: SeedParams
 ) -> list[AgendaSlot]:
     slots: list[AgendaSlot] = []
-    inicio = params.fecha_base - timedelta(days=params.dias_historia)
-    for offset in range(params.dias_historia + params.dias_agenda):
+    inicio = params.fecha_base - timedelta(days=params.history_days)
+    for offset in range(params.history_days + params.dias_agenda):
         dia = inicio + timedelta(days=offset)
-        rangos = slots_del_dia(dia)
+        rangos = slots_for_day(dia)
         if not rangos:
             continue
         for profesional in profesionales:
@@ -212,7 +212,7 @@ def _crear_agenda(
                 slots.append(
                     AgendaSlot(
                         profesional_id=profesional.id,
-                        fecha=a_local(comienzo).date(),
+                        fecha=to_clinic_time(comienzo).date(),
                         inicio=comienzo,
                         fin=fin,
                         estado=EstadoSlot.LIBRE,
@@ -223,7 +223,7 @@ def _crear_agenda(
     return slots
 
 
-def _estado_para_slot(rng: random.Random, es_pasado: bool, horas_restantes: float) -> EstadoCita:
+def _state_for_slot(rng: random.Random, es_pasado: bool, horas_restantes: float) -> EstadoCita:
     """Pick a plausible appointment state given where the slot sits in time."""
     if es_pasado:
         # ~22% no-show rate: close to the quantified problem this project targets.
@@ -238,7 +238,7 @@ def _estado_para_slot(rng: random.Random, es_pasado: bool, horas_restantes: floa
     return rng.choices([EstadoCita.AGENDADA, EstadoCita.CONFIRMADA], weights=[75, 25])[0]
 
 
-def _ruta_historial(estado_final: EstadoCita) -> list[EstadoCita]:
+def _history_path(estado_final: EstadoCita) -> list[EstadoCita]:
     """A legal path from `agendada` to the target state, so every seeded
     appointment has a history that the state machine would actually accept."""
     rutas: dict[EstadoCita, list[EstadoCita]] = {
@@ -262,21 +262,21 @@ def _ruta_historial(estado_final: EstadoCita) -> list[EstadoCita]:
     return rutas[estado_final]
 
 
-def _crear_citas(
+def _create_appointments(
     session: Session,
     fake: Faker,
     rng: random.Random,
-    pacientes: list[Paciente],
+    patients: list[Patient],
     slots: list[AgendaSlot],
-    params: ParametrosSeed,
-) -> tuple[list[Cita], list[Cargo]]:
+    params: SeedParams,
+) -> tuple[list[Appointment], list[Charge]]:
     # Fixed reference *instant*, not "now on the base date": deriving it from
     # the wall clock would make two runs on the same day produce different
     # past/future splits, and determinism is a tested property here.
-    referencia = local(params.fecha_base, HORA_REFERENCIA)
+    reference = local(params.fecha_base, REFERENCE_HOUR)
 
-    citas: list[Cita] = []
-    cargos: list[Cargo] = []
+    citas: list[Appointment] = []
+    cargos: list[Charge] = []
     por_profesional: dict[int, list[AgendaSlot]] = {}
     for slot in slots:
         por_profesional.setdefault(slot.profesional_id, []).append(slot)
@@ -286,21 +286,21 @@ def _crear_citas(
         # interesting, free enough that consultar_disponibilidad returns rows.
         elegidos = rng.sample(slot_lista, k=int(len(slot_lista) * 0.45))
         for slot in elegidos:
-            paciente = rng.choice(pacientes)
-            inicio_local = a_local(slot.inicio)
-            es_pasado = inicio_local < referencia
-            horas = (inicio_local - referencia).total_seconds() / 3600
-            estado = _estado_para_slot(rng, es_pasado, horas)
+            paciente = rng.choice(patients)
+            inicio_local = to_clinic_time(slot.inicio)
+            es_pasado = inicio_local < reference
+            horas = (inicio_local - reference).total_seconds() / 3600
+            estado = _state_for_slot(rng, es_pasado, horas)
 
             libera = estado in {EstadoCita.CANCELADA, EstadoCita.REPROGRAMADA}
             slot.estado = EstadoSlot.LIBRE if libera else EstadoSlot.OCUPADO
 
-            cita = Cita(
+            cita = Appointment(
                 paciente_id=paciente.id,
                 profesional_id=slot.profesional_id,
                 slot_id=slot.id,
                 estado=estado,
-                creada_por=USUARIO_SEED,
+                creada_por=SEED_USER,
                 motivo_cancelacion=(
                     fake.sentence(nb_words=6) if estado is EstadoCita.CANCELADA else None
                 ),
@@ -308,49 +308,49 @@ def _crear_citas(
             session.add(cita)
             session.flush()
 
-            ruta = _ruta_historial(estado)
+            ruta = _history_path(estado)
             momento = slot.inicio - timedelta(days=len(ruta) + 1)
-            anterior: EstadoCita | None = None
-            for paso in ruta:
+            previous: EstadoCita | None = None
+            for step in ruta:
                 session.add(
-                    CitaHistorial(
+                    AppointmentHistory(
                         cita_id=cita.id,
-                        estado_anterior=anterior,
-                        estado_nuevo=paso,
-                        usuario=USUARIO_SEED,
-                        motivo=cita.motivo_cancelacion if paso is EstadoCita.CANCELADA else None,
+                        estado_anterior=previous,
+                        estado_nuevo=step,
+                        usuario=SEED_USER,
+                        motivo=cita.motivo_cancelacion if step is EstadoCita.CANCELADA else None,
                         momento=momento,
                     )
                 )
-                anterior = paso
+                previous = step
                 momento += timedelta(hours=6)
 
-            afiliacion = validar_afiliacion(
+            afiliacion = validate_afiliacion(
                 paciente.regimen,
                 paciente.afiliacion_activa,
                 nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
             )
-            calculado = None
+            calculated = None
             if estado is EstadoCita.ATENDIDA:
-                calculado = calcular_cargo_por_atencion(
+                calculated = charge_for_visit(
                     afiliacion,
                     str(slot.profesional.especialidad),
                     nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
                 )
             elif estado is EstadoCita.NO_ASISTIO:
-                calculado = calcular_cargo_por_no_show(estaba_confirmada=True)
+                calculated = charge_for_no_show(estaba_confirmada=True)
 
-            if calculado is not None:
+            if calculated is not None:
                 vencimiento = inicio_local.date() + timedelta(days=30)
                 # Around a third stay unpaid, which is what gives the cartera
                 # tools something real to report.
                 pagado = rng.random() > 0.35
-                cargo = Cargo(
+                cargo = Charge(
                     paciente_id=paciente.id,
                     cita_id=cita.id,
-                    concepto=calculado.concepto,
-                    monto=Decimal(calculado.monto),
-                    descripcion=calculado.descripcion,
+                    concepto=calculated.concepto,
+                    monto=Decimal(calculated.monto),
+                    descripcion=calculated.descripcion,
                     estado=EstadoCargo.PAGADO if pagado else EstadoCargo.PENDIENTE,
                     vencimiento=vencimiento,
                     pagado_en=slot.inicio + timedelta(days=2) if pagado else None,
@@ -369,56 +369,56 @@ def _crear_citas(
 #: be looking at, and charges fall due 30 days after the visit. Without this the
 #: seeded cartera is always `al_dia`, and the rule that debt warns without
 #: blocking has no data to demonstrate itself on.
-DIAS_CARTERA_HISTORICA = 210
+CARRIED_OVER_CARTERA_DAYS = 210
 
 #: Ageing profile of that carried-over debt: mostly recent, with a tail. Values
 #: are (days overdue lower bound, upper bound, weight).
-PERFIL_ANTIGUEDAD: list[tuple[int, int, int]] = [
+AGEING_PROFILE: list[tuple[int, int, int]] = [
     (1, 30, 45),
     (31, 60, 25),
     (61, 90, 15),
-    (91, DIAS_CARTERA_HISTORICA, 15),
+    (91, CARRIED_OVER_CARTERA_DAYS, 15),
 ]
 
 
-def _crear_cartera_historica(
-    session: Session, rng: random.Random, pacientes: list[Paciente], params: ParametrosSeed
-) -> list[Cargo]:
+def _create_historic_cartera(
+    session: Session, rng: random.Random, patients: list[Patient], params: SeedParams
+) -> list[Charge]:
     """Balances carried over from before the seeded agenda window.
 
     These have no appointment attached, which is exactly right: they predate the
     slice of agenda this dataset holds. Modelling them is what gives the
     collections tools, and the ageing buckets, something real to report.
     """
-    cargos: list[Cargo] = []
-    for paciente in rng.sample(pacientes, k=max(4, len(pacientes) // 4)):
-        afiliacion = validar_afiliacion(
+    cargos: list[Charge] = []
+    for paciente in rng.sample(patients, k=max(4, len(patients) // 4)):
+        afiliacion = validate_afiliacion(
             paciente.regimen,
             paciente.afiliacion_activa,
             nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
         )
         for _ in range(rng.choice([1, 1, 2, 3])):
             desde, hasta, _peso = rng.choices(
-                PERFIL_ANTIGUEDAD, weights=[p for *_, p in PERFIL_ANTIGUEDAD]
+                AGEING_PROFILE, weights=[p for *_, p in AGEING_PROFILE]
             )[0]
             dias_vencido = rng.randint(desde, hasta)
-            calculado = calcular_cargo_por_atencion(
+            calculated = charge_for_visit(
                 afiliacion,
                 rng.choice([str(e) for e in Especialidad]),
                 nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
             )
-            if calculado is None:  # SOAT covers the service, nothing to collect
+            if calculated is None:  # SOAT covers the service, nothing to collect
                 continue
             # A third of the aged debt was eventually settled, so the ledger is
             # not uniformly delinquent.
             pagado = rng.random() < 0.33
             cargos.append(
-                Cargo(
+                Charge(
                     paciente_id=paciente.id,
                     cita_id=None,
-                    concepto=calculado.concepto,
-                    monto=Decimal(calculado.monto),
-                    descripcion=f"{calculado.descripcion} (saldo anterior)",
+                    concepto=calculated.concepto,
+                    monto=Decimal(calculated.monto),
+                    descripcion=f"{calculated.descripcion} (saldo anterior)",
                     estado=EstadoCargo.PAGADO if pagado else EstadoCargo.PENDIENTE,
                     vencimiento=params.fecha_base - timedelta(days=dias_vencido),
                     pagado_en=None,
@@ -429,20 +429,20 @@ def _crear_cartera_historica(
     return cargos
 
 
-def _crear_lista_espera(
-    session: Session, fake: Faker, rng: random.Random, pacientes: list[Paciente]
-) -> list[ListaEspera]:
+def _create_waiting_list(
+    session: Session, fake: Faker, rng: random.Random, patients: list[Patient]
+) -> list[WaitingList]:
     especialidades = list(Especialidad)
-    entradas: list[ListaEspera] = []
+    entries: list[WaitingList] = []
     ocupados: set[tuple[int, Especialidad]] = set()
 
-    for paciente in rng.sample(pacientes, k=max(6, len(pacientes) // 6)):
+    for paciente in rng.sample(patients, k=max(6, len(patients) // 6)):
         especialidad = rng.choice(especialidades)
         if (paciente.id, especialidad) in ocupados:
             continue
         ocupados.add((paciente.id, especialidad))
-        entradas.append(
-            ListaEspera(
+        entries.append(
+            WaitingList(
                 paciente_id=paciente.id,
                 especialidad=especialidad,
                 prioridad=rng.choices(
@@ -453,12 +453,12 @@ def _crear_lista_espera(
                 notas=fake.sentence(nb_words=8),
             )
         )
-    session.add_all(entradas)
+    session.add_all(entries)
     session.flush()
-    return entradas
+    return entries
 
 
-def sembrar(session: Session, params: ParametrosSeed) -> dict[str, int]:
+def seed_database(session: Session, params: SeedParams) -> dict[str, int]:
     """Populate an empty database and return a count per table."""
     fake = Faker("es_CO")
     Faker.seed(params.seed)
@@ -466,19 +466,19 @@ def sembrar(session: Session, params: ParametrosSeed) -> dict[str, int]:
     # non-cryptographic PRNG is the correct choice, not a shortcut.
     rng = random.Random(params.seed)  # nosec B311
 
-    limpiar(session)
-    clinica = _crear_clinica(session)
-    profesionales = _crear_profesionales(session, clinica)
-    pacientes = _crear_pacientes(session, fake, rng, params)
-    slots = _crear_agenda(session, profesionales, params)
-    citas, cargos = _crear_citas(session, fake, rng, pacientes, slots, params)
-    historicos = _crear_cartera_historica(session, rng, pacientes, params)
-    lista = _crear_lista_espera(session, fake, rng, pacientes)
+    wipe(session)
+    clinica = _create_clinic(session)
+    profesionales = _create_professionals(session, clinica)
+    patients = _create_patients(session, fake, rng, params)
+    slots = _create_agenda(session, profesionales, params)
+    citas, cargos = _create_appointments(session, fake, rng, patients, slots, params)
+    historicos = _create_historic_cartera(session, rng, patients, params)
+    lista = _create_waiting_list(session, fake, rng, patients)
 
     return {
         "clinica": 1,
         "profesional": len(profesionales),
-        "paciente": len(pacientes),
+        "paciente": len(patients),
         "agenda_slot": len(slots),
         "cita": len(citas),
         "cargo": len(cargos) + len(historicos),
@@ -490,10 +490,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     settings = get_settings()
     parser = argparse.ArgumentParser(description="Load deterministic synthetic data.")
     parser.add_argument("--seed", type=int, default=settings.seed_value)
-    parser.add_argument("--pacientes", type=int, default=settings.seed_pacientes)
-    parser.add_argument("--dias-agenda", type=int, default=settings.seed_dias_agenda)
+    parser.add_argument("--patients", type=int, default=settings.seed_pacientes)
+    parser.add_argument("--agenda-days", type=int, default=settings.seed_dias_agenda)
     parser.add_argument(
-        "--fecha-base",
+        "--base-date",
         type=date.fromisoformat,
         default=None,
         help="Anchor date for the agenda (default: today, clinic local time).",
@@ -508,22 +508,22 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    params = ParametrosSeed(
+    params = SeedParams(
         seed=args.seed,
-        pacientes=args.pacientes,
-        dias_agenda=args.dias_agenda,
-        fecha_base=args.fecha_base or ahora_local().date(),
+        patients=args.patients,
+        dias_agenda=args.agenda_days,
+        fecha_base=args.base_date or now_at_clinic().date(),
     )
 
     with session_scope() as session:
-        if args.if_empty and not base_vacia(session):
+        if args.if_empty and not database_is_empty(session):
             print("Seed skipped: the database already holds data.")
             return 0
-        conteos = sembrar(session, params)
+        counts = seed_database(session, params)
 
     print(f"Seed done (seed={params.seed}, base date={params.fecha_base}):")
-    for tabla, cantidad in conteos.items():
-        print(f"  {tabla:<14} {cantidad:>6}")
+    for table, count in counts.items():
+        print(f"  {table:<14} {count:>6}")
     return 0
 
 

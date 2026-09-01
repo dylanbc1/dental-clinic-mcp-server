@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any
 
 
-class CodigoError(StrEnum):
+class ErrorCode(StrEnum):
     """Stable error codes, part of the tool contract. Renaming one is a
     breaking change, so they stay generic and domain-shaped."""
 
@@ -59,14 +59,14 @@ class CodigoError(StrEnum):
     RATE_LIMIT_EXCEDIDO = "RATE_LIMIT_EXCEDIDO"
 
 
-class ErrorDominio(Exception):
+class DomainError(Exception):
     """Base class for every expected failure.
 
     Unexpected failures are not wrapped here. They are logged and surfaced as a
     single generic code, so a bug never leaks a stack trace to the model.
     """
 
-    codigo: CodigoError = CodigoError.ENTRADA_INVALIDA
+    codigo: ErrorCode = ErrorCode.ENTRADA_INVALIDA
     http_status: int = 400
 
     def __init__(
@@ -75,7 +75,7 @@ class ErrorDominio(Exception):
         *,
         sugerencia: str | None = None,
         detalles: dict[str, Any] | None = None,
-        codigo: CodigoError | None = None,
+        codigo: ErrorCode | None = None,
     ) -> None:
         super().__init__(mensaje)
         self.mensaje = mensaje
@@ -107,81 +107,81 @@ class ErrorDominio(Exception):
 # --------------------------------------------------------------------------
 
 
-class NoEncontrado(ErrorDominio):
+class NotFound(DomainError):
     http_status = 404
 
 
-class PacienteNoEncontrado(NoEncontrado):
-    codigo = CodigoError.PACIENTE_NO_ENCONTRADO
+class PatientNotFound(NotFound):
+    codigo = ErrorCode.PACIENTE_NO_ENCONTRADO
 
 
-class CitaNoEncontrada(NoEncontrado):
-    codigo = CodigoError.CITA_NO_ENCONTRADA
+class AppointmentNotFound(NotFound):
+    codigo = ErrorCode.CITA_NO_ENCONTRADA
 
 
-class SlotNoEncontrado(NoEncontrado):
-    codigo = CodigoError.SLOT_NO_ENCONTRADO
+class SlotNotFound(NotFound):
+    codigo = ErrorCode.SLOT_NO_ENCONTRADO
 
 
-class ProfesionalNoEncontrado(NoEncontrado):
-    codigo = CodigoError.PROFESIONAL_NO_ENCONTRADO
+class ProfessionalNotFound(NotFound):
+    codigo = ErrorCode.PROFESIONAL_NO_ENCONTRADO
 
 
-class SlotNoDisponible(ErrorDominio):
-    codigo = CodigoError.SLOT_NO_DISPONIBLE
+class SlotUnavailable(DomainError):
+    codigo = ErrorCode.SLOT_NO_DISPONIBLE
     http_status = 409
 
 
-class SlotFueraDeHorario(ErrorDominio):
-    codigo = CodigoError.SLOT_FUERA_DE_HORARIO
+class SlotOutsideHours(DomainError):
+    codigo = ErrorCode.SLOT_FUERA_DE_HORARIO
 
 
-class SlotEnElPasado(ErrorDominio):
-    codigo = CodigoError.SLOT_EN_EL_PASADO
+class SlotInThePast(DomainError):
+    codigo = ErrorCode.SLOT_EN_EL_PASADO
 
 
-class EspecialidadNoCoincide(ErrorDominio):
-    codigo = CodigoError.ESPECIALIDAD_NO_COINCIDE
+class SpecialtyMismatch(DomainError):
+    codigo = ErrorCode.ESPECIALIDAD_NO_COINCIDE
 
 
-class PacienteYaTieneCita(ErrorDominio):
-    codigo = CodigoError.PACIENTE_YA_TIENE_CITA
+class PatientAlreadyBooked(DomainError):
+    codigo = ErrorCode.PACIENTE_YA_TIENE_CITA
     http_status = 409
 
 
-class TransicionInvalida(ErrorDominio):
-    codigo = CodigoError.TRANSICION_INVALIDA
+class InvalidTransition(DomainError):
+    codigo = ErrorCode.TRANSICION_INVALIDA
     http_status = 409
 
 
-class MotivoRequerido(ErrorDominio):
-    codigo = CodigoError.MOTIVO_REQUERIDO
+class ReasonRequired(DomainError):
+    codigo = ErrorCode.MOTIVO_REQUERIDO
 
 
-class ListaEsperaVacia(NoEncontrado):
-    codigo = CodigoError.LISTA_ESPERA_VACIA
+class WaitingListEmpty(NotFound):
+    codigo = ErrorCode.LISTA_ESPERA_VACIA
 
 
-class YaEnListaEspera(ErrorDominio):
-    codigo = CodigoError.YA_EN_LISTA_ESPERA
+class AlreadyOnWaitingList(DomainError):
+    codigo = ErrorCode.YA_EN_LISTA_ESPERA
     http_status = 409
 
 
-class AfiliacionInactiva(ErrorDominio):
-    codigo = CodigoError.AFILIACION_INACTIVA
+class AfiliacionInactive(DomainError):
+    codigo = ErrorCode.AFILIACION_INACTIVA
 
 
-class ConsentimientoRequerido(ErrorDominio):
+class ConsentRequired(DomainError):
     """Clinical write attempted without recorded consent.
 
     403 rather than 400: the request is well-formed, the caller just is not
     permitted to perform it on this patient (Res. 2654/2019).
     """
 
-    codigo = CodigoError.CONSENTIMIENTO_REQUERIDO
+    codigo = ErrorCode.CONSENTIMIENTO_REQUERIDO
     http_status = 403
 
 
-class ConflictoConcurrencia(ErrorDominio):
-    codigo = CodigoError.CONFLICTO_CONCURRENCIA
+class ConcurrencyConflict(DomainError):
+    codigo = ErrorCode.CONFLICTO_CONCURRENCIA
     http_status = 409

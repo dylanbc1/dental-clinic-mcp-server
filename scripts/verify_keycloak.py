@@ -16,16 +16,16 @@ import sys
 
 import httpx
 
-from scripts.get_token import obtener_token
-from scripts.smoke import CABECERAS, ClienteMCP
+from scripts.get_token import get_token
+from scripts.smoke import HEADERS, MCPTestClient
 
 KEYCLOAK = "http://localhost:9100/realms/clinica"
 MCP_KEYCLOAK = "http://localhost:8081/mcp"
 MCP_PROPIO = "http://localhost:8080/mcp"
 
 
-def token_de_keycloak(scope: str = "read") -> str:
-    respuesta = httpx.post(
+def keycloak_token(scope: str = "read") -> str:
+    response = httpx.post(
         f"{KEYCLOAK}/protocol/openid-connect/token",
         data={
             "grant_type": "client_credentials",
@@ -35,43 +35,43 @@ def token_de_keycloak(scope: str = "read") -> str:
         },
         timeout=15,
     )
-    respuesta.raise_for_status()
-    return str(respuesta.json()["access_token"])
+    response.raise_for_status()
+    return str(response.json()["access_token"])
 
 
-def paso(titulo: str) -> None:
+def step(titulo: str) -> None:
     print(f"\n\033[1m▸ {titulo}\033[0m")
 
 
-def rechazado(url: str, token: str) -> bool:
-    respuesta = httpx.post(
+def rejected(url: str, token: str) -> bool:
+    response = httpx.post(
         url,
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
-        headers={**CABECERAS, "Authorization": f"Bearer {token}", "mcp-method": "tools/list"},
+        headers={**HEADERS, "Authorization": f"Bearer {token}", "mcp-method": "tools/list"},
         timeout=15,
     )
-    return respuesta.status_code == 401
+    return response.status_code == 401
 
 
 def main() -> int:
-    paso("1 · Keycloak issues a token carrying our scopes")
-    kc = token_de_keycloak("read")
+    step("1 · Keycloak issues a token carrying our scopes")
+    kc = keycloak_token("read")
     print(f"  Keycloak token: {kc[:40]}… ({len(kc)} bytes)")
 
-    paso("2 · The same code, trusting Keycloak, accepts it")
-    cliente = ClienteMCP(MCP_KEYCLOAK, kc)
-    tools = cliente._rpc("tools/list", {})["tools"]
+    step("2 · The same code, trusting Keycloak, accepts it")
+    client = MCPTestClient(MCP_KEYCLOAK, kc)
+    tools = client._rpc("tools/list", {})["tools"]
     print(f"  tools visible: {len(tools)}")
-    cupo = cliente.llamar("consultar_disponibilidad", {"limite": 1})[0]
-    print(f"  a real read: free slot {cupo['inicio_local']}")
+    slot = client.call_tool("consultar_disponibilidad", {"limite": 1})[0]
+    print(f"  a real read: free slot {slot['inicio_local']}")
 
-    paso("3 · The two issuers are not interchangeable by accident")
-    if not rechazado(MCP_PROPIO, kc):
+    step("3 · The two issuers are not interchangeable by accident")
+    if not rejected(MCP_PROPIO, kc):
         raise SystemExit("FAILURE: the in-repo server accepted a Keycloak token")
     print("  Keycloak token → in-repo AS server: 401 ✓")
 
-    propio = obtener_token("http://localhost:9000", "read", "recepcion@clinica.local")
-    if not rechazado(MCP_KEYCLOAK, propio):
+    propio = get_token("http://localhost:9000", "read", "recepcion@clinica.local")
+    if not rejected(MCP_KEYCLOAK, propio):
         raise SystemExit("FAILURE: the Keycloak server accepted an in-repo AS token")
     print("  in-repo AS token → Keycloak server: 401 ✓")
 

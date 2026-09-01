@@ -31,7 +31,7 @@ import jwt
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
-from mcp_server.errors import ErrorHerramienta, error_no_autenticado, error_scope
+from mcp_server.errors import StructuredToolError, scope_error, unauthenticated_error
 
 
 class Scope(StrEnum):
@@ -42,29 +42,29 @@ class Scope(StrEnum):
 
 #: Identity used when authentication is disabled, which happens only in local
 #: development and in the contract suite.
-ACTOR_ANONIMO = "anonimo@local"
+ANONYMOUS_ACTOR = "anonimo@local"
 
 
 @dataclass(frozen=True, slots=True)
-class Identidad:
+class Identity:
     """Who is calling, distilled from the access token."""
 
-    sujeto: str
+    subject: str
     scopes: frozenset[str]
-    cliente: str | None = None
+    client: str | None = None
 
-    def tiene(self, scope: Scope) -> bool:
+    def has(self, scope: Scope) -> bool:
         return str(scope) in self.scopes
 
 
 #: Carries every scope on purpose. With authentication off there is no security
 #: story to tell, and pretending otherwise would make the gate tests lie.
-IDENTIDAD_ABIERTA = Identidad(
-    sujeto=ACTOR_ANONIMO, scopes=frozenset(str(s) for s in Scope), cliente="dev"
+OPEN_IDENTITY = Identity(
+    subject=ANONYMOUS_ACTOR, scopes=frozenset(str(s) for s in Scope), client="dev"
 )
 
 
-class VerificadorJWT(TokenVerifier):
+class JWTVerifier(TokenVerifier):
     """Validates RS256 access tokens against the authorization server's JWKS.
 
     Four checks, all of them load-bearing:
@@ -95,7 +95,7 @@ class VerificadorJWT(TokenVerifier):
             self._cliente_jwks = jwt.PyJWKClient(self.jwks_uri, cache_keys=True)
         return self._cliente_jwks
 
-    def _clave(self, token: str) -> Any:
+    def _key(self, token: str) -> Any:
         if self._obtener_jwks is not None:
             return self._obtener_jwks(token)
         return self._jwks().get_signing_key_from_jwt(token).key
@@ -104,7 +104,7 @@ class VerificadorJWT(TokenVerifier):
         try:
             claims = jwt.decode(
                 token,
-                self._clave(token),
+                self._key(token),
                 algorithms=["RS256"],
                 issuer=self.issuer,
                 audience=self.audience,
@@ -128,7 +128,7 @@ class VerificadorJWT(TokenVerifier):
         )
 
 
-def identidad_actual(*, exigir_auth: bool) -> Identidad:
+def current_identity(*, exigir_auth: bool) -> Identity:
     """The caller's identity for this request.
 
     With authentication disabled the open identity is returned, so local work
@@ -138,36 +138,36 @@ def identidad_actual(*, exigir_auth: bool) -> Identidad:
     token = get_access_token()
     if token is None:
         if exigir_auth:
-            raise error_no_autenticado("")
-        return IDENTIDAD_ABIERTA
-    return Identidad(
-        sujeto=token.subject or token.client_id,
+            raise unauthenticated_error("")
+        return OPEN_IDENTITY
+    return Identity(
+        subject=token.subject or token.client_id,
         scopes=frozenset(token.scopes),
-        cliente=token.client_id,
+        client=token.client_id,
     )
 
 
-def exigir_scope(identidad: Identidad, requerido: Scope, *, herramienta: str) -> Identidad:
+def require_scope(identity: Identity, requerido: Scope, *, tool_name: str) -> Identity:
     """Least privilege, enforced. Raises with an actionable message."""
-    if not identidad.tiene(requerido):
-        raise error_scope(herramienta, str(requerido), sorted(identidad.scopes))
-    return identidad
+    if not identity.has(requerido):
+        raise scope_error(tool_name, str(requerido), sorted(identity.scopes))
+    return identity
 
 
-def scopes_de(claims: dict[str, Any]) -> frozenset[str]:
+def scopes_from(claims: dict[str, Any]) -> frozenset[str]:
     alcance = claims.get("scope", "")
     if isinstance(alcance, str):
         return frozenset(alcance.split())
     return frozenset(alcance)
 
 
-def validar_scopes_solicitados(solicitados: Sequence[str]) -> list[str]:
+def validate_requested_scopes(solicitados: Sequence[str]) -> list[str]:
     """Reject an undefined scope instead of dropping it silently. A client that
     asks for `admin` should learn it does not exist."""
     conocidos = {str(s) for s in Scope}
     desconocidos = [s for s in solicitados if s not in conocidos]
     if desconocidos:
-        raise ErrorHerramienta(
+        raise StructuredToolError(
             "SCOPE_DESCONOCIDO",
             f"Scopes no reconocidos: {', '.join(desconocidos)}.",
             sugerencia=f"Los scopes válidos son: {', '.join(sorted(conocidos))}.",

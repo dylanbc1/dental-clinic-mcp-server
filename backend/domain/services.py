@@ -25,36 +25,36 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from backend.domain.afiliacion import ResultadoAfiliacion, validar_afiliacion
+from backend.domain.afiliacion import AfiliacionResult, validate_afiliacion
 from backend.domain.cartera import (
-    POLITICA_POR_DEFECTO,
-    CargoPendiente,
-    PoliticaCartera,
-    ResumenCartera,
-    alerta_al_agendar,
-    calcular_cargo_por_atencion,
-    calcular_cargo_por_no_show,
-    resumir_cartera,
+    DEFAULT_POLICY,
+    CarteraPolicy,
+    CarteraSummary,
+    PendingCharge,
+    booking_warning,
+    charge_for_no_show,
+    charge_for_visit,
+    summarise_cartera,
 )
 from backend.domain.errors import (
-    CitaNoEncontrada,
-    ConflictoConcurrencia,
-    ConsentimientoRequerido,
-    EspecialidadNoCoincide,
-    ListaEsperaVacia,
-    PacienteNoEncontrado,
-    PacienteYaTieneCita,
-    ProfesionalNoEncontrado,
-    SlotEnElPasado,
-    SlotNoDisponible,
-    SlotNoEncontrado,
-    YaEnListaEspera,
+    AlreadyOnWaitingList,
+    AppointmentNotFound,
+    ConcurrencyConflict,
+    ConsentRequired,
+    PatientAlreadyBooked,
+    PatientNotFound,
+    ProfessionalNotFound,
+    SlotInThePast,
+    SlotNotFound,
+    SlotUnavailable,
+    SpecialtyMismatch,
+    WaitingListEmpty,
 )
-from backend.domain.states import EfectosTransicion, validar_transicion
-from backend.domain.time import a_local, ahora_utc
-from backend.domain.waiting_list import EntradaListaEspera, siguiente_en_lista
+from backend.domain.states import TransitionEffects, validate_transition
+from backend.domain.time import now_utc, to_clinic_time
+from backend.domain.waiting_list import WaitingListEntry, next_in_queue
 from backend.enums import (
-    ESTADOS_QUE_OCUPAN_SLOT,
+    STATES_HOLDING_SLOT,
     ConceptoCargo,
     Especialidad,
     EstadoCargo,
@@ -65,20 +65,20 @@ from backend.enums import (
 )
 from backend.models import (
     AgendaSlot,
-    Cargo,
-    Cita,
-    CitaHistorial,
-    Clinica,
-    ListaEspera,
-    Paciente,
-    Profesional,
+    Appointment,
+    AppointmentHistory,
+    Charge,
+    Clinic,
+    Patient,
+    Professional,
+    WaitingList,
 )
 
 #: How long a patient has to settle a charge before it counts as arrears.
-PLAZO_PAGO = timedelta(days=30)
+PAYMENT_TERM = timedelta(days=30)
 
 #: How many alternative slots an error offers when the requested one is taken.
-ALTERNATIVAS_SUGERIDAS = 3
+SUGGESTED_ALTERNATIVES = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -87,7 +87,7 @@ ALTERNATIVAS_SUGERIDAS = 3
 
 
 @dataclass(frozen=True, slots=True)
-class SlotDisponible:
+class AvailableSlot:
     slot_id: int
     profesional_id: int
     profesional: str
@@ -96,16 +96,16 @@ class SlotDisponible:
     fin: datetime
 
     @property
-    def etiqueta(self) -> str:
+    def label(self) -> str:
         """Human-facing label in clinic local time, which is what the model reads."""
-        local = a_local(self.inicio)
+        local = to_clinic_time(self.inicio)
         return f"{local:%Y-%m-%d %H:%M} ({self.profesional})"
 
 
 @dataclass(frozen=True, slots=True)
-class ResultadoAgendamiento:
-    cita: Cita
-    afiliacion: ResultadoAfiliacion
+class BookingResult:
+    cita: Appointment
+    afiliacion: AfiliacionResult
     alerta_cartera: str | None
     #: True when an identical idempotency key had already created this
     #: appointment. The caller reports success, not a duplicate.
@@ -113,17 +113,17 @@ class ResultadoAgendamiento:
 
 
 @dataclass(frozen=True, slots=True)
-class ResultadoTransicion:
-    cita: Cita
-    efectos: EfectosTransicion
-    cargo_generado: Cargo | None = None
-    siguiente_en_espera: ListaEspera | None = None
+class TransitionResult:
+    cita: Appointment
+    effects: TransitionEffects
+    created_charge: Charge | None = None
+    siguiente_en_espera: WaitingList | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class OfertaCupo:
-    entrada: ListaEspera
-    paciente: Paciente
+class SlotOffer:
+    entry: WaitingList
+    paciente: Patient
     slot: AgendaSlot
     posicion_original: int
 
@@ -133,10 +133,10 @@ class OfertaCupo:
 # --------------------------------------------------------------------------- #
 
 
-def obtener_paciente(session: Session, paciente_id: int) -> Paciente:
-    paciente = session.get(Paciente, paciente_id)
+def get_patient(session: Session, paciente_id: int) -> Patient:
+    paciente = session.get(Patient, paciente_id)
     if paciente is None:
-        raise PacienteNoEncontrado(
+        raise PatientNotFound(
             f"There is no patient with id {paciente_id}.",
             sugerencia="Look them up first with buscar_paciente, by documento or by name.",
             detalles={"paciente_id": paciente_id},
@@ -144,19 +144,19 @@ def obtener_paciente(session: Session, paciente_id: int) -> Paciente:
     return paciente
 
 
-def obtener_cita(session: Session, cita_id: int) -> Cita:
+def get_appointment(session: Session, cita_id: int) -> Appointment:
     cita = session.scalar(
-        select(Cita)
-        .where(Cita.id == cita_id)
+        select(Appointment)
+        .where(Appointment.id == cita_id)
         .options(
-            selectinload(Cita.paciente),
-            selectinload(Cita.profesional),
-            selectinload(Cita.slot),
-            selectinload(Cita.historial),
+            selectinload(Appointment.paciente),
+            selectinload(Appointment.profesional),
+            selectinload(Appointment.slot),
+            selectinload(Appointment.historial),
         )
     )
     if cita is None:
-        raise CitaNoEncontrada(
+        raise AppointmentNotFound(
             f"There is no appointment with id {cita_id}.",
             sugerencia="List the patient's appointments with listar_citas_paciente.",
             detalles={"cita_id": cita_id},
@@ -164,10 +164,10 @@ def obtener_cita(session: Session, cita_id: int) -> Cita:
     return cita
 
 
-def obtener_profesional(session: Session, profesional_id: int) -> Profesional:
-    profesional = session.get(Profesional, profesional_id)
+def get_professional(session: Session, profesional_id: int) -> Professional:
+    profesional = session.get(Professional, profesional_id)
     if profesional is None:
-        raise ProfesionalNoEncontrado(
+        raise ProfessionalNotFound(
             f"There is no professional with id {profesional_id}.",
             sugerencia="See the list in the clinica://info resource.",
             detalles={"profesional_id": profesional_id},
@@ -175,73 +175,73 @@ def obtener_profesional(session: Session, profesional_id: int) -> Profesional:
     return profesional
 
 
-def obtener_clinica(session: Session) -> Clinica:
-    clinica = session.scalar(select(Clinica).order_by(Clinica.id).limit(1))
+def get_clinic(session: Session) -> Clinic:
+    clinica = session.scalar(select(Clinic).order_by(Clinic.id).limit(1))
     if clinica is None:  # pragma: no cover - only on an unseeded database
-        raise PacienteNoEncontrado(
+        raise PatientNotFound(
             "The database has no clinic configured.",
             sugerencia="Run `make seed` to load the synthetic data.",
         )
     return clinica
 
 
-def buscar_pacientes(
+def search_patients(
     session: Session,
     *,
     documento: str | None = None,
     nombre: str | None = None,
     limite: int = 10,
-) -> list[Paciente]:
+) -> list[Patient]:
     """Search by document (exact) or name (case-insensitive substring).
 
     Document match is exact on purpose: a partial document number is how you
     hand the wrong person's record to an agent.
     """
-    consulta = select(Paciente)
+    query = select(Patient)
     if documento:
-        consulta = consulta.where(Paciente.documento == documento.strip())
+        query = query.where(Patient.documento == documento.strip())
     elif nombre:
         patron = f"%{nombre.strip().lower()}%"
-        consulta = consulta.where(func.lower(Paciente.nombre).like(patron))
+        query = query.where(func.lower(Patient.nombre).like(patron))
     else:
-        raise PacienteNoEncontrado(
+        raise PatientNotFound(
             "You must give a documento or a name to search by.",
             sugerencia="Call buscar_paciente with 'documento' or with 'nombre'.",
         )
-    return list(session.scalars(consulta.order_by(Paciente.nombre).limit(limite)))
+    return list(session.scalars(query.order_by(Patient.nombre).limit(limite)))
 
 
-def consultar_disponibilidad(
+def list_available_slots(
     session: Session,
     *,
     especialidad: Especialidad | None = None,
     fecha: date | None = None,
     profesional_id: int | None = None,
     limite: int = 20,
-    ahora: datetime | None = None,
-) -> list[SlotDisponible]:
+    now: datetime | None = None,
+) -> list[AvailableSlot]:
     """Free slots, never in the past, ordered chronologically."""
-    referencia = ahora or ahora_utc()
-    consulta = (
-        select(AgendaSlot, Profesional)
-        .join(Profesional, AgendaSlot.profesional_id == Profesional.id)
+    reference = now or now_utc()
+    query = (
+        select(AgendaSlot, Professional)
+        .join(Professional, AgendaSlot.profesional_id == Professional.id)
         .where(
             AgendaSlot.estado == EstadoSlot.LIBRE,
-            AgendaSlot.inicio > referencia,
-            Profesional.activo.is_(True),
+            AgendaSlot.inicio > reference,
+            Professional.activo.is_(True),
         )
     )
     if especialidad is not None:
-        consulta = consulta.where(Profesional.especialidad == especialidad)
+        query = query.where(Professional.especialidad == especialidad)
     if fecha is not None:
-        consulta = consulta.where(AgendaSlot.fecha == fecha)
+        query = query.where(AgendaSlot.fecha == fecha)
     if profesional_id is not None:
-        obtener_profesional(session, profesional_id)
-        consulta = consulta.where(AgendaSlot.profesional_id == profesional_id)
+        get_professional(session, profesional_id)
+        query = query.where(AgendaSlot.profesional_id == profesional_id)
 
-    filas = session.execute(consulta.order_by(AgendaSlot.inicio).limit(limite)).all()
+    filas = session.execute(query.order_by(AgendaSlot.inicio).limit(limite)).all()
     return [
-        SlotDisponible(
+        AvailableSlot(
             slot_id=slot.id,
             profesional_id=profesional.id,
             profesional=profesional.nombre,
@@ -253,43 +253,45 @@ def consultar_disponibilidad(
     ]
 
 
-def listar_citas_paciente(
+def list_patient_appointments(
     session: Session,
     paciente_id: int,
     *,
     desde: date | None = None,
     hasta: date | None = None,
     limite: int = 50,
-) -> list[Cita]:
-    obtener_paciente(session, paciente_id)
-    consulta = (
-        select(Cita)
-        .join(AgendaSlot, Cita.slot_id == AgendaSlot.id)
-        .where(Cita.paciente_id == paciente_id)
-        .options(selectinload(Cita.slot), selectinload(Cita.profesional))
+) -> list[Appointment]:
+    get_patient(session, paciente_id)
+    query = (
+        select(Appointment)
+        .join(AgendaSlot, Appointment.slot_id == AgendaSlot.id)
+        .where(Appointment.paciente_id == paciente_id)
+        .options(selectinload(Appointment.slot), selectinload(Appointment.profesional))
     )
     if desde is not None:
-        consulta = consulta.where(AgendaSlot.fecha >= desde)
+        query = query.where(AgendaSlot.fecha >= desde)
     if hasta is not None:
-        consulta = consulta.where(AgendaSlot.fecha <= hasta)
-    return list(session.scalars(consulta.order_by(AgendaSlot.inicio.desc()).limit(limite)))
+        query = query.where(AgendaSlot.fecha <= hasta)
+    return list(session.scalars(query.order_by(AgendaSlot.inicio.desc()).limit(limite)))
 
 
-def validar_afiliacion_paciente(session: Session, paciente_id: int) -> ResultadoAfiliacion:
-    paciente = obtener_paciente(session, paciente_id)
-    return validar_afiliacion(
+def validate_patient_afiliacion(session: Session, paciente_id: int) -> AfiliacionResult:
+    paciente = get_patient(session, paciente_id)
+    return validate_afiliacion(
         paciente.regimen,
         paciente.afiliacion_activa,
         nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
     )
 
 
-def _cargos_pendientes(session: Session, paciente_id: int) -> list[CargoPendiente]:
+def _pending_charges(session: Session, paciente_id: int) -> list[PendingCharge]:
     filas = session.scalars(
-        select(Cargo).where(Cargo.paciente_id == paciente_id, Cargo.estado == EstadoCargo.PENDIENTE)
+        select(Charge).where(
+            Charge.paciente_id == paciente_id, Charge.estado == EstadoCargo.PENDIENTE
+        )
     )
     return [
-        CargoPendiente(
+        PendingCharge(
             cargo_id=c.id,
             concepto=c.concepto,
             monto=c.monto,
@@ -300,46 +302,46 @@ def _cargos_pendientes(session: Session, paciente_id: int) -> list[CargoPendient
     ]
 
 
-def consultar_cartera(
+def get_cartera(
     session: Session,
     paciente_id: int,
     *,
     hoy: date | None = None,
-    politica: PoliticaCartera = POLITICA_POR_DEFECTO,
-) -> ResumenCartera:
-    obtener_paciente(session, paciente_id)
-    return resumir_cartera(
+    policy: CarteraPolicy = DEFAULT_POLICY,
+) -> CarteraSummary:
+    get_patient(session, paciente_id)
+    return summarise_cartera(
         paciente_id,
-        _cargos_pendientes(session, paciente_id),
-        hoy=hoy or a_local(ahora_utc()).date(),
-        politica=politica,
+        _pending_charges(session, paciente_id),
+        hoy=hoy or to_clinic_time(now_utc()).date(),
+        policy=policy,
     )
 
 
-def agenda_del_dia(session: Session, fecha: date) -> list[Cita]:
+def agenda_for_day(session: Session, fecha: date) -> list[Appointment]:
     """Every appointment of a day, whatever its state. The front desk view."""
     return list(
         session.scalars(
-            select(Cita)
-            .join(AgendaSlot, Cita.slot_id == AgendaSlot.id)
+            select(Appointment)
+            .join(AgendaSlot, Appointment.slot_id == AgendaSlot.id)
             .where(AgendaSlot.fecha == fecha)
             .options(
-                selectinload(Cita.slot),
-                selectinload(Cita.paciente),
-                selectinload(Cita.profesional),
+                selectinload(Appointment.slot),
+                selectinload(Appointment.paciente),
+                selectinload(Appointment.profesional),
             )
             .order_by(AgendaSlot.inicio)
         )
     )
 
 
-def entradas_lista_espera(
+def waiting_list_entries(
     session: Session, especialidad: Especialidad | None = None
-) -> list[ListaEspera]:
-    consulta = select(ListaEspera).where(ListaEspera.estado == EstadoListaEspera.ACTIVA)
+) -> list[WaitingList]:
+    query = select(WaitingList).where(WaitingList.estado == EstadoListaEspera.ACTIVA)
     if especialidad is not None:
-        consulta = consulta.where(ListaEspera.especialidad == especialidad)
-    return list(session.scalars(consulta.options(selectinload(ListaEspera.paciente))))
+        query = query.where(WaitingList.especialidad == especialidad)
+    return list(session.scalars(query.options(selectinload(WaitingList.paciente))))
 
 
 # --------------------------------------------------------------------------- #
@@ -347,59 +349,59 @@ def entradas_lista_espera(
 # --------------------------------------------------------------------------- #
 
 
-def _auditar(
+def _audit(
     session: Session,
-    cita: Cita,
+    cita: Appointment,
     *,
     estado_anterior: EstadoCita | None,
     estado_nuevo: EstadoCita,
     usuario: str,
     motivo: str | None = None,
-) -> CitaHistorial:
+) -> AppointmentHistory:
     """Append one audit row. Same unit of work as the change it describes."""
-    registro = CitaHistorial(
+    registro = AppointmentHistory(
         cita_id=cita.id,
         estado_anterior=estado_anterior,
         estado_nuevo=estado_nuevo,
         usuario=usuario,
         motivo=motivo,
-        momento=ahora_utc(),
+        momento=now_utc(),
     )
     session.add(registro)
     return registro
 
 
-def slot_reservable(session: Session, slot_id: int, *, ahora: datetime | None = None) -> AgendaSlot:
+def bookable_slot(session: Session, slot_id: int, *, now: datetime | None = None) -> AgendaSlot:
     """The slot, if it can still be booked. Raises the structured error if not.
 
     Shared by the booking path and by the read endpoint the tool layer calls
     before proposing, so both refuse for exactly the same reasons.
     """
-    ahora = ahora or ahora_utc()
+    now = now or now_utc()
     slot = session.get(AgendaSlot, slot_id)
     if slot is None:
-        raise SlotNoEncontrado(
+        raise SlotNotFound(
             f"There is no slot with id {slot_id}.",
             sugerencia="Check current slots with consultar_disponibilidad.",
             detalles={"slot_id": slot_id},
         )
-    if slot.inicio <= ahora:
-        raise SlotEnElPasado(
-            f"The slot at {a_local(slot.inicio):%Y-%m-%d %H:%M} is in the past.",
+    if slot.inicio <= now:
+        raise SlotInThePast(
+            f"The slot at {to_clinic_time(slot.inicio):%Y-%m-%d %H:%M} is in the past.",
             sugerencia="Ask for future availability with consultar_disponibilidad.",
             detalles={"slot_id": slot_id, "inicio": slot.inicio.isoformat()},
         )
     if slot.estado is not EstadoSlot.LIBRE:
-        alternativas = consultar_disponibilidad(
+        alternativas = list_available_slots(
             session,
             especialidad=slot.profesional.especialidad,
-            limite=ALTERNATIVAS_SUGERIDAS,
-            ahora=ahora,
+            limite=SUGGESTED_ALTERNATIVES,
+            now=now,
         )
-        raise SlotNoDisponible(
-            f"The slot at {a_local(slot.inicio):%Y-%m-%d %H:%M} is no longer free.",
+        raise SlotUnavailable(
+            f"The slot at {to_clinic_time(slot.inicio):%Y-%m-%d %H:%M} is no longer free.",
             sugerencia=(
-                "The closest free slots are: " + ", ".join(a.etiqueta for a in alternativas) + "."
+                "The closest free slots are: " + ", ".join(a.label for a in alternativas) + "."
                 if alternativas
                 else "There are no free slots coming up for that specialty."
             ),
@@ -413,14 +415,14 @@ def slot_reservable(session: Session, slot_id: int, *, ahora: datetime | None = 
     return slot
 
 
-def validar_reserva(
+def validate_booking(
     session: Session,
     slot_id: int,
     *,
     paciente_id: int | None = None,
     especialidad_esperada: Especialidad | None = None,
     excluir_cita_id: int | None = None,
-    ahora: datetime | None = None,
+    now: datetime | None = None,
 ) -> AgendaSlot:
     """Everything that must hold for a booking to succeed, in one place.
 
@@ -429,11 +431,11 @@ def validar_reserva(
     at the moment of effect, because the state can change in between. Sharing
     the function is what guarantees both refuse for the same reasons.
     """
-    referencia = ahora or ahora_utc()
-    slot = slot_reservable(session, slot_id, ahora=referencia)
+    reference = now or now_utc()
+    slot = bookable_slot(session, slot_id, now=reference)
 
     if especialidad_esperada is not None and slot.profesional.especialidad != especialidad_esperada:
-        raise EspecialidadNoCoincide(
+        raise SpecialtyMismatch(
             f"The slot is for {slot.profesional.especialidad}, not {especialidad_esperada}.",
             sugerencia=(
                 f"Ask for availability with especialidad='{especialidad_esperada}' and book again."
@@ -445,77 +447,79 @@ def validar_reserva(
         )
 
     if paciente_id is not None:
-        consulta = (
-            select(Cita)
-            .join(AgendaSlot, Cita.slot_id == AgendaSlot.id)
+        query = (
+            select(Appointment)
+            .join(AgendaSlot, Appointment.slot_id == AgendaSlot.id)
             .where(
-                Cita.paciente_id == paciente_id,
-                Cita.estado.in_(ESTADOS_QUE_OCUPAN_SLOT),
+                Appointment.paciente_id == paciente_id,
+                Appointment.estado.in_(STATES_HOLDING_SLOT),
                 AgendaSlot.inicio < slot.fin,
                 AgendaSlot.fin > slot.inicio,
             )
         )
         if excluir_cita_id is not None:
-            consulta = consulta.where(Cita.id != excluir_cita_id)
-        solapada = session.scalar(consulta)
-        if solapada is not None:
-            raise PacienteYaTieneCita(
+            query = query.where(Appointment.id != excluir_cita_id)
+        overlapping = session.scalar(query)
+        if overlapping is not None:
+            raise PatientAlreadyBooked(
                 "The patient already has an appointment that overlaps that hour.",
                 sugerencia=(
-                    f"Cancel or reschedule appointment {solapada.id} before booking "
+                    f"Cancel or reschedule appointment {overlapping.id} before booking "
                     "another one at the same time."
                 ),
-                detalles={"cita_existente_id": solapada.id},
+                detalles={"cita_existente_id": overlapping.id},
             )
 
     return slot
 
 
-def agendar_cita(
+def book_appointment(
     session: Session,
     *,
     paciente_id: int,
     slot_id: int,
     usuario: str,
     idempotency_key: str | None = None,
-    ahora: datetime | None = None,
+    now: datetime | None = None,
     especialidad_esperada: Especialidad | None = None,
-) -> ResultadoAgendamiento:
+) -> BookingResult:
     """Book a free slot for a patient.
 
     Outstanding debt produces a *warning*, never a refusal: clinics do not turn
     patients away over an unpaid copayment (§2.3).
     """
-    referencia = ahora or ahora_utc()
+    reference = now or now_utc()
 
     if idempotency_key:
-        existente = session.scalar(select(Cita).where(Cita.idempotency_key == idempotency_key))
-        if existente is not None:
+        existing = session.scalar(
+            select(Appointment).where(Appointment.idempotency_key == idempotency_key)
+        )
+        if existing is not None:
             # The retry of a call that already succeeded is a success.
-            return ResultadoAgendamiento(
-                cita=existente,
-                afiliacion=validar_afiliacion_paciente(session, existente.paciente_id),
+            return BookingResult(
+                cita=existing,
+                afiliacion=validate_patient_afiliacion(session, existing.paciente_id),
                 alerta_cartera=None,
                 reutilizada=True,
             )
 
-    paciente = obtener_paciente(session, paciente_id)
-    slot = validar_reserva(
+    paciente = get_patient(session, paciente_id)
+    slot = validate_booking(
         session,
         slot_id,
         paciente_id=paciente_id,
         especialidad_esperada=especialidad_esperada,
-        ahora=referencia,
+        now=reference,
     )
 
-    afiliacion = validar_afiliacion(
+    afiliacion = validate_afiliacion(
         paciente.regimen,
         paciente.afiliacion_activa,
         nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
     )
-    alerta = alerta_al_agendar(consultar_cartera(session, paciente_id))
+    alerta = booking_warning(get_cartera(session, paciente_id))
 
-    cita = Cita(
+    cita = Appointment(
         paciente_id=paciente_id,
         profesional_id=slot.profesional_id,
         slot_id=slot.id,
@@ -532,13 +536,13 @@ def agendar_cita(
         # Lost the race against another agent between the check and the write.
         # The database is what turns that into a conflict rather than a
         # duplicate. The caller's transaction scope performs the rollback.
-        raise ConflictoConcurrencia(
+        raise ConcurrencyConflict(
             "Another process took that slot while the appointment was being created.",
             sugerencia="Check availability again and book a different slot.",
             detalles={"slot_id": slot_id},
         ) from exc
 
-    _auditar(
+    _audit(
         session,
         cita,
         estado_anterior=None,
@@ -546,133 +550,131 @@ def agendar_cita(
         usuario=usuario,
     )
     session.flush()
-    return ResultadoAgendamiento(cita=cita, afiliacion=afiliacion, alerta_cartera=alerta)
+    return BookingResult(cita=cita, afiliacion=afiliacion, alerta_cartera=alerta)
 
 
-def _crear_cargo(
+def _create_charge(
     session: Session,
-    cita: Cita,
+    cita: Appointment,
     *,
     concepto: ConceptoCargo,
     monto: Decimal,
     descripcion: str,
     hoy: date,
-) -> Cargo:
-    cargo = Cargo(
+) -> Charge:
+    cargo = Charge(
         paciente_id=cita.paciente_id,
         cita_id=cita.id,
         concepto=concepto,
         monto=monto,
         descripcion=descripcion,
         estado=EstadoCargo.PENDIENTE,
-        vencimiento=hoy + PLAZO_PAGO,
+        vencimiento=hoy + PAYMENT_TERM,
     )
     session.add(cargo)
     return cargo
 
 
-def cambiar_estado(
+def change_state(
     session: Session,
     cita_id: int,
     nuevo_estado: EstadoCita,
     *,
     usuario: str,
     motivo: str | None = None,
-    politica: PoliticaCartera = POLITICA_POR_DEFECTO,
+    policy: CarteraPolicy = DEFAULT_POLICY,
     hoy: date | None = None,
-) -> ResultadoTransicion:
+) -> TransitionResult:
     """The single entry point for every appointment state change.
 
     Validates, audits, and applies the derived effects: releasing the slot,
     creating the charge, surfacing the next patient on the waiting list.
     """
-    cita = obtener_cita(session, cita_id)
-    anterior = cita.estado
-    efectos = validar_transicion(anterior, nuevo_estado, motivo=motivo)
+    cita = get_appointment(session, cita_id)
+    previous = cita.estado
+    effects = validate_transition(previous, nuevo_estado, motivo=motivo)
 
     cita.estado = nuevo_estado
     if nuevo_estado is EstadoCita.CANCELADA:
         cita.motivo_cancelacion = motivo
 
-    if efectos.libera_slot:
+    if effects.libera_slot:
         cita.slot.estado = EstadoSlot.LIBRE
 
-    _auditar(
+    _audit(
         session,
         cita,
-        estado_anterior=anterior,
+        estado_anterior=previous,
         estado_nuevo=nuevo_estado,
         usuario=usuario,
         motivo=motivo,
     )
 
-    cargo: Cargo | None = None
-    if efectos.genera_cargo:
-        fecha_cargo = hoy or a_local(cita.slot.inicio).date()
-        calculado = None
+    cargo: Charge | None = None
+    if effects.genera_cargo:
+        fecha_cargo = hoy or to_clinic_time(cita.slot.inicio).date()
+        calculated = None
         if nuevo_estado is EstadoCita.ATENDIDA:
-            afiliacion = validar_afiliacion(
+            afiliacion = validate_afiliacion(
                 cita.paciente.regimen,
                 cita.paciente.afiliacion_activa,
                 nivel_cuota_moderadora=cita.paciente.nivel_cuota_moderadora,
             )
-            calculado = calcular_cargo_por_atencion(
+            calculated = charge_for_visit(
                 afiliacion,
                 str(cita.profesional.especialidad),
                 nivel_cuota_moderadora=cita.paciente.nivel_cuota_moderadora,
             )
         else:  # EstadoCita.NO_ASISTIO
-            calculado = calcular_cargo_por_no_show(
-                estaba_confirmada=anterior is EstadoCita.CONFIRMADA, politica=politica
+            calculated = charge_for_no_show(
+                estaba_confirmada=previous is EstadoCita.CONFIRMADA, policy=policy
             )
-        if calculado is not None:
-            cargo = _crear_cargo(
+        if calculated is not None:
+            cargo = _create_charge(
                 session,
                 cita,
-                concepto=calculado.concepto,
-                monto=calculado.monto,
-                descripcion=calculado.descripcion,
+                concepto=calculated.concepto,
+                monto=calculated.monto,
+                descripcion=calculated.descripcion,
                 hoy=fecha_cargo,
             )
 
-    siguiente: ListaEspera | None = None
-    if efectos.dispara_lista_espera:
-        siguiente = _siguiente_candidato(
-            session, cita.profesional.especialidad, excluir=cita.paciente_id
-        )
+    next_up: WaitingList | None = None
+    if effects.dispara_lista_espera:
+        next_up = _next_candidate(session, cita.profesional.especialidad, excluir=cita.paciente_id)
 
     session.flush()
-    return ResultadoTransicion(
-        cita=cita, efectos=efectos, cargo_generado=cargo, siguiente_en_espera=siguiente
+    return TransitionResult(
+        cita=cita, effects=effects, created_charge=cargo, siguiente_en_espera=next_up
     )
 
 
-def _siguiente_candidato(
+def _next_candidate(
     session: Session, especialidad: Especialidad, *, excluir: int | None = None
-) -> ListaEspera | None:
+) -> WaitingList | None:
     """Peek at the head of the waiting list. Returns ``None`` when empty.
 
     Peeking must not fail: a cancellation with nobody waiting is a perfectly
     normal outcome, not an error the caller has to handle.
     """
-    entradas = entradas_lista_espera(session, especialidad)
-    if not entradas:
+    entries = waiting_list_entries(session, especialidad)
+    if not entries:
         return None
-    dominio = [a_entrada_dominio(e) for e in entradas]
+    as_entries = [to_queue_entry(e) for e in entries]
     try:
-        elegida = siguiente_en_lista(
-            dominio,
+        chosen = next_in_queue(
+            as_entries,
             especialidad,
             excluir_pacientes=frozenset({excluir}) if excluir is not None else frozenset(),
         )
-    except ListaEsperaVacia:
+    except WaitingListEmpty:
         return None
-    return next(e for e in entradas if e.id == elegida.entrada_id)
+    return next(e for e in entries if e.id == chosen.entrada_id)
 
 
-def a_entrada_dominio(fila: ListaEspera) -> EntradaListaEspera:
+def to_queue_entry(fila: WaitingList) -> WaitingListEntry:
     """Adapt a persisted row to the pure ordering type of `lista_espera`."""
-    return EntradaListaEspera(
+    return WaitingListEntry(
         entrada_id=fila.id,
         paciente_id=fila.paciente_id,
         especialidad=fila.especialidad,
@@ -682,48 +684,48 @@ def a_entrada_dominio(fila: ListaEspera) -> EntradaListaEspera:
     )
 
 
-def confirmar_cita(session: Session, cita_id: int, *, usuario: str) -> ResultadoTransicion:
-    return cambiar_estado(session, cita_id, EstadoCita.CONFIRMADA, usuario=usuario)
+def confirm_appointment(session: Session, cita_id: int, *, usuario: str) -> TransitionResult:
+    return change_state(session, cita_id, EstadoCita.CONFIRMADA, usuario=usuario)
 
 
-def cancelar_cita(
+def cancel_appointment(
     session: Session, cita_id: int, *, motivo: str, usuario: str
-) -> ResultadoTransicion:
-    return cambiar_estado(session, cita_id, EstadoCita.CANCELADA, usuario=usuario, motivo=motivo)
+) -> TransitionResult:
+    return change_state(session, cita_id, EstadoCita.CANCELADA, usuario=usuario, motivo=motivo)
 
 
-def registrar_asistencia(
+def record_attendance(
     session: Session, cita_id: int, estado: EstadoCita, *, usuario: str
-) -> ResultadoTransicion:
-    return cambiar_estado(session, cita_id, estado, usuario=usuario)
+) -> TransitionResult:
+    return change_state(session, cita_id, estado, usuario=usuario)
 
 
-def reprogramar_cita(
+def reschedule_appointment(
     session: Session,
     cita_id: int,
     nuevo_slot_id: int,
     *,
     usuario: str,
     motivo: str | None = None,
-    ahora: datetime | None = None,
-) -> ResultadoTransicion:
+    now: datetime | None = None,
+) -> TransitionResult:
     """Move an appointment to another slot.
 
     Two effects in one operation, which is exactly why it needs a human gate:
     the old slot is freed and a new one is taken. The new appointment keeps a
     pointer back to the original so the chain stays auditable.
     """
-    referencia = ahora or ahora_utc()
-    original = obtener_cita(session, cita_id)
-    nuevo_slot = validar_reserva(
+    reference = now or now_utc()
+    original = get_appointment(session, cita_id)
+    nuevo_slot = validate_booking(
         session,
         nuevo_slot_id,
         paciente_id=original.paciente_id,
         excluir_cita_id=original.id,
-        ahora=referencia,
+        now=reference,
     )
 
-    resultado = cambiar_estado(
+    result = change_state(
         session,
         cita_id,
         EstadoCita.REPROGRAMADA,
@@ -731,7 +733,7 @@ def reprogramar_cita(
         motivo=motivo or "Reschedule requested",
     )
 
-    nueva = Cita(
+    nueva = Appointment(
         paciente_id=original.paciente_id,
         profesional_id=nuevo_slot.profesional_id,
         slot_id=nuevo_slot.id,
@@ -743,7 +745,7 @@ def reprogramar_cita(
     session.add(nueva)
     session.flush()
 
-    _auditar(
+    _audit(
         session,
         nueva,
         estado_anterior=None,
@@ -752,90 +754,92 @@ def reprogramar_cita(
         motivo=f"Rescheduled from appointment {original.id}",
     )
     session.flush()
-    return ResultadoTransicion(
-        cita=nueva, efectos=resultado.efectos, siguiente_en_espera=resultado.siguiente_en_espera
+    return TransitionResult(
+        cita=nueva, effects=result.effects, siguiente_en_espera=result.siguiente_en_espera
     )
 
 
-def ofrecer_cupo_lista_espera(
-    session: Session, slot_id: int, *, usuario: str, ahora: datetime | None = None
-) -> OfertaCupo:
+def offer_slot_to_waiting_list(
+    session: Session, slot_id: int, *, usuario: str, now: datetime | None = None
+) -> SlotOffer:
     """Offer a freed slot to the next patient in the queue.
 
     This does not book anything: it records the offer and returns who to
     contact. Booking is a separate, separately-approved decision.
     """
-    referencia = ahora or ahora_utc()
-    slot = slot_reservable(session, slot_id, ahora=referencia)
+    reference = now or now_utc()
+    slot = bookable_slot(session, slot_id, now=reference)
     especialidad = slot.profesional.especialidad
 
-    entradas = entradas_lista_espera(session, especialidad)
-    dominio = [a_entrada_dominio(e) for e in entradas]
-    elegida = siguiente_en_lista(dominio, especialidad)
-    fila = next(e for e in entradas if e.id == elegida.entrada_id)
-    posicion = [d.entrada_id for d in sorted(dominio, key=lambda d: d.clave_orden)].index(
-        elegida.entrada_id
+    entries = waiting_list_entries(session, especialidad)
+    as_entries = [to_queue_entry(e) for e in entries]
+    chosen = next_in_queue(as_entries, especialidad)
+    fila = next(e for e in entries if e.id == chosen.entrada_id)
+    position = [d.entrada_id for d in sorted(as_entries, key=lambda d: d.sort_key)].index(
+        chosen.entrada_id
     ) + 1
 
     fila.estado = EstadoListaEspera.OFRECIDA
-    fila.ofrecida_en = referencia
+    fila.ofrecida_en = reference
     fila.slot_ofrecido_id = slot.id
     session.flush()
 
-    return OfertaCupo(
-        entrada=fila,
+    return SlotOffer(
+        entry=fila,
         paciente=fila.paciente,
         slot=slot,
-        posicion_original=posicion,
+        posicion_original=position,
     )
 
 
-def inscribir_en_lista_espera(
+def join_waiting_list(
     session: Session,
     *,
     paciente_id: int,
     especialidad: Especialidad,
     prioridad: PrioridadListaEspera = PrioridadListaEspera.ANTIGUEDAD,
     notas: str | None = None,
-) -> ListaEspera:
-    obtener_paciente(session, paciente_id)
-    existente = session.scalar(
-        select(ListaEspera).where(
-            ListaEspera.paciente_id == paciente_id,
-            ListaEspera.especialidad == especialidad,
-            ListaEspera.estado == EstadoListaEspera.ACTIVA,
+) -> WaitingList:
+    get_patient(session, paciente_id)
+    existing = session.scalar(
+        select(WaitingList).where(
+            WaitingList.paciente_id == paciente_id,
+            WaitingList.especialidad == especialidad,
+            WaitingList.estado == EstadoListaEspera.ACTIVA,
         )
     )
-    if existente is not None:
-        raise YaEnListaEspera(
+    if existing is not None:
+        raise AlreadyOnWaitingList(
             f"The patient is already on the waiting list for {especialidad}.",
             sugerencia="Check their current position before enrolling them again.",
-            detalles={"entrada_id": existente.id},
+            detalles={"entrada_id": existing.id},
         )
-    entrada = ListaEspera(
+    entry = WaitingList(
         paciente_id=paciente_id,
         especialidad=especialidad,
         prioridad=prioridad,
         estado=EstadoListaEspera.ACTIVA,
         notas=notas,
     )
-    session.add(entrada)
+    session.add(entry)
     session.flush()
-    return entrada
+    return entry
 
 
-def registrar_motivo_consulta(session: Session, cita_id: int, motivo: str, *, usuario: str) -> Cita:
+def record_visit_reason(
+    session: Session, cita_id: int, motivo: str, *, usuario: str
+) -> Appointment:
     """Attach a reason for consultation to an appointment. **Clinical data.**
 
     The one operation that crosses from administrative into clinical territory
     (Res. 2654/2019), so it refuses without recorded informed consent whatever
     the caller's scope. The scope check is necessary but not sufficient.
     """
-    cita = obtener_cita(session, cita_id)
+    cita = get_appointment(session, cita_id)
     paciente = cita.paciente
 
     if not paciente.consentimiento_datos_clinicos:
-        raise ConsentimientoRequerido(
+        raise ConsentRequired(
             (
                 f"Patient {paciente.nombre} has no informed consent on file for the "
                 "handling of clinical data."
@@ -849,12 +853,12 @@ def registrar_motivo_consulta(session: Session, cita_id: int, motivo: str, *, us
         )
 
     cita.motivo = motivo.strip()
-    cita.motivo_registrado_en = ahora_utc()
+    cita.motivo_registrado_en = now_utc()
     cita.motivo_registrado_por = usuario
 
     # Clinical writes are audited even though no state changed: the regulation
     # cares about who touched clinical data, not about the state machine.
-    _auditar(
+    _audit(
         session,
         cita,
         estado_anterior=cita.estado,

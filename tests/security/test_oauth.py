@@ -21,9 +21,9 @@ import jwt
 import pytest
 from starlette.testclient import TestClient
 
-from mcp_server.auth import Scope, VerificadorJWT
-from mcp_server.oauth.keys import ParDeLlaves, generar
-from mcp_server.oauth.server import CLIENTE_DEMO, AuthorizationServer, verificar_pkce
+from mcp_server.auth import JWTVerifier, Scope
+from mcp_server.oauth.keys import KeyPair, generate
+from mcp_server.oauth.server import DEMO_CLIENT, AuthorizationServer, verify_pkce
 
 pytestmark = pytest.mark.security
 
@@ -33,12 +33,12 @@ REDIRECT = "http://localhost:6274/oauth/callback"
 
 
 @pytest.fixture(scope="module")
-def par() -> ParDeLlaves:
-    return generar()
+def par() -> KeyPair:
+    return generate()
 
 
 @pytest.fixture
-def as_(par: ParDeLlaves) -> AuthorizationServer:
+def as_(par: KeyPair) -> AuthorizationServer:
     return AuthorizationServer(
         issuer=ISSUER,
         audience=AUDIENCIA,
@@ -49,7 +49,7 @@ def as_(par: ParDeLlaves) -> AuthorizationServer:
 
 
 @pytest.fixture
-def cliente(as_: AuthorizationServer) -> TestClient:
+def client(as_: AuthorizationServer) -> TestClient:
     return TestClient(as_.app(), follow_redirects=False)
 
 
@@ -61,11 +61,11 @@ def pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def autorizar(cliente: TestClient, **extra: str) -> Any:
+def authorize(client: TestClient, **extra: str) -> Any:
     verifier, challenge = pkce()
     params = {
         "response_type": "code",
-        "client_id": CLIENTE_DEMO,
+        "client_id": DEMO_CLIENT,
         "redirect_uri": REDIRECT,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
@@ -73,12 +73,12 @@ def autorizar(cliente: TestClient, **extra: str) -> Any:
         "state": "abc",
     }
     params.update(extra)
-    return verifier, cliente.get("/authorize", params=params)
+    return verifier, client.get("/authorize", params=params)
 
 
-def codigo_de(respuesta: Any) -> str:
-    destino = urlparse(respuesta.headers["location"])
-    return parse_qs(destino.query)["code"][0]
+def codigo_de(response: Any) -> str:
+    target = urlparse(response.headers["location"])
+    return parse_qs(target.query)["code"][0]
 
 
 # --------------------------------------------------------------------------- #
@@ -87,43 +87,43 @@ def codigo_de(respuesta: Any) -> str:
 
 
 class TestMetadata:
-    def test_publica_la_metadata_rfc8414(self, cliente: TestClient) -> None:
-        m = cliente.get("/.well-known/oauth-authorization-server").json()
+    def test_publica_la_metadata_rfc8414(self, client: TestClient) -> None:
+        m = client.get("/.well-known/oauth-authorization-server").json()
         assert m["issuer"] == ISSUER
         assert m["authorization_endpoint"] == f"{ISSUER}/authorize"
         assert m["token_endpoint"] == f"{ISSUER}/token"
         assert m["jwks_uri"] == f"{ISSUER}/jwks.json"
 
-    def test_solo_anuncia_lo_que_oauth21_permite(self, cliente: TestClient) -> None:
+    def test_solo_anuncia_lo_que_oauth21_permite(self, client: TestClient) -> None:
         """OAuth 2.1 removes the implicit and password grants. Advertising them
         would be advertising a vulnerability."""
-        m = cliente.get("/.well-known/oauth-authorization-server").json()
+        m = client.get("/.well-known/oauth-authorization-server").json()
         assert m["grant_types_supported"] == ["authorization_code"]
         assert "implicit" not in m["response_types_supported"]
         assert "password" not in m["grant_types_supported"]
 
-    def test_exige_pkce_s256_y_solo_s256(self, cliente: TestClient) -> None:
-        m = cliente.get("/.well-known/oauth-authorization-server").json()
+    def test_exige_pkce_s256_y_solo_s256(self, client: TestClient) -> None:
+        m = client.get("/.well-known/oauth-authorization-server").json()
         assert m["code_challenge_methods_supported"] == ["S256"]
         assert "plain" not in m["code_challenge_methods_supported"]
 
-    def test_anuncia_los_tres_scopes_del_servidor(self, cliente: TestClient) -> None:
-        m = cliente.get("/.well-known/oauth-authorization-server").json()
+    def test_anuncia_los_tres_scopes_del_servidor(self, client: TestClient) -> None:
+        m = client.get("/.well-known/oauth-authorization-server").json()
         assert set(m["scopes_supported"]) == {"read", "write", "clinical"}
 
-    def test_declara_preferencia_por_cimd(self, cliente: TestClient) -> None:
+    def test_declara_preferencia_por_cimd(self, client: TestClient) -> None:
         """Spec 2026-07-28 prefers Client ID Metadata Documents over DCR."""
-        m = cliente.get("/.well-known/oauth-authorization-server").json()
+        m = client.get("/.well-known/oauth-authorization-server").json()
         assert m["client_id_metadata_document_supported"] is True
 
-    def test_el_jwks_expone_la_publica_y_solo_la_publica(self, cliente: TestClient) -> None:
-        jwks = cliente.get("/jwks.json").json()
+    def test_el_jwks_expone_la_publica_y_solo_la_publica(self, client: TestClient) -> None:
+        jwks = client.get("/jwks.json").json()
         assert len(jwks["keys"]) == 1
-        clave = jwks["keys"][0]
-        assert clave["kty"] == "RSA"
-        assert clave["alg"] == "RS256"
-        assert set(clave) == {"kty", "use", "alg", "kid", "n", "e"}
-        assert "d" not in clave  # never the private exponent
+        key = jwks["keys"][0]
+        assert key["kty"] == "RSA"
+        assert key["alg"] == "RS256"
+        assert set(key) == {"kty", "use", "alg", "kid", "n", "e"}
+        assert "d" not in key  # never the private exponent
 
 
 # --------------------------------------------------------------------------- #
@@ -132,41 +132,41 @@ class TestMetadata:
 
 
 class TestAuthorize:
-    def test_el_camino_feliz_devuelve_un_codigo(self, cliente: TestClient) -> None:
-        _, respuesta = autorizar(cliente)
-        assert respuesta.status_code == 302
-        destino = urlparse(respuesta.headers["location"])
-        assert parse_qs(destino.query)["state"] == ["abc"]
-        assert codigo_de(respuesta)
+    def test_el_camino_feliz_devuelve_un_codigo(self, client: TestClient) -> None:
+        _, response = authorize(client)
+        assert response.status_code == 302
+        target = urlparse(response.headers["location"])
+        assert parse_qs(target.query)["state"] == ["abc"]
+        assert codigo_de(response)
 
-    def test_sin_pkce_no_hay_codigo(self, cliente: TestClient) -> None:
-        _, respuesta = autorizar(cliente, code_challenge="", code_challenge_method="")
-        assert "error=invalid_request" in respuesta.headers["location"]
+    def test_sin_pkce_no_hay_codigo(self, client: TestClient) -> None:
+        _, response = authorize(client, code_challenge="", code_challenge_method="")
+        assert "error=invalid_request" in response.headers["location"]
 
-    def test_pkce_plain_se_rechaza(self, cliente: TestClient) -> None:
+    def test_pkce_plain_se_rechaza(self, client: TestClient) -> None:
         """`plain` offers no protection against an intercepted code."""
-        _, respuesta = autorizar(cliente, code_challenge_method="plain")
-        assert "error=invalid_request" in respuesta.headers["location"]
+        _, response = authorize(client, code_challenge_method="plain")
+        assert "error=invalid_request" in response.headers["location"]
 
-    def test_una_redirect_uri_no_registrada_no_redirige(self, cliente: TestClient) -> None:
+    def test_una_redirect_uri_no_registrada_no_redirige(self, client: TestClient) -> None:
         """Redirecting to an unregistered URI is an open redirect and an
         authorization-code exfiltration path, so it answers 400 instead."""
-        _, respuesta = autorizar(cliente, redirect_uri="https://atacante.test/robar")
-        assert respuesta.status_code == 400
-        assert "no registrada" in respuesta.json()["error_description"]
+        _, response = authorize(client, redirect_uri="https://atacante.test/robar")
+        assert response.status_code == 400
+        assert "no registrada" in response.json()["error_description"]
 
-    def test_un_cliente_desconocido_se_rechaza(self, cliente: TestClient) -> None:
-        _, respuesta = autorizar(cliente, client_id="cliente-inventado")
-        assert respuesta.status_code == 400
-        assert respuesta.json()["error"] == "invalid_client"
+    def test_un_cliente_desconocido_se_rechaza(self, client: TestClient) -> None:
+        _, response = authorize(client, client_id="cliente-inventado")
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_client"
 
-    def test_un_response_type_no_soportado_se_rechaza(self, cliente: TestClient) -> None:
-        _, respuesta = autorizar(cliente, response_type="token")
-        assert "error=unsupported_response_type" in respuesta.headers["location"]
+    def test_un_response_type_no_soportado_se_rechaza(self, client: TestClient) -> None:
+        _, response = authorize(client, response_type="token")
+        assert "error=unsupported_response_type" in response.headers["location"]
 
-    def test_un_scope_inventado_se_rechaza(self, cliente: TestClient) -> None:
-        _, respuesta = autorizar(cliente, scope="read admin")
-        assert "error=invalid_scope" in respuesta.headers["location"]
+    def test_un_scope_inventado_se_rechaza(self, client: TestClient) -> None:
+        _, response = authorize(client, scope="read admin")
+        assert "error=invalid_scope" in response.headers["location"]
 
 
 # --------------------------------------------------------------------------- #
@@ -175,59 +175,57 @@ class TestAuthorize:
 
 
 class TestToken:
-    def _canjear(self, cliente: TestClient, codigo: str, verifier: str, **extra: str) -> Any:
-        datos = {
+    def _canjear(self, client: TestClient, codigo: str, verifier: str, **extra: str) -> Any:
+        payload = {
             "grant_type": "authorization_code",
             "code": codigo,
             "code_verifier": verifier,
-            "client_id": CLIENTE_DEMO,
+            "client_id": DEMO_CLIENT,
         }
-        datos.update(extra)
-        return cliente.post("/token", data=datos)
+        payload.update(extra)
+        return client.post("/token", data=payload)
 
-    def test_el_canje_devuelve_un_bearer(self, cliente: TestClient) -> None:
-        verifier, respuesta = autorizar(cliente)
-        token = self._canjear(cliente, codigo_de(respuesta), verifier).json()
+    def test_el_canje_devuelve_un_bearer(self, client: TestClient) -> None:
+        verifier, response = authorize(client)
+        token = self._canjear(client, codigo_de(response), verifier).json()
         assert token["token_type"] == "Bearer"
         assert token["scope"] == "read write"
         assert token["expires_in"] == 900
         assert token["access_token"].count(".") == 2
 
-    def test_un_code_verifier_incorrecto_se_rechaza(self, cliente: TestClient) -> None:
+    def test_un_code_verifier_incorrecto_se_rechaza(self, client: TestClient) -> None:
         """The point of PKCE: a stolen code is useless without the verifier."""
-        _, respuesta = autorizar(cliente)
-        salida = self._canjear(cliente, codigo_de(respuesta), "verificador-equivocado")
+        _, response = authorize(client)
+        salida = self._canjear(client, codigo_de(response), "verificador-equivocado")
         assert salida.status_code == 400
         assert salida.json()["error"] == "invalid_grant"
 
-    def test_un_codigo_no_se_puede_canjear_dos_veces(self, cliente: TestClient) -> None:
-        verifier, respuesta = autorizar(cliente)
-        codigo = codigo_de(respuesta)
-        assert self._canjear(cliente, codigo, verifier).status_code == 200
-        assert self._canjear(cliente, codigo, verifier).status_code == 400
+    def test_un_codigo_no_se_puede_canjear_dos_veces(self, client: TestClient) -> None:
+        verifier, response = authorize(client)
+        codigo = codigo_de(response)
+        assert self._canjear(client, codigo, verifier).status_code == 200
+        assert self._canjear(client, codigo, verifier).status_code == 400
 
-    def test_otro_cliente_no_puede_canjear_mi_codigo(self, cliente: TestClient) -> None:
-        verifier, respuesta = autorizar(cliente)
-        salida = self._canjear(cliente, codigo_de(respuesta), verifier, client_id="c-otro")
+    def test_otro_cliente_no_puede_canjear_mi_codigo(self, client: TestClient) -> None:
+        verifier, response = authorize(client)
+        salida = self._canjear(client, codigo_de(response), verifier, client_id="c-otro")
         assert salida.status_code == 400
 
-    def test_un_codigo_inexistente_se_rechaza(self, cliente: TestClient) -> None:
-        assert self._canjear(cliente, "no-existe", "x").status_code == 400
+    def test_un_codigo_inexistente_se_rechaza(self, client: TestClient) -> None:
+        assert self._canjear(client, "no-existe", "x").status_code == 400
 
-    def test_otros_grants_no_se_admiten(self, cliente: TestClient) -> None:
-        salida = cliente.post(
+    def test_otros_grants_no_se_admiten(self, client: TestClient) -> None:
+        salida = client.post(
             "/token", data={"grant_type": "password", "username": "a", "password": "b"}
         )
         assert salida.status_code == 400
         assert salida.json()["error"] == "unsupported_grant_type"
 
-    def test_el_token_lleva_las_claims_que_importan(
-        self, cliente: TestClient, par: ParDeLlaves
-    ) -> None:
-        verifier, respuesta = autorizar(cliente)
-        acceso = self._canjear(cliente, codigo_de(respuesta), verifier).json()["access_token"]
+    def test_el_token_lleva_las_claims_que_importan(self, client: TestClient, par: KeyPair) -> None:
+        verifier, response = authorize(client)
+        acceso = self._canjear(client, codigo_de(response), verifier).json()["access_token"]
         claims = jwt.decode(
-            acceso, par.publica, algorithms=["RS256"], audience=AUDIENCIA, issuer=ISSUER
+            acceso, par.public_key, algorithms=["RS256"], audience=AUDIENCIA, issuer=ISSUER
         )
         assert claims["aud"] == AUDIENCIA
         assert claims["iss"] == ISSUER
@@ -239,27 +237,27 @@ class TestToken:
 class TestPkce:
     def test_el_verificador_acepta_el_par_correcto(self) -> None:
         verifier, challenge = pkce()
-        assert verificar_pkce(verifier, challenge)
+        assert verify_pkce(verifier, challenge)
 
     def test_rechaza_cualquier_otro_verifier(self) -> None:
         _, challenge = pkce()
-        assert not verificar_pkce("otro-verifier", challenge)
+        assert not verify_pkce("otro-verifier", challenge)
 
 
 class TestRegistroDinamico:
-    def test_registra_un_cliente_nuevo(self, cliente: TestClient) -> None:
-        salida = cliente.post(
+    def test_registra_un_cliente_nuevo(self, client: TestClient) -> None:
+        salida = client.post(
             "/register",
             json={"redirect_uris": ["http://localhost:9999/cb"], "client_name": "prueba"},
         )
         assert salida.status_code == 201
         assert salida.json()["token_endpoint_auth_method"] == "none"
 
-    def test_exige_redirect_uris(self, cliente: TestClient) -> None:
-        assert cliente.post("/register", json={"client_name": "x"}).status_code == 400
+    def test_exige_redirect_uris(self, client: TestClient) -> None:
+        assert client.post("/register", json={"client_name": "x"}).status_code == 400
 
-    def test_un_cuerpo_no_json_se_rechaza(self, cliente: TestClient) -> None:
-        assert cliente.post("/register", content=b"no-json").status_code == 400
+    def test_un_cuerpo_no_json_se_rechaza(self, client: TestClient) -> None:
+        assert client.post("/register", content=b"no-json").status_code == 400
 
 
 # --------------------------------------------------------------------------- #
@@ -269,54 +267,52 @@ class TestRegistroDinamico:
 
 class TestVerificadorDelResourceServer:
     @pytest.fixture
-    def verificador(self, par: ParDeLlaves) -> VerificadorJWT:
-        return VerificadorJWT(
+    def verificador(self, par: KeyPair) -> JWTVerifier:
+        return JWTVerifier(
             issuer=ISSUER,
             audience=AUDIENCIA,
             jwks_uri=f"{ISSUER}/jwks.json",
-            obtener_jwks=lambda _token: par.publica,
+            obtener_jwks=lambda _token: par.public_key,
         )
 
     async def test_acepta_un_token_legitimo(
-        self, verificador: VerificadorJWT, as_: AuthorizationServer
+        self, verificador: JWTVerifier, as_: AuthorizationServer
     ) -> None:
-        token = as_.emitir_token("dra@clinica.test", ["read", "write"])
+        token = as_.issue_token("dra@clinica.test", ["read", "write"])
         acceso = await verificador.verify_token(token)
         assert acceso is not None
         assert acceso.subject == "dra@clinica.test"
         assert set(acceso.scopes) == {"read", "write"}
 
     async def test_rechaza_un_token_expirado(
-        self, verificador: VerificadorJWT, as_: AuthorizationServer
+        self, verificador: JWTVerifier, as_: AuthorizationServer
     ) -> None:
-        token = as_.emitir_token("x", ["read"], ttl=1, ahora=time.time() - 3600)
+        token = as_.issue_token("x", ["read"], ttl=1, now=time.time() - 3600)
         assert await verificador.verify_token(token) is None
 
     async def test_rechaza_un_token_de_otro_emisor(
-        self, verificador: VerificadorJWT, par: ParDeLlaves
+        self, verificador: JWTVerifier, par: KeyPair
     ) -> None:
         ajeno = AuthorizationServer(
             issuer="http://otro-as.test", audience=AUDIENCIA, scopes=["read"], par=par
         )
-        assert await verificador.verify_token(ajeno.emitir_token("x", ["read"])) is None
+        assert await verificador.verify_token(ajeno.issue_token("x", ["read"])) is None
 
     async def test_rechaza_un_token_para_otra_audiencia(
-        self, verificador: VerificadorJWT, as_: AuthorizationServer
+        self, verificador: JWTVerifier, as_: AuthorizationServer
     ) -> None:
         """The confused-deputy defence. Same issuer, same signature, different
         resource server, and it must not be replayable here."""
-        token = as_.emitir_token("x", ["read"], audiencia="http://otro-servicio.test")
+        token = as_.issue_token("x", ["read"], audiencia="http://otro-servicio.test")
         assert await verificador.verify_token(token) is None
 
-    async def test_rechaza_un_token_firmado_con_otra_llave(
-        self, verificador: VerificadorJWT
-    ) -> None:
+    async def test_rechaza_un_token_firmado_con_otra_llave(self, verificador: JWTVerifier) -> None:
         otro = AuthorizationServer(
-            issuer=ISSUER, audience=AUDIENCIA, scopes=["read"], par=generar()
+            issuer=ISSUER, audience=AUDIENCIA, scopes=["read"], par=generate()
         )
-        assert await verificador.verify_token(otro.emitir_token("x", ["read"])) is None
+        assert await verificador.verify_token(otro.issue_token("x", ["read"])) is None
 
-    async def test_rechaza_un_token_sin_firma_alg_none(self, verificador: VerificadorJWT) -> None:
+    async def test_rechaza_un_token_sin_firma_alg_none(self, verificador: JWTVerifier) -> None:
         """The classic JWT attack: swap the algorithm for `none`. The verifier
         pins RS256, so it never gets a chance."""
         crudo = jwt.encode(
@@ -335,50 +331,50 @@ class TestVerificadorDelResourceServer:
 
     @pytest.mark.parametrize("basura", ["", "no-es-un-jwt", "a.b.c", "Bearer algo"])
     async def test_basura_devuelve_none_sin_reventar(
-        self, verificador: VerificadorJWT, basura: str
+        self, verificador: JWTVerifier, basura: str
     ) -> None:
         assert await verificador.verify_token(basura) is None
 
     async def test_un_token_sin_scope_no_trae_permisos(
-        self, verificador: VerificadorJWT, as_: AuthorizationServer
+        self, verificador: JWTVerifier, as_: AuthorizationServer
     ) -> None:
-        acceso = await verificador.verify_token(as_.emitir_token("x", []))
+        acceso = await verificador.verify_token(as_.issue_token("x", []))
         assert acceso is not None
         assert acceso.scopes == []
 
 
 class TestLlaves:
-    def test_la_llave_efimera_se_marca_como_tal(self, par: ParDeLlaves) -> None:
-        assert par.efimera is True
+    def test_la_llave_efimera_se_marca_como_tal(self, par: KeyPair) -> None:
+        assert par.ephemeral is True
 
-    def test_el_jwk_no_contiene_material_privado(self, par: ParDeLlaves) -> None:
-        jwk = par.jwk_publica()
+    def test_el_jwk_no_contiene_material_privado(self, par: KeyPair) -> None:
+        jwk = par.public_jwk()
         assert "d" not in jwk and "p" not in jwk and "q" not in jwk
 
-    def test_la_llave_es_de_al_menos_2048_bits(self, par: ParDeLlaves) -> None:
-        assert par.privada.key_size >= 2048
+    def test_la_llave_es_de_al_menos_2048_bits(self, par: KeyPair) -> None:
+        assert par.private.key_size >= 2048
 
 
 class TestPaginaDeInicio:
-    def test_hay_una_pagina_que_orienta(self, cliente: TestClient) -> None:
-        respuesta = cliente.get("/")
-        assert respuesta.status_code == 200
-        assert "oauth-authorization-server" in respuesta.text
+    def test_hay_una_pagina_que_orienta(self, client: TestClient) -> None:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "oauth-authorization-server" in response.text
 
 
 class TestFabrica:
     def test_crear_as_toma_los_scopes_del_servidor_mcp(self) -> None:
         """One definition of the scope list, not three."""
         from backend.config import Settings
-        from mcp_server.oauth.server import crear_as
-        from mcp_server.server import SCOPES_SOPORTADOS
+        from mcp_server.oauth.server import build_authorization_server
+        from mcp_server.server import SUPPORTED_SCOPES
 
-        ajustes = Settings(  # type: ignore[call-arg]
+        settings_ = Settings(  # type: ignore[call-arg]
             _env_file=None,
             oauth_issuer="http://as.local:9000",
             oauth_audience="http://mcp.local:8080",
         )
-        servidor = crear_as(ajustes)
-        assert servidor.scopes == SCOPES_SOPORTADOS
-        assert servidor.issuer == "http://as.local:9000"
-        assert servidor.audience == "http://mcp.local:8080"
+        server_ = build_authorization_server(settings_)
+        assert server_.scopes == SUPPORTED_SCOPES
+        assert server_.issuer == "http://as.local:9000"
+        assert server_.audience == "http://mcp.local:8080"

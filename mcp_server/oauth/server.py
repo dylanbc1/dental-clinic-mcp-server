@@ -45,54 +45,54 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
-from mcp_server.oauth.keys import ParDeLlaves, llaves
+from mcp_server.oauth.keys import KeyPair, signing_keys
 
 #: OAuth 2.1: PKCE is required and only S256 is acceptable. `plain` offers no
 #: protection against an intercepted authorization code.
-METODOS_PKCE = ("S256",)
+PKCE_METHODS = ("S256",)
 
-TTL_CODIGO = 60
-CLIENTE_DEMO = "clinica-demo"
-
-
-def _b64(datos: bytes) -> str:
-    return base64.urlsafe_b64encode(datos).decode().rstrip("=")
+CODE_TTL = 60
+DEMO_CLIENT = "clinica-demo"
 
 
-def verificar_pkce(verifier: str, challenge: str) -> bool:
+def _b64(payload: bytes) -> str:
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def verify_pkce(verifier: str, challenge: str) -> bool:
     esperado = _b64(hashlib.sha256(verifier.encode("ascii")).digest())
     return secrets.compare_digest(esperado, challenge)
 
 
 @dataclass(slots=True)
-class CodigoAutorizacion:
+class AuthorizationCode:
     codigo: str
     client_id: str
     redirect_uri: str
     code_challenge: str
     scopes: list[str]
-    sujeto: str
+    subject: str
     emitido_en: float
     usado: bool = False
 
 
 @dataclass(slots=True)
-class ClienteRegistrado:
+class RegisteredClient:
     client_id: str
     redirect_uris: list[str]
-    nombre: str = "cliente"
+    nombre: str = "client"
 
 
 @dataclass(slots=True)
-class EstadoAS:
+class AuthorizationServerState:
     """In-memory state. One process, development only, and said out loud."""
 
-    codigos: dict[str, CodigoAutorizacion] = field(default_factory=dict)
-    clientes: dict[str, ClienteRegistrado] = field(default_factory=dict)
+    codigos: dict[str, AuthorizationCode] = field(default_factory=dict)
+    clientes: dict[str, RegisteredClient] = field(default_factory=dict)
 
-    def purgar(self, ahora: float) -> None:
-        vencidos = [c for c, d in self.codigos.items() if ahora - d.emitido_en > TTL_CODIGO]
-        for codigo in vencidos:
+    def purge(self, now: float) -> None:
+        overdue = [c for c, d in self.codigos.items() if now - d.emitido_en > CODE_TTL]
+        for codigo in overdue:
             del self.codigos[codigo]
 
 
@@ -109,18 +109,18 @@ class AuthorizationServer:
         audience: str,
         scopes: list[str],
         ttl_token: int = 900,
-        par: ParDeLlaves | None = None,
+        par: KeyPair | None = None,
     ) -> None:
         self.issuer = issuer.rstrip("/")
         self.audience = audience
         self.scopes = scopes
         self.ttl_token = ttl_token
-        self.llaves = par or llaves()
-        self.estado = EstadoAS()
+        self.signing_keys = par or signing_keys()
+        self.estado = AuthorizationServerState()
         # A demo client so the quickstart and the MCP Inspector work with no
         # registration step. It is a *public* client: no secret, PKCE only.
-        self.estado.clientes[CLIENTE_DEMO] = ClienteRegistrado(
-            client_id=CLIENTE_DEMO,
+        self.estado.clientes[DEMO_CLIENT] = RegisteredClient(
+            client_id=DEMO_CLIENT,
             redirect_uris=[
                 "http://localhost:6274/oauth/callback",
                 "http://localhost:8080/callback",
@@ -142,30 +142,30 @@ class AuthorizationServer:
                 "response_types_supported": ["code"],
                 # OAuth 2.1 drops implicit and resource-owner-password.
                 "grant_types_supported": ["authorization_code"],
-                "code_challenge_methods_supported": list(METODOS_PKCE),
+                "code_challenge_methods_supported": list(PKCE_METHODS),
                 "token_endpoint_auth_methods_supported": ["none"],
                 "client_id_metadata_document_supported": True,
             }
         )
 
     async def jwks(self, _: Request) -> JSONResponse:
-        return JSONResponse(self.llaves.jwks())
+        return JSONResponse(self.signing_keys.jwks())
 
     # --- registration ------------------------------------------------------
 
-    async def registrar_cliente(self, request: Request) -> JSONResponse:
+    async def register_client(self, request: Request) -> JSONResponse:
         try:
-            cuerpo = await request.json()
+            body = await request.json()
         except Exception:
             return _error("El cuerpo debe ser JSON.")
-        redirects = cuerpo.get("redirect_uris") or []
+        redirects = body.get("redirect_uris") or []
         if not isinstance(redirects, list) or not redirects:
             return _error("redirect_uris es obligatorio y debe ser una lista no vacía.")
         client_id = f"c-{secrets.token_urlsafe(9)}"
-        self.estado.clientes[client_id] = ClienteRegistrado(
+        self.estado.clientes[client_id] = RegisteredClient(
             client_id=client_id,
             redirect_uris=[str(r) for r in redirects],
-            nombre=str(cuerpo.get("client_name", "cliente")),
+            nombre=str(body.get("client_name", "client")),
         )
         return JSONResponse(
             {
@@ -187,16 +187,16 @@ class AuthorizationServer:
         redirect_uri = p.get("redirect_uri", "")
         estado = p.get("state", "")
 
-        cliente = self.estado.clientes.get(client_id)
-        if cliente is None:
+        client = self.estado.clientes.get(client_id)
+        if client is None:
             return _error(f"client_id desconocido: {client_id}", codigo="invalid_client")
         # Never redirect to an unregistered URI: that is an open redirect and an
         # authorization-code exfiltration path.
-        if redirect_uri not in cliente.redirect_uris:
+        if redirect_uri not in client.redirect_uris:
             return _error("redirect_uri no registrada para este cliente.")
 
         if p.get("response_type") != "code":
-            return self._redirigir_error(
+            return self._redirect_error(
                 redirect_uri,
                 "unsupported_response_type",
                 "Solo se admite response_type=code.",
@@ -205,8 +205,8 @@ class AuthorizationServer:
 
         challenge = p.get("code_challenge", "")
         metodo = p.get("code_challenge_method", "")
-        if not challenge or metodo not in METODOS_PKCE:
-            return self._redirigir_error(
+        if not challenge or metodo not in PKCE_METHODS:
+            return self._redirect_error(
                 redirect_uri,
                 "invalid_request",
                 "PKCE es obligatorio: envía code_challenge con code_challenge_method=S256.",
@@ -216,7 +216,7 @@ class AuthorizationServer:
         solicitados = (p.get("scope") or "read").split()
         desconocidos = [s for s in solicitados if s not in self.scopes]
         if desconocidos:
-            return self._redirigir_error(
+            return self._redirect_error(
                 redirect_uri,
                 "invalid_scope",
                 f"Scopes no soportados: {', '.join(desconocidos)}.",
@@ -226,28 +226,28 @@ class AuthorizationServer:
         # A real deployment shows a consent screen here. This one auto-approves
         # and says so, because the interesting part for this project is the
         # protocol, not the login form.
-        sujeto = p.get("login_hint") or "recepcion@clinica.local"
+        subject = p.get("login_hint") or "recepcion@clinica.local"
         codigo = secrets.token_urlsafe(24)
-        ahora = time.time()
-        self.estado.purgar(ahora)
-        self.estado.codigos[codigo] = CodigoAutorizacion(
+        now = time.time()
+        self.estado.purge(now)
+        self.estado.codigos[codigo] = AuthorizationCode(
             codigo=codigo,
             client_id=client_id,
             redirect_uri=redirect_uri,
             code_challenge=challenge,
             scopes=solicitados,
-            sujeto=sujeto,
-            emitido_en=ahora,
+            subject=subject,
+            emitido_en=now,
         )
-        destino = f"{redirect_uri}?{urlencode({'code': codigo, 'state': estado})}"
-        return RedirectResponse(destino, status_code=302)
+        target = f"{redirect_uri}?{urlencode({'code': codigo, 'state': estado})}"
+        return RedirectResponse(target, status_code=302)
 
     @staticmethod
-    def _redirigir_error(
+    def _redirect_error(
         redirect_uri: str, codigo: str, descripcion: str, estado: str
     ) -> RedirectResponse:
-        consulta = urlencode({"error": codigo, "error_description": descripcion, "state": estado})
-        return RedirectResponse(f"{redirect_uri}?{consulta}", status_code=302)
+        query = urlencode({"error": codigo, "error_description": descripcion, "state": estado})
+        return RedirectResponse(f"{redirect_uri}?{query}", status_code=302)
 
     # --- token -------------------------------------------------------------
 
@@ -263,8 +263,8 @@ class AuthorizationServer:
         verifier = str(formulario.get("code_verifier", ""))
         client_id = str(formulario.get("client_id", ""))
 
-        ahora = time.time()
-        self.estado.purgar(ahora)
+        now = time.time()
+        self.estado.purge(now)
         emitido = self.estado.codigos.get(codigo)
         if emitido is None:
             return _error("El código de autorización no existe o expiró.", codigo="invalid_grant")
@@ -274,7 +274,7 @@ class AuthorizationServer:
             return _error("El código ya fue usado.", codigo="invalid_grant")
         if emitido.client_id != client_id:
             return _error("El código pertenece a otro cliente.", codigo="invalid_grant")
-        if not verifier or not verificar_pkce(verifier, emitido.code_challenge):
+        if not verifier or not verify_pkce(verifier, emitido.code_challenge):
             return _error(
                 "El code_verifier no corresponde al code_challenge.", codigo="invalid_grant"
             )
@@ -284,8 +284,8 @@ class AuthorizationServer:
 
         return JSONResponse(
             {
-                "access_token": self.emitir_token(
-                    emitido.sujeto, emitido.scopes, client_id=client_id
+                "access_token": self.issue_token(
+                    emitido.subject, emitido.scopes, client_id=client_id
                 ),
                 "token_type": "Bearer",  # nosec B105 - the RFC 6750 token type
                 "expires_in": self.ttl_token,
@@ -293,21 +293,21 @@ class AuthorizationServer:
             }
         )
 
-    def emitir_token(
+    def issue_token(
         self,
-        sujeto: str,
+        subject: str,
         scopes: list[str],
         *,
-        client_id: str = CLIENTE_DEMO,
+        client_id: str = DEMO_CLIENT,
         ttl: int | None = None,
         audiencia: str | None = None,
-        ahora: float | None = None,
+        now: float | None = None,
     ) -> str:
         """Mint an access token. Also used by the test-suite to build tokens."""
-        emitido = int(ahora if ahora is not None else time.time())
+        emitido = int(now if now is not None else time.time())
         payload = {
             "iss": self.issuer,
-            "sub": sujeto,
+            "sub": subject,
             "aud": audiencia or self.audience,
             "client_id": client_id,
             "scope": " ".join(scopes),
@@ -317,14 +317,14 @@ class AuthorizationServer:
         }
         return jwt.encode(
             payload,
-            self.llaves.pem_privada(),
+            self.signing_keys.private_pem(),
             algorithm="RS256",
-            headers={"kid": self.llaves.kid},
+            headers={"kid": self.signing_keys.kid},
         )
 
     # --- app ---------------------------------------------------------------
 
-    async def _inicio(self, _: Request) -> HTMLResponse:
+    async def _start(self, _: Request) -> HTMLResponse:
         return HTMLResponse(
             "<h1>Authorization Server · dental-clinic-mcp</h1>"
             "<p>Servidor de autorización de desarrollo. Metadata en "
@@ -334,26 +334,26 @@ class AuthorizationServer:
     def app(self) -> Starlette:
         return Starlette(
             routes=[
-                Route("/", self._inicio),
+                Route("/", self._start),
                 Route("/.well-known/oauth-authorization-server", self.metadata),
                 Route("/jwks.json", self.jwks),
-                Route("/register", self.registrar_cliente, methods=["POST"]),
+                Route("/register", self.register_client, methods=["POST"]),
                 Route("/authorize", self.authorize),
                 Route("/token", self.token, methods=["POST"]),
             ]
         )
 
 
-def crear_as(config: Any | None = None) -> AuthorizationServer:
+def build_authorization_server(config: Any | None = None) -> AuthorizationServer:
     from backend.config import get_settings
-    from mcp_server.server import SCOPES_SOPORTADOS
+    from mcp_server.server import SUPPORTED_SCOPES
 
-    ajustes = config or get_settings()
+    settings_ = config or get_settings()
     return AuthorizationServer(
-        issuer=ajustes.oauth_issuer,
-        audience=ajustes.oauth_audience,
-        scopes=SCOPES_SOPORTADOS,
-        ttl_token=ajustes.oauth_access_token_ttl_seconds,
+        issuer=settings_.oauth_issuer,
+        audience=settings_.oauth_audience,
+        scopes=SUPPORTED_SCOPES,
+        ttl_token=settings_.oauth_access_token_ttl_seconds,
     )
 
 
@@ -362,13 +362,13 @@ def main() -> None:  # pragma: no cover - process entry point
 
     from backend.config import get_settings
 
-    ajustes = get_settings()
-    servidor = crear_as(ajustes)
+    settings_ = get_settings()
+    server_ = build_authorization_server(settings_)
     # The port comes from the public issuer so the two cannot drift apart; the
     # bind address is a deployment decision and stays loopback unless told
     # otherwise (docker-compose sets it explicitly).
-    puerto = int(ajustes.oauth_issuer.rsplit(":", 1)[-1].split("/")[0] or 9000)
-    uvicorn.run(servidor.app(), host=ajustes.oauth_host, port=puerto)
+    puerto = int(settings_.oauth_issuer.rsplit(":", 1)[-1].split("/")[0] or 9000)
+    uvicorn.run(server_.app(), host=settings_.oauth_host, port=puerto)
 
 
 if __name__ == "__main__":  # pragma: no cover

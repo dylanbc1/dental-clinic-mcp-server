@@ -109,7 +109,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _expandir_hosts_con_puerto(self) -> Settings:
+    def _expand_hosts_with_port(self) -> Settings:
         """Add the `host:port` form of every bare host in the allow-list.
 
         A browser sends `Host: localhost:8080`, not `localhost`, so a list of

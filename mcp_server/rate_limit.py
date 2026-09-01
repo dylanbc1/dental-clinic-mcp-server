@@ -23,11 +23,11 @@ from dataclasses import dataclass, field
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from backend.domain.errors import CodigoError
+from backend.domain.errors import ErrorCode
 
 
 @dataclass(slots=True)
-class VentanaDeslizante:
+class SlidingWindow:
     """Sliding-window counter.
 
     A fixed window lets a caller fire the whole budget at the end of one window
@@ -38,22 +38,22 @@ class VentanaDeslizante:
     ventana: float
     marcas: dict[str, deque[float]] = field(default_factory=dict)
 
-    def permitir(self, clave: str, *, ahora: float) -> tuple[bool, float]:
-        cola = self.marcas.setdefault(clave, deque())
-        limite_inferior = ahora - self.ventana
+    def allow(self, key: str, *, now: float) -> tuple[bool, float]:
+        cola = self.marcas.setdefault(key, deque())
+        limite_inferior = now - self.ventana
         while cola and cola[0] < limite_inferior:
             cola.popleft()
         if len(cola) >= self.limite:
-            espera = max(0.0, cola[0] + self.ventana - ahora)
+            espera = max(0.0, cola[0] + self.ventana - now)
             return False, espera
-        cola.append(ahora)
+        cola.append(now)
         return True, 0.0
 
-    def olvidar(self, clave: str) -> None:
-        self.marcas.pop(clave, None)
+    def forget(self, key: str) -> None:
+        self.marcas.pop(key, None)
 
 
-class LimitadorDePeticiones:
+class RequestLimiter:
     """ASGI middleware applying the sliding window per caller."""
 
     def __init__(
@@ -65,33 +65,33 @@ class LimitadorDePeticiones:
         reloj: object | None = None,
     ) -> None:
         self.app = app
-        self.ventana = VentanaDeslizante(limite=limite, ventana=ventana_segundos)
+        self.ventana = SlidingWindow(limite=limite, ventana=ventana_segundos)
         self._reloj = reloj or time.monotonic
 
-    def _clave(self, scope: Scope) -> str:
+    def _key(self, scope: Scope) -> str:
         usuario = scope.get("user")
-        sujeto = getattr(getattr(usuario, "access_token", None), "subject", None)
-        if sujeto:
-            return f"sub:{sujeto}"
-        cliente = scope.get("client")
-        return f"ip:{cliente[0] if cliente else 'desconocido'}"
+        subject = getattr(getattr(usuario, "access_token", None), "subject", None)
+        if subject:
+            return f"sub:{subject}"
+        client = scope.get("client")
+        return f"ip:{client[0] if client else 'desconocido'}"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        ahora = float(self._reloj())  # type: ignore[operator]
-        permitido, espera = self.ventana.permitir(self._clave(scope), ahora=ahora)
+        now = float(self._reloj())  # type: ignore[operator]
+        permitido, espera = self.ventana.allow(self._key(scope), now=now)
         if permitido:
             await self.app(scope, receive, send)
             return
 
         segundos = max(1, int(espera + 0.999))
-        cuerpo = json.dumps(
+        body = json.dumps(
             {
                 "error": True,
-                "codigo": str(CodigoError.RATE_LIMIT_EXCEDIDO),
+                "codigo": str(ErrorCode.RATE_LIMIT_EXCEDIDO),
                 "mensaje": (
                     f"Demasiadas peticiones: el límite es {self.ventana.limite} por "
                     f"{int(self.ventana.ventana)} segundos."
@@ -114,4 +114,4 @@ class LimitadorDePeticiones:
             ],
         }
         await send(inicio)
-        await send({"type": "http.response.body", "body": cuerpo})
+        await send({"type": "http.response.body", "body": body})

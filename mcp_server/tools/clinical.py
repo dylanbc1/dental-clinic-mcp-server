@@ -25,38 +25,36 @@ from pydantic import Field
 
 from mcp_server.auth import Scope
 from mcp_server.confirmation import (
-    Confirmacion,
-    exigir_cliente_que_confirma,
-    redactar_propuesta,
+    Confirmation,
+    render_question,
+    require_client_that_can_confirm,
 )
-from mcp_server.context import Contexto
-from mcp_server.tools.write import exigir_aprobacion
+from mcp_server.context import ToolContext
+from mcp_server.tools.write import require_approval
 
 SCOPE = Scope.CLINICAL
 
 
-def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
-    async def _confirmar_motivo(
-        contexto: Context, cita_id: int, motivo: str
-    ) -> Elicit[Confirmacion]:
-        argumentos = {"cita_id": cita_id, "motivo": motivo}
-        identidad = ctx.autorizar_auditando("registrar_motivo_consulta", SCOPE, argumentos)
-        exigir_cliente_que_confirma(contexto)
-        async with ctx.auditar_fallo("registrar_motivo_consulta", SCOPE, argumentos, identidad):
-            cita = await ctx.cliente.obtener(f"/citas/{cita_id}")
+def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
+    async def _ask_reason(contexto: Context, cita_id: int, motivo: str) -> Elicit[Confirmation]:
+        arguments = {"cita_id": cita_id, "motivo": motivo}
+        identity = ctx.authorize_audited("registrar_motivo_consulta", SCOPE, arguments)
+        require_client_that_can_confirm(contexto)
+        async with ctx.audit_failure("registrar_motivo_consulta", SCOPE, arguments, identity):
+            cita = await ctx.client.get_object(f"/citas/{cita_id}")
 
-        ctx.auditor.acceso_clinico(
-            sujeto=identidad.sujeto, cita_id=cita_id, resultado="input_required"
+        ctx.auditor.clinical_access(
+            subject=identity.subject, cita_id=cita_id, result="input_required"
         )
-        ctx.auditor.invocacion(
+        ctx.auditor.tool_call(
             "registrar_motivo_consulta",
-            sujeto=identidad.sujeto,
+            subject=identity.subject,
             scope=str(SCOPE),
-            argumentos=argumentos,
-            resultado="input_required",
+            arguments=arguments,
+            result="input_required",
         )
         return Elicit(
-            redactar_propuesta(
+            render_question(
                 f"Registrar el motivo de consulta en la cita {cita_id} de "
                 f"{cita['paciente']} ({cita['inicio_local']}).",
                 [
@@ -70,10 +68,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
                     "autorizó el tratamiento de sus datos clínicos."
                 ],
             ),
-            Confirmacion,
+            Confirmation,
         )
 
-    @servidor.tool(
+    @server_.tool(
         name="registrar_motivo_consulta",
         title="Registrar el motivo de consulta (dato clínico)",
         description=(
@@ -86,7 +84,7 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
             "diagnose, or suggest treatment."
         ),
     )
-    async def registrar_motivo_consulta(
+    async def record_visit_reason(
         cita_id: Annotated[int, Field(gt=0)],
         motivo: Annotated[
             str,
@@ -99,40 +97,40 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
                 ),
             ),
         ],
-        confirmacion: Annotated[Confirmacion, Resolve(_confirmar_motivo)],
+        confirmacion: Annotated[Confirmation, Resolve(_ask_reason)],
     ) -> dict[str, Any]:
-        exigir_aprobacion(confirmacion, "registrar_motivo_consulta")
-        identidad = ctx.identidad()
-        argumentos = {"cita_id": cita_id, "motivo": motivo}
+        require_approval(confirmacion, "registrar_motivo_consulta")
+        identity = ctx.identity()
+        arguments = {"cita_id": cita_id, "motivo": motivo}
         try:
-            resultado = await ctx.cliente.enviar(
+            result = await ctx.client.post(
                 f"/citas/{cita_id}/motivo",
-                actor=identidad.sujeto,
-                cuerpo={"motivo": motivo},
+                actor=identity.subject,
+                body={"motivo": motivo},
             )
         except Exception as error:
             codigo = getattr(error, "codigo", "ERROR_INTERNO")
-            ctx.auditor.acceso_clinico(
-                sujeto=identidad.sujeto, cita_id=cita_id, resultado=f"rechazado:{codigo}"
+            ctx.auditor.clinical_access(
+                subject=identity.subject, cita_id=cita_id, result=f"rechazado:{codigo}"
             )
-            ctx.auditor.invocacion(
+            ctx.auditor.tool_call(
                 "registrar_motivo_consulta",
-                sujeto=identidad.sujeto,
+                subject=identity.subject,
                 scope=str(SCOPE),
-                argumentos=argumentos,
-                resultado="error",
-                codigo_error=str(codigo),
-                aprobada=True,
+                arguments=arguments,
+                result="error",
+                error_code=str(codigo),
+                approved=True,
             )
             raise
 
-        ctx.auditor.acceso_clinico(sujeto=identidad.sujeto, cita_id=cita_id, resultado="registrado")
-        ctx.auditor.invocacion(
+        ctx.auditor.clinical_access(subject=identity.subject, cita_id=cita_id, result="registrado")
+        ctx.auditor.tool_call(
             "registrar_motivo_consulta",
-            sujeto=identidad.sujeto,
+            subject=identity.subject,
             scope=str(SCOPE),
-            argumentos=argumentos,
-            resultado="ok",
-            aprobada=True,
+            arguments=arguments,
+            result="ok",
+            approved=True,
         )
-        return resultado
+        return result

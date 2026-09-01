@@ -32,8 +32,8 @@ def _diferencias_reales(engine: Engine) -> list[object]:
         crudas = compare_metadata(contexto, Base.metadata)
     reales = []
     for diferencia in crudas:
-        texto = repr(diferencia)
-        if any(esperada in texto for esperada in DIFERENCIAS_ESPERADAS):
+        text_of = repr(diferencia)
+        if any(esperada in text_of for esperada in DIFERENCIAS_ESPERADAS):
             continue
         reales.append(diferencia)
     return reales
@@ -66,8 +66,8 @@ class TestHistorialDeMigraciones:
     ) -> None:
         script = ScriptDirectory.from_config(alembic_config)
         with engine.connect() as conn:
-            actual = MigrationContext.configure(conn).get_current_revision()
-        assert actual == script.get_current_head()
+            current = MigrationContext.configure(conn).get_current_revision()
+        assert current == script.get_current_head()
 
 
 class TestReversibilidad:
@@ -78,9 +78,9 @@ class TestReversibilidad:
         with confidence. This test also leaves the schema exactly as it found
         it, so the rest of the suite is unaffected."""
         antes = {
-            tabla: sorted(c["name"] for c in inspect(engine).get_columns(tabla))
-            for tabla in sorted(inspect(engine).get_table_names())
-            if tabla != "alembic_version"
+            table: sorted(c["name"] for c in inspect(engine).get_columns(table))
+            for table in sorted(inspect(engine).get_table_names())
+            if table != "alembic_version"
         }
 
         command.downgrade(alembic_config, "base")
@@ -89,9 +89,9 @@ class TestReversibilidad:
 
         command.upgrade(alembic_config, "head")
         despues = {
-            tabla: sorted(c["name"] for c in inspect(engine).get_columns(tabla))
-            for tabla in sorted(inspect(engine).get_table_names())
-            if tabla != "alembic_version"
+            table: sorted(c["name"] for c in inspect(engine).get_columns(table))
+            for table in sorted(inspect(engine).get_table_names())
+            if table != "alembic_version"
         }
         assert despues == antes
 

@@ -14,28 +14,28 @@ from typing import Any, cast
 
 import httpx
 
-from mcp_server.errors import ErrorHerramienta, error_backend_caido
+from mcp_server.errors import StructuredToolError, backend_down_error
 
-TIEMPO_LIMITE = httpx.Timeout(10.0, connect=5.0)
+TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
-class ClienteBackend:
+class BackendClient:
     """Thin async wrapper over the internal API.
 
     `actor` is forwarded as `X-Actor` on every write so the audit trail records
     *who* asked, not just that the MCP server did.
     """
 
-    def __init__(self, base_url: str, *, cliente: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, base_url: str, *, client: httpx.AsyncClient | None = None) -> None:
         self._base_url = base_url.rstrip("/")
-        self._propio = cliente is None
-        self._cliente = cliente or httpx.AsyncClient(base_url=self._base_url, timeout=TIEMPO_LIMITE)
+        self._propio = client is None
+        self._cliente = client or httpx.AsyncClient(base_url=self._base_url, timeout=TIMEOUT)
 
     async def aclose(self) -> None:
         if self._propio:
             await self._cliente.aclose()
 
-    async def _pedir(
+    async def _send(
         self,
         metodo: str,
         ruta: str,
@@ -47,61 +47,61 @@ class ClienteBackend:
         cabeceras = {"X-Actor": actor} if actor else None
         limpios = {k: v for k, v in (params or {}).items() if v is not None}
         try:
-            respuesta = await self._cliente.request(
+            response = await self._cliente.request(
                 metodo, ruta, params=limpios or None, json=json, headers=cabeceras
             )
         except httpx.HTTPError as exc:
-            raise error_backend_caido(str(exc)) from exc
+            raise backend_down_error(str(exc)) from exc
 
-        if respuesta.is_success:
-            return respuesta.json()
+        if response.is_success:
+            return response.json()
 
         try:
-            payload = respuesta.json()
+            payload = response.json()
         except ValueError:
             payload = {}
         if isinstance(payload, dict) and payload.get("error"):
-            raise ErrorHerramienta.desde_envoltura(payload)
-        raise ErrorHerramienta(
+            raise StructuredToolError.from_envelope(payload)
+        raise StructuredToolError(
             "ERROR_INTERNO",
-            f"The backend answered {respuesta.status_code} with no structured error.",
+            f"The backend answered {response.status_code} with no structured error.",
             sugerencia="Retry in a few seconds; if it persists, report the incident.",
-            detalles={"status": respuesta.status_code},
+            detalles={"status": response.status_code},
         )
 
     @staticmethod
-    def _exigir(datos: Any, tipo: type, ruta: str) -> Any:
+    def _require(payload: Any, tipo: type, ruta: str) -> Any:
         """Assert the response shape before handing it to a tool.
 
         Not paranoia: the tools declare typed return values, and a backend that
         answers with an unexpected shape should fail here, where the error names
         the endpoint, rather than three frames later inside a formatter.
         """
-        if not isinstance(datos, tipo):
-            raise ErrorHerramienta(
+        if not isinstance(payload, tipo):
+            raise StructuredToolError(
                 "RESPUESTA_INESPERADA",
-                f"{ruta} returned {type(datos).__name__} instead of {tipo.__name__}.",
+                f"{ruta} returned {type(payload).__name__} instead of {tipo.__name__}.",
                 sugerencia="This is a backend fault, not a problem with your request.",
             )
-        return datos
+        return payload
 
     # --- reads -------------------------------------------------------------
 
-    async def obtener(self, ruta: str, **params: Any) -> dict[str, Any]:
+    async def get_object(self, ruta: str, **params: Any) -> dict[str, Any]:
         """GET returning a JSON object."""
-        datos = await self._pedir("GET", ruta, params=params)
-        return cast("dict[str, Any]", self._exigir(datos, dict, ruta))
+        payload = await self._send("GET", ruta, params=params)
+        return cast("dict[str, Any]", self._require(payload, dict, ruta))
 
-    async def listar(self, ruta: str, **params: Any) -> list[dict[str, Any]]:
+    async def get_list(self, ruta: str, **params: Any) -> list[dict[str, Any]]:
         """GET returning a JSON array of objects."""
-        datos = await self._pedir("GET", ruta, params=params)
-        return cast("list[dict[str, Any]]", self._exigir(datos, list, ruta))
+        payload = await self._send("GET", ruta, params=params)
+        return cast("list[dict[str, Any]]", self._require(payload, list, ruta))
 
     # --- writes ------------------------------------------------------------
 
-    async def enviar(
-        self, ruta: str, *, actor: str, cuerpo: dict[str, Any] | None = None
+    async def post(
+        self, ruta: str, *, actor: str, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """POST returning a JSON object."""
-        datos = await self._pedir("POST", ruta, actor=actor, json=cuerpo or {})
-        return cast("dict[str, Any]", self._exigir(datos, dict, ruta))
+        payload = await self._send("POST", ruta, actor=actor, json=body or {})
+        return cast("dict[str, Any]", self._require(payload, dict, ruta))

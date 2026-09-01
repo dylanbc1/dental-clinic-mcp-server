@@ -13,36 +13,36 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver import MCPServer
 
-from backend.domain.services import agendar_cita
-from backend.domain.time import ahora_local
+from backend.domain.services import book_appointment
+from backend.domain.time import now_at_clinic
 from backend.models import AgendaSlot
-from tests.conftest import SUJETO, Escenario, como
+from tests.conftest import SUBJECT, Scenario, as_caller
 
 pytestmark = pytest.mark.integration
 
 
-async def leer(servidor: MCPServer[Any], uri: str) -> Any:
-    contenidos = list(await servidor.read_resource(uri))
+async def leer(server_: MCPServer[Any], uri: str) -> Any:
+    contenidos = list(await server_.read_resource(uri))
     assert contenidos, f"{uri} no devolvió contenido"
     return json.loads(contenidos[0].content)
 
 
 class TestRecursos:
-    async def test_los_tres_recursos_estan_declarados(self, servidor: MCPServer[Any]) -> None:
-        uris = {str(r.uri) for r in await servidor.list_resources()}
+    async def test_los_tres_recursos_estan_declarados(self, server_: MCPServer[Any]) -> None:
+        uris = {str(r.uri) for r in await server_.list_resources()}
         assert uris == {"clinica://info", "politicas://cartera", "agenda://hoy"}
 
-    async def test_todo_recurso_tiene_nombre_y_descripcion(self, servidor: MCPServer[Any]) -> None:
-        for recurso in await servidor.list_resources():
+    async def test_todo_recurso_tiene_nombre_y_descripcion(self, server_: MCPServer[Any]) -> None:
+        for recurso in await server_.list_resources():
             assert recurso.name
             assert recurso.description and len(recurso.description) > 40
             assert recurso.mime_type == "application/json"
 
     async def test_clinica_info_trae_los_profesionales_reales(
-        self, servidor: MCPServer[Any], escenario: Escenario
+        self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
-        with como(SUJETO, ["read"]):
-            info = await leer(servidor, "clinica://info")
+        with as_caller(SUBJECT, ["read"]):
+            info = await leer(server_, "clinica://info")
         assert info["nombre"] == "Clínica Escenario"
         assert info["zona_horaria"] == "America/Bogota"
         assert {p["especialidad"] for p in info["profesionales"]} == {
@@ -51,69 +51,69 @@ class TestRecursos:
         }
 
     async def test_politicas_trae_las_tarifas_para_no_inventarlas(
-        self, servidor: MCPServer[Any], escenario: Escenario
+        self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
-        with como(SUJETO, ["read"]):
-            politicas = await leer(servidor, "politicas://cartera")
+        with as_caller(SUBJECT, ["read"]):
+            politicas = await leer(server_, "politicas://cartera")
         assert politicas["tarifas_particular"]["endodoncia"] == "350000"
         assert politicas["monto_no_show"] == "40000"
         assert "never a block" in politicas["nota"]
 
     async def test_agenda_hoy_responde_aunque_no_haya_citas(
-        self, servidor: MCPServer[Any], escenario: Escenario
+        self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
-        with como(SUJETO, ["read"]):
-            agenda = await leer(servidor, "agenda://hoy")
+        with as_caller(SUBJECT, ["read"]):
+            agenda = await leer(server_, "agenda://hoy")
         assert agenda["total"] == 0
         assert agenda["citas"] == []
 
     async def test_agenda_hoy_refleja_las_citas_del_dia(
-        self, servidor: MCPServer[Any], sesion_backend: Any, escenario: Escenario
+        self, server_: MCPServer[Any], backend_session: Any, scenario: Scenario
     ) -> None:
         # "Today" means today at the clinic, not on whatever machine is running
         # this. Using the system date passes in Bogotá and fails on a UTC runner
         # for the five hours a day the two disagree.
-        slot = sesion_backend.get(AgendaSlot, escenario.slots_general[0])
-        slot.fecha = ahora_local().date()
-        sesion_backend.commit()
-        agendar_cita(
-            sesion_backend,
-            paciente_id=escenario.ana_id,
+        slot = backend_session.get(AgendaSlot, scenario.slots_general[0])
+        slot.fecha = now_at_clinic().date()
+        backend_session.commit()
+        book_appointment(
+            backend_session,
+            paciente_id=scenario.ana_id,
             slot_id=slot.id,
             usuario="setup",
         )
-        sesion_backend.commit()
+        backend_session.commit()
 
-        with como(SUJETO, ["read"]):
-            agenda = await leer(servidor, "agenda://hoy")
-        assert agenda["fecha"] == ahora_local().date().isoformat()
+        with as_caller(SUBJECT, ["read"]):
+            agenda = await leer(server_, "agenda://hoy")
+        assert agenda["fecha"] == now_at_clinic().date().isoformat()
         assert agenda["total"] == 1
         assert agenda["por_estado"] == {"agendada": 1}
 
     async def test_hoy_es_hoy_en_la_clinica_no_en_el_servidor(
-        self, servidor: MCPServer[Any], escenario: Escenario
+        self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         """America/Bogota is UTC-5, so for five hours a day the two disagree.
         A server that answered with its own date would show the wrong agenda
         every evening."""
-        with como(SUJETO, ["read"]):
-            agenda = await leer(servidor, "agenda://hoy")
-        assert agenda["fecha"] == ahora_local().date().isoformat()
+        with as_caller(SUBJECT, ["read"]):
+            agenda = await leer(server_, "agenda://hoy")
+        assert agenda["fecha"] == now_at_clinic().date().isoformat()
 
 
 class TestPrompt:
-    async def test_el_prompt_esta_declarado(self, servidor: MCPServer[Any]) -> None:
-        prompts = await servidor.list_prompts()
+    async def test_el_prompt_esta_declarado(self, server_: MCPServer[Any]) -> None:
+        prompts = await server_.list_prompts()
         assert [p.name for p in prompts] == ["recepcionista_odontologia"]
 
     async def test_se_personaliza_con_los_datos_de_la_clinica(
-        self, servidor: MCPServer[Any], escenario: Escenario
+        self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
-        with como(SUJETO, ["read"]):
-            resultado = await servidor.get_prompt("recepcionista_odontologia")
-        texto = "\n".join(getattr(m.content, "text", "") for m in resultado.messages)
-        assert "Clínica Escenario" in texto
-        assert "Bogotá" in texto
+        with as_caller(SUBJECT, ["read"]):
+            result = await server_.get_prompt("recepcionista_odontologia")
+        text_of = "\n".join(getattr(m.content, "text", "") for m in result.messages)
+        assert "Clínica Escenario" in text_of
+        assert "Bogotá" in text_of
 
     @pytest.mark.parametrize(
         "regla",
@@ -127,20 +127,20 @@ class TestPrompt:
         ],
     )
     async def test_el_prompt_declara_los_limites_del_agente(
-        self, servidor: MCPServer[Any], escenario: Escenario, regla: str
+        self, server_: MCPServer[Any], scenario: Scenario, regla: str
     ) -> None:
         """Every rule the domain enforces is also stated in the prompt, so the
         agent does not have to discover them by hitting errors."""
-        with como(SUJETO, ["read"]):
-            resultado = await servidor.get_prompt("recepcionista_odontologia")
-        texto = "\n".join(getattr(m.content, "text", "") for m in resultado.messages)
-        assert regla in texto
+        with as_caller(SUBJECT, ["read"]):
+            result = await server_.get_prompt("recepcionista_odontologia")
+        text_of = "\n".join(getattr(m.content, "text", "") for m in result.messages)
+        assert regla in text_of
 
     async def test_el_prompt_dice_cuando_escalar(
-        self, servidor: MCPServer[Any], escenario: Escenario
+        self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
-        with como(SUJETO, ["read"]):
-            resultado = await servidor.get_prompt("recepcionista_odontologia")
-        texto = "\n".join(getattr(m.content, "text", "") for m in resultado.messages)
-        assert "urgencia" in texto.lower()
-        assert "escala" in texto.lower()
+        with as_caller(SUBJECT, ["read"]):
+            result = await server_.get_prompt("recepcionista_odontologia")
+        text_of = "\n".join(getattr(m.content, "text", "") for m in result.messages)
+        assert "urgencia" in text_of.lower()
+        assert "escala" in text_of.lower()

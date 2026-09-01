@@ -86,7 +86,7 @@ class TimestampMixin:
 # --------------------------------------------------------------------------- #
 
 
-class Clinica(Base, TimestampMixin):
+class Clinic(Base, TimestampMixin):
     __tablename__ = "clinica"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -98,12 +98,12 @@ class Clinica(Base, TimestampMixin):
     ciudad: Mapped[str] = mapped_column(String(80), default="Bogotá", nullable=False)
     zona_horaria: Mapped[str] = mapped_column(String(50), default="America/Bogota", nullable=False)
 
-    profesionales: Mapped[list[Profesional]] = relationship(
+    profesionales: Mapped[list[Professional]] = relationship(
         back_populates="clinica", cascade="all, delete-orphan"
     )
 
 
-class Profesional(Base, TimestampMixin):
+class Professional(Base, TimestampMixin):
     __tablename__ = "profesional"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -118,7 +118,7 @@ class Profesional(Base, TimestampMixin):
     )
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    clinica: Mapped[Clinica] = relationship(back_populates="profesionales")
+    clinica: Mapped[Clinic] = relationship(back_populates="profesionales")
     slots: Mapped[list[AgendaSlot]] = relationship(
         back_populates="profesional", cascade="all, delete-orphan"
     )
@@ -129,7 +129,7 @@ class Profesional(Base, TimestampMixin):
 # --------------------------------------------------------------------------- #
 
 
-class Paciente(Base, TimestampMixin):
+class Patient(Base, TimestampMixin):
     __tablename__ = "paciente"
     __table_args__ = (
         UniqueConstraint("tipo_documento", "documento", name="uq_paciente_documento"),
@@ -164,8 +164,8 @@ class Paciente(Base, TimestampMixin):
     )
     consentimiento_otorgado_en: Mapped[datetime | None] = mapped_column(TS)
 
-    citas: Mapped[list[Cita]] = relationship(back_populates="paciente")
-    cargos: Mapped[list[Cargo]] = relationship(back_populates="paciente")
+    citas: Mapped[list[Appointment]] = relationship(back_populates="paciente")
+    cargos: Mapped[list[Charge]] = relationship(back_populates="paciente")
 
 
 # --------------------------------------------------------------------------- #
@@ -197,12 +197,12 @@ class AgendaSlot(Base, TimestampMixin):
     #: concurrent bookings cannot both believe they won.
     version_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-    profesional: Mapped[Profesional] = relationship(back_populates="slots")
+    profesional: Mapped[Professional] = relationship(back_populates="slots")
 
     __mapper_args__ = {"version_id_col": version_id}  # noqa: RUF012
 
 
-class Cita(Base, TimestampMixin):
+class Appointment(Base, TimestampMixin):
     __tablename__ = "cita"
     __table_args__ = (
         # The anti-double-booking guarantee. Only states that hold the slot
@@ -248,18 +248,18 @@ class Cita(Base, TimestampMixin):
     #: Set when this appointment came from rescheduling another.
     cita_origen_id: Mapped[int | None] = mapped_column(ForeignKey("cita.id", ondelete="SET NULL"))
 
-    paciente: Mapped[Paciente] = relationship(back_populates="citas")
-    profesional: Mapped[Profesional] = relationship()
+    paciente: Mapped[Patient] = relationship(back_populates="citas")
+    profesional: Mapped[Professional] = relationship()
     slot: Mapped[AgendaSlot] = relationship()
-    historial: Mapped[list[CitaHistorial]] = relationship(
+    historial: Mapped[list[AppointmentHistory]] = relationship(
         back_populates="cita",
         cascade="all, delete-orphan",
-        order_by="CitaHistorial.momento",
+        order_by="AppointmentHistory.momento",
     )
-    cargos: Mapped[list[Cargo]] = relationship(back_populates="cita")
+    cargos: Mapped[list[Charge]] = relationship(back_populates="cita")
 
 
-class CitaHistorial(Base):
+class AppointmentHistory(Base):
     """Append-only audit trail of state changes (security layer 5).
 
     No ``actualizada_en``: rows here are never updated. That is the point.
@@ -280,7 +280,7 @@ class CitaHistorial(Base):
     motivo: Mapped[str | None] = mapped_column(Text)
     momento: Mapped[datetime] = mapped_column(TS, server_default=func.now(), nullable=False)
 
-    cita: Mapped[Cita] = relationship(back_populates="historial")
+    cita: Mapped[Appointment] = relationship(back_populates="historial")
 
 
 # --------------------------------------------------------------------------- #
@@ -288,7 +288,7 @@ class CitaHistorial(Base):
 # --------------------------------------------------------------------------- #
 
 
-class Cargo(Base, TimestampMixin):
+class Charge(Base, TimestampMixin):
     __tablename__ = "cargo"
     __table_args__ = (
         CheckConstraint("monto >= 0", name="ck_cargo_monto_no_negativo"),
@@ -311,8 +311,8 @@ class Cargo(Base, TimestampMixin):
     vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
     pagado_en: Mapped[datetime | None] = mapped_column(TS)
 
-    paciente: Mapped[Paciente] = relationship(back_populates="cargos")
-    cita: Mapped[Cita | None] = relationship(back_populates="cargos")
+    paciente: Mapped[Patient] = relationship(back_populates="cargos")
+    cita: Mapped[Appointment | None] = relationship(back_populates="cargos")
 
 
 # --------------------------------------------------------------------------- #
@@ -320,7 +320,7 @@ class Cargo(Base, TimestampMixin):
 # --------------------------------------------------------------------------- #
 
 
-class ListaEspera(Base, TimestampMixin):
+class WaitingList(Base, TimestampMixin):
     __tablename__ = "lista_espera"
     __table_args__ = (
         # One active wait per specialty. Partial, so a retired entry does not
@@ -358,4 +358,4 @@ class ListaEspera(Base, TimestampMixin):
         ForeignKey("agenda_slot.id", ondelete="SET NULL")
     )
 
-    paciente: Mapped[Paciente] = relationship()
+    paciente: Mapped[Patient] = relationship()

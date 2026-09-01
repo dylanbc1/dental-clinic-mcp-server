@@ -86,7 +86,7 @@ class EstadoListaEspera(StrEnum):
 
 
 #: Terminal states: no transition leaves them.
-ESTADOS_FINALES: frozenset[EstadoCita] = frozenset(
+FINAL_STATES: frozenset[EstadoCita] = frozenset(
     {
         EstadoCita.ATENDIDA,
         EstadoCita.CANCELADA,
@@ -97,7 +97,7 @@ ESTADOS_FINALES: frozenset[EstadoCita] = frozenset(
 
 #: States in which an appointment still holds its slot. Drives the partial
 #: unique index that makes double-booking impossible in the database.
-ESTADOS_QUE_OCUPAN_SLOT: frozenset[EstadoCita] = frozenset(
+STATES_HOLDING_SLOT: frozenset[EstadoCita] = frozenset(
     {
         EstadoCita.AGENDADA,
         EstadoCita.CONFIRMADA,

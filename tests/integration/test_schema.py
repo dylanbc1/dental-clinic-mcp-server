@@ -26,13 +26,13 @@ from backend.enums import (
 )
 from backend.models import (
     AgendaSlot,
+    AppointmentHistory,
     Base,
-    Cargo,
-    CitaHistorial,
-    Clinica,
-    ListaEspera,
-    Paciente,
-    Profesional,
+    Charge,
+    Clinic,
+    Patient,
+    Professional,
+    WaitingList,
 )
 
 pytestmark = pytest.mark.integration
@@ -51,8 +51,8 @@ TABLAS_ESPERADAS = {
 
 class TestFormaDelEsquema:
     def test_existen_las_ocho_tablas_del_modelo(self, engine: object) -> None:
-        nombres = set(inspect(engine).get_table_names())  # type: ignore[arg-type]
-        assert nombres >= TABLAS_ESPERADAS
+        names = set(inspect(engine).get_table_names())  # type: ignore[arg-type]
+        assert names >= TABLAS_ESPERADAS
 
     def test_los_metadatos_declaran_exactamente_esas_tablas(self) -> None:
         assert set(Base.metadata.tables) == TABLAS_ESPERADAS
@@ -65,11 +65,11 @@ class TestFormaDelEsquema:
         """
         inspector = inspect(engine)  # type: ignore[arg-type]
         revisadas = 0
-        for tabla in TABLAS_ESPERADAS:
-            for columna in inspector.get_columns(tabla):
+        for table in TABLAS_ESPERADAS:
+            for columna in inspector.get_columns(table):
                 tipo = columna["type"]
                 if isinstance(tipo, DateTime):
-                    assert tipo.timezone is True, f"{tabla}.{columna['name']} sin zona"
+                    assert tipo.timezone is True, f"{table}.{columna['name']} sin zona"
                     revisadas += 1
         assert revisadas >= 20, "no se inspeccionó ninguna columna de tiempo"
 
@@ -82,8 +82,8 @@ class TestFormaDelEsquema:
 
 
 class TestUnicidad:
-    def _paciente(self, documento: str = "1020304050") -> Paciente:
-        return Paciente(
+    def _paciente(self, documento: str = "1020304050") -> Patient:
+        return Patient(
             tipo_documento=TipoDocumento.CC,
             documento=documento,
             nombre="Ana Gómez",
@@ -92,28 +92,28 @@ class TestUnicidad:
             afiliacion_activa=True,
         )
 
-    def test_no_se_repite_el_documento_para_el_mismo_tipo(self, tablas_vacias: Session) -> None:
-        tablas_vacias.add(self._paciente())
-        tablas_vacias.flush()
-        tablas_vacias.add(self._paciente())
+    def test_no_se_repite_el_documento_para_el_mismo_tipo(self, empty_tables: Session) -> None:
+        empty_tables.add(self._paciente())
+        empty_tables.flush()
+        empty_tables.add(self._paciente())
         with pytest.raises(IntegrityError):
-            tablas_vacias.flush()
+            empty_tables.flush()
 
-    def test_el_mismo_numero_con_otro_tipo_si_se_permite(self, tablas_vacias: Session) -> None:
+    def test_el_mismo_numero_con_otro_tipo_si_se_permite(self, empty_tables: Session) -> None:
         """A minor's TI and an adult's CC can legitimately share digits."""
         cc = self._paciente()
         ti = self._paciente()
         ti.tipo_documento = TipoDocumento.TI
-        tablas_vacias.add_all([cc, ti])
-        tablas_vacias.flush()  # must not raise
+        empty_tables.add_all([cc, ti])
+        empty_tables.flush()  # must not raise
 
-    def test_no_se_repite_el_registro_profesional(self, tablas_vacias: Session) -> None:
-        clinica = Clinica(nombre="C", nit="900.1-1", especialidad="Odontología")
-        tablas_vacias.add(clinica)
-        tablas_vacias.flush()
+    def test_no_se_repite_el_registro_profesional(self, empty_tables: Session) -> None:
+        clinica = Clinic(nombre="C", nit="900.1-1", especialidad="Odontología")
+        empty_tables.add(clinica)
+        empty_tables.flush()
         for _ in range(2):
-            tablas_vacias.add(
-                Profesional(
+            empty_tables.add(
+                Professional(
                     clinica_id=clinica.id,
                     nombre="Dr. X",
                     registro="RM-DUP",
@@ -121,25 +121,25 @@ class TestUnicidad:
                 )
             )
         with pytest.raises(IntegrityError):
-            tablas_vacias.flush()
+            empty_tables.flush()
 
 
 class TestChecks:
-    def test_un_slot_no_puede_terminar_antes_de_empezar(self, tablas_vacias: Session) -> None:
-        clinica = Clinica(nombre="C", nit="900.2-2", especialidad="O")
-        tablas_vacias.add(clinica)
-        tablas_vacias.flush()
-        profesional = Profesional(
+    def test_un_slot_no_puede_terminar_antes_de_empezar(self, empty_tables: Session) -> None:
+        clinica = Clinic(nombre="C", nit="900.2-2", especialidad="O")
+        empty_tables.add(clinica)
+        empty_tables.flush()
+        profesional = Professional(
             clinica_id=clinica.id,
             nombre="Dr. Y",
             registro="RM-CHK",
             especialidad=Especialidad.ENDODONCIA,
         )
-        tablas_vacias.add(profesional)
-        tablas_vacias.flush()
+        empty_tables.add(profesional)
+        empty_tables.flush()
 
         inicio = datetime(2026, 9, 1, 14, 0, tzinfo=UTC)
-        tablas_vacias.add(
+        empty_tables.add(
             AgendaSlot(
                 profesional_id=profesional.id,
                 fecha=date(2026, 9, 1),
@@ -148,10 +148,10 @@ class TestChecks:
             )
         )
         with pytest.raises(IntegrityError):
-            tablas_vacias.flush()
+            empty_tables.flush()
 
-    def test_un_cargo_no_puede_ser_negativo(self, tablas_vacias: Session) -> None:
-        paciente = Paciente(
+    def test_un_cargo_no_puede_ser_negativo(self, empty_tables: Session) -> None:
+        paciente = Patient(
             tipo_documento=TipoDocumento.CC,
             documento="777",
             nombre="N",
@@ -159,10 +159,10 @@ class TestChecks:
             regimen=Regimen.PARTICULAR,
             afiliacion_activa=True,
         )
-        tablas_vacias.add(paciente)
-        tablas_vacias.flush()
-        tablas_vacias.add(
-            Cargo(
+        empty_tables.add(paciente)
+        empty_tables.flush()
+        empty_tables.add(
+            Charge(
                 paciente_id=paciente.id,
                 concepto="particular",
                 monto=Decimal("-1"),
@@ -171,11 +171,11 @@ class TestChecks:
             )
         )
         with pytest.raises(IntegrityError):
-            tablas_vacias.flush()
+            empty_tables.flush()
 
-    def test_el_nivel_de_cuota_moderadora_esta_acotado(self, tablas_vacias: Session) -> None:
-        tablas_vacias.add(
-            Paciente(
+    def test_el_nivel_de_cuota_moderadora_esta_acotado(self, empty_tables: Session) -> None:
+        empty_tables.add(
+            Patient(
                 tipo_documento=TipoDocumento.CC,
                 documento="888",
                 nombre="N",
@@ -186,11 +186,11 @@ class TestChecks:
             )
         )
         with pytest.raises(IntegrityError):
-            tablas_vacias.flush()
+            empty_tables.flush()
 
-    def test_un_estado_inexistente_es_rechazado_por_el_enum(self, tablas_vacias: Session) -> None:
+    def test_un_estado_inexistente_es_rechazado_por_el_enum(self, empty_tables: Session) -> None:
         with pytest.raises((DataError, IntegrityError)):
-            tablas_vacias.execute(
+            empty_tables.execute(
                 text(
                     "insert into cita (paciente_id, profesional_id, slot_id, estado, "
                     "creada_por, creada_en, actualizada_en) "
@@ -200,8 +200,8 @@ class TestChecks:
 
 
 class TestListaEsperaUnicidadParcial:
-    def _paciente(self, session: Session, documento: str) -> Paciente:
-        paciente = Paciente(
+    def _paciente(self, session: Session, documento: str) -> Patient:
+        paciente = Patient(
             tipo_documento=TipoDocumento.CC,
             documento=documento,
             nombre="N",
@@ -214,12 +214,12 @@ class TestListaEsperaUnicidadParcial:
         return paciente
 
     def test_un_paciente_no_se_inscribe_dos_veces_en_la_misma_especialidad(
-        self, tablas_vacias: Session
+        self, empty_tables: Session
     ) -> None:
-        paciente = self._paciente(tablas_vacias, "555")
+        paciente = self._paciente(empty_tables, "555")
         for _ in range(2):
-            tablas_vacias.add(
-                ListaEspera(
+            empty_tables.add(
+                WaitingList(
                     paciente_id=paciente.id,
                     especialidad=Especialidad.ORTODONCIA,
                     prioridad=PrioridadListaEspera.ANTIGUEDAD,
@@ -227,48 +227,48 @@ class TestListaEsperaUnicidadParcial:
                 )
             )
         with pytest.raises(IntegrityError):
-            tablas_vacias.flush()
+            empty_tables.flush()
 
     def test_puede_reinscribirse_si_la_anterior_ya_no_esta_activa(
-        self, tablas_vacias: Session
+        self, empty_tables: Session
     ) -> None:
         """The uniqueness is partial on purpose: a retired entry must not block
         the patient from joining the queue again later."""
-        paciente = self._paciente(tablas_vacias, "556")
-        tablas_vacias.add(
-            ListaEspera(
+        paciente = self._paciente(empty_tables, "556")
+        empty_tables.add(
+            WaitingList(
                 paciente_id=paciente.id,
                 especialidad=Especialidad.ORTODONCIA,
                 estado=EstadoListaEspera.RETIRADA,
             )
         )
-        tablas_vacias.flush()
-        tablas_vacias.add(
-            ListaEspera(
+        empty_tables.flush()
+        empty_tables.add(
+            WaitingList(
                 paciente_id=paciente.id,
                 especialidad=Especialidad.ORTODONCIA,
                 estado=EstadoListaEspera.ACTIVA,
             )
         )
-        tablas_vacias.flush()  # must not raise
+        empty_tables.flush()  # must not raise
 
     def test_la_misma_persona_puede_esperar_en_dos_especialidades(
-        self, tablas_vacias: Session
+        self, empty_tables: Session
     ) -> None:
-        paciente = self._paciente(tablas_vacias, "557")
-        tablas_vacias.add_all(
+        paciente = self._paciente(empty_tables, "557")
+        empty_tables.add_all(
             [
-                ListaEspera(paciente_id=paciente.id, especialidad=Especialidad.ORTODONCIA),
-                ListaEspera(paciente_id=paciente.id, especialidad=Especialidad.ENDODONCIA),
+                WaitingList(paciente_id=paciente.id, especialidad=Especialidad.ORTODONCIA),
+                WaitingList(paciente_id=paciente.id, especialidad=Especialidad.ENDODONCIA),
             ]
         )
-        tablas_vacias.flush()
+        empty_tables.flush()
 
 
 class TestAuditoria:
-    def test_el_historial_admite_estado_anterior_nulo(self, tablas_vacias: Session) -> None:
+    def test_el_historial_admite_estado_anterior_nulo(self, empty_tables: Session) -> None:
         """The very first row of an appointment's history has no predecessor."""
-        registro = CitaHistorial(
+        registro = AppointmentHistory(
             cita_id=1,
             estado_anterior=None,
             estado_nuevo=EstadoCita.AGENDADA,
@@ -278,10 +278,10 @@ class TestAuditoria:
 
     def test_la_tabla_de_historial_no_tiene_columna_de_actualizacion(self) -> None:
         # Append-only by construction: there is nothing to update.
-        assert "actualizada_en" not in CitaHistorial.__table__.columns
+        assert "actualizada_en" not in AppointmentHistory.__table__.columns
 
     def test_toda_columna_de_historial_es_no_nula_donde_importa(self) -> None:
-        columnas = CitaHistorial.__table__.columns
+        columnas = AppointmentHistory.__table__.columns
         assert not columnas["estado_nuevo"].nullable
         assert not columnas["usuario"].nullable
         assert not columnas["momento"].nullable

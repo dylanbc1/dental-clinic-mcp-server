@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 
 from mcp_server.audit import (
-    CAMPOS_REDACTADOS,
-    REDACTADO,
+    REDACTED,
+    REDACTED_FIELDS,
     Auditor,
-    configurar_logging,
-    redactar,
+    configure_logging,
+    redact,
 )
 
 pytestmark = pytest.mark.security
@@ -22,110 +22,108 @@ class LoggerFalso:
     def __init__(self) -> None:
         self.llamadas: list[tuple[str, dict[str, Any]]] = []
 
-    def info(self, evento: str, **datos: Any) -> None:
-        self.llamadas.append((evento, datos))
+    def info(self, evento: str, **payload: Any) -> None:
+        self.llamadas.append((evento, payload))
 
 
 class TestRedaccion:
-    @pytest.mark.parametrize("campo", sorted(CAMPOS_REDACTADOS))
+    @pytest.mark.parametrize("campo", sorted(REDACTED_FIELDS))
     def test_todo_campo_sensible_se_redacta(self, campo: str) -> None:
-        assert redactar({campo: "valor real"})[campo] == REDACTADO
+        assert redact({campo: "valor real"})[campo] == REDACTED
 
     def test_los_demas_campos_se_conservan(self) -> None:
-        assert redactar({"cita_id": 7, "estado": "atendida"}) == {
+        assert redact({"cita_id": 7, "estado": "atendida"}) == {
             "cita_id": 7,
             "estado": "atendida",
         }
 
     def test_un_none_no_se_redacta_innecesariamente(self) -> None:
         """Redacting an absent value hides that it was absent."""
-        assert redactar({"motivo": None}) == {"motivo": None}
+        assert redact({"motivo": None}) == {"motivo": None}
 
     def test_el_motivo_de_consulta_esta_cubierto(self) -> None:
         # It is clinical data under Res. 2654/2019.
-        assert "motivo" in CAMPOS_REDACTADOS
+        assert "motivo" in REDACTED_FIELDS
 
     def test_el_token_de_confirmacion_esta_cubierto(self) -> None:
         # A logged token is a replayable approval.
-        assert "token_confirmacion" in CAMPOS_REDACTADOS
+        assert "token_confirmacion" in REDACTED_FIELDS
 
 
 class TestAuditor:
     def test_registra_una_invocacion_exitosa(self) -> None:
         logger = LoggerFalso()
         auditor = Auditor(logger)
-        auditor.invocacion(
+        auditor.tool_call(
             "buscar_paciente",
-            sujeto="ana@clinica.test",
+            subject="ana@clinica.test",
             scope="read",
-            argumentos={"documento": "123"},
-            resultado="ok",
+            arguments={"documento": "123"},
+            result="ok",
         )
-        evento, datos = logger.llamadas[-1]
-        assert evento == "tool.invocacion"
-        assert datos["sujeto"] == "ana@clinica.test"
-        assert datos["argumentos"]["documento"] == REDACTADO
+        evento, payload = logger.llamadas[-1]
+        assert evento == "tool.invocation"
+        assert payload["subject"] == "ana@clinica.test"
+        assert payload["arguments"]["documento"] == REDACTED
 
     def test_registra_el_codigo_de_error_cuando_lo_hay(self) -> None:
         auditor = Auditor(LoggerFalso())
-        auditor.invocacion(
+        auditor.tool_call(
             "x",
-            sujeto="a",
+            subject="a",
             scope="read",
-            argumentos={},
-            resultado="error",
-            codigo_error="CITA_NO_ENCONTRADA",
+            arguments={},
+            result="error",
+            error_code="CITA_NO_ENCONTRADA",
         )
-        assert auditor.eventos[-1]["codigo_error"] == "CITA_NO_ENCONTRADA"
+        assert auditor.events[-1]["error_code"] == "CITA_NO_ENCONTRADA"
 
     def test_marca_la_ejecucion_aprobada(self) -> None:
         auditor = Auditor(LoggerFalso())
-        auditor.invocacion(
-            "x", sujeto="a", scope="write", argumentos={}, resultado="ok", aprobada=True
-        )
-        assert auditor.eventos[-1]["con_aprobacion_humana"] is True
+        auditor.tool_call("x", subject="a", scope="write", arguments={}, result="ok", approved=True)
+        assert auditor.events[-1]["with_human_approval"] is True
 
     def test_propuesta_y_confirmacion_son_eventos_distintos(self) -> None:
         auditor = Auditor(LoggerFalso())
-        auditor.propuesta_emitida("cancelar_cita", sujeto="a", nonce="n1")
-        auditor.propuesta_confirmada("cancelar_cita", sujeto="a", nonce="n1")
-        assert [e["evento"] for e in auditor.eventos] == [
-            "aprobacion.propuesta",
-            "aprobacion.confirmada",
+        auditor.question_asked("cancelar_cita", subject="a", nonce="n1")
+        auditor.question_answered("cancelar_cita", subject="a", nonce="n1")
+        assert [e["event"] for e in auditor.events] == [
+            "approval.proposed",
+            "approval.confirmed",
         ]
 
     def test_el_acceso_clinico_es_su_propio_tipo_de_evento(self) -> None:
         auditor = Auditor(LoggerFalso())
-        auditor.acceso_clinico(sujeto="a", cita_id=7, resultado="registrado")
-        assert auditor.eventos[-1] == {
-            "evento": "clinico.acceso",
-            "sujeto": "a",
+        auditor.clinical_access(subject="a", cita_id=7, result="registrado")
+        assert auditor.events[-1] == {
+            "event": "clinical.access",
+            "subject": "a",
             "cita_id": 7,
-            "resultado": "registrado",
+            "result": "registrado",
         }
 
     def test_la_memoria_esta_acotada(self) -> None:
         """An audit log is a log, not a data store: the in-memory mirror must
         not grow without bound in a long-running process."""
         auditor = Auditor(LoggerFalso())
-        auditor.limite_memoria = 10
+        auditor.memory_limit = 10
         for i in range(50):
-            auditor.acceso_clinico(sujeto="a", cita_id=i, resultado="x")
-        assert len(auditor.eventos) == 10
-        assert auditor.eventos[-1]["cita_id"] == 49
+            auditor.clinical_access(subject="a", cita_id=i, result="x")
+        assert len(auditor.events) == 10
+        assert auditor.events[-1]["cita_id"] == 49
 
     def test_los_eventos_son_serializables_a_json(self) -> None:
         """They are shipped to a log pipeline; an unserialisable value would be
         discovered in production rather than here."""
         auditor = Auditor(LoggerFalso())
-        auditor.invocacion("x", sujeto="a", scope="read", argumentos={"cita_id": 1}, resultado="ok")
-        json.dumps(auditor.eventos)
+        auditor.tool_call("x", subject="a", scope="read", arguments={"cita_id": 1}, result="ok")
+        json.dumps(auditor.events)
 
 
 class TestConfiguracionDeLogging:
     def test_configurar_no_revienta_con_un_nivel_valido(self) -> None:
-        configurar_logging("DEBUG")
-        configurar_logging("INFO")
+        configure_logging("DEBUG")
+        configure_logging("INFO")
 
     def test_un_nivel_desconocido_cae_a_info(self) -> None:
-        configurar_logging("NO-EXISTE")
+        configure_logging("NO-EXISTE")

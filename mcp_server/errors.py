@@ -18,21 +18,21 @@ from typing import Any
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from backend.domain.errors import CodigoError, ErrorDominio
+from backend.domain.errors import DomainError, ErrorCode
 
 #: Errors whose remedy is for the *caller* to obtain something (a permission, an
 #: approval, a consent) rather than to correct a parameter. Rendered with a
 #: stronger lead-in so the model escalates instead of retrying.
-CODIGOS_QUE_EXIGEN_ESCALAR: frozenset[CodigoError] = frozenset(
+CODES_REQUIRING_ESCALATION: frozenset[ErrorCode] = frozenset(
     {
-        CodigoError.SCOPE_INSUFICIENTE,
-        CodigoError.NO_AUTENTICADO,
-        CodigoError.CONSENTIMIENTO_REQUERIDO,
+        ErrorCode.SCOPE_INSUFICIENTE,
+        ErrorCode.NO_AUTENTICADO,
+        ErrorCode.CONSENTIMIENTO_REQUERIDO,
     }
 )
 
 
-class ErrorHerramienta(ToolError):
+class StructuredToolError(ToolError):
     """A tool failure carrying the structured envelope.
 
     Subclasses :class:`ToolError` so the SDK returns ``is_error=True`` with the
@@ -55,17 +55,17 @@ class ErrorHerramienta(ToolError):
         super().__init__(self.render())
 
     def render(self) -> str:
-        partes = [f"[{self.codigo}] {self.mensaje}"]
+        parts = [f"[{self.codigo}] {self.mensaje}"]
         if self.sugerencia:
             prefijo = (
                 "Action required"
-                if self.codigo in {str(c) for c in CODIGOS_QUE_EXIGEN_ESCALAR}
+                if self.codigo in {str(c) for c in CODES_REQUIRING_ESCALATION}
                 else "Suggestion"
             )
-            partes.append(f"{prefijo}: {self.sugerencia}")
+            parts.append(f"{prefijo}: {self.sugerencia}")
         if self.detalles:
-            partes.append(f"Datos: {json.dumps(self.detalles, ensure_ascii=False, default=str)}")
-        return "\n".join(partes)
+            parts.append(f"Datos: {json.dumps(self.detalles, ensure_ascii=False, default=str)}")
+        return "\n".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"error": True, "codigo": self.codigo, "mensaje": self.mensaje}
@@ -76,7 +76,7 @@ class ErrorHerramienta(ToolError):
         return payload
 
     @classmethod
-    def desde_envoltura(cls, payload: dict[str, Any]) -> ErrorHerramienta:
+    def from_envelope(cls, payload: dict[str, Any]) -> StructuredToolError:
         """Rebuild from the backend's JSON envelope."""
         return cls(
             codigo=str(payload.get("codigo", "ERROR_INTERNO")),
@@ -86,13 +86,13 @@ class ErrorHerramienta(ToolError):
         )
 
     @classmethod
-    def desde_dominio(cls, error: ErrorDominio) -> ErrorHerramienta:
-        return cls.desde_envoltura(error.to_dict())
+    def from_domain(cls, error: DomainError) -> StructuredToolError:
+        return cls.from_envelope(error.to_dict())
 
 
-def error_no_autenticado(recurso: str) -> ErrorHerramienta:
-    return ErrorHerramienta(
-        str(CodigoError.NO_AUTENTICADO),
+def unauthenticated_error(recurso: str) -> StructuredToolError:
+    return StructuredToolError(
+        str(ErrorCode.NO_AUTENTICADO),
         "The request carries no valid access token.",
         sugerencia=(
             "Authenticate with the authorization server (OAuth 2.1 + PKCE) described at "
@@ -101,26 +101,26 @@ def error_no_autenticado(recurso: str) -> ErrorHerramienta:
     )
 
 
-def error_scope(herramienta: str, requerido: str, presentes: list[str]) -> ErrorHerramienta:
-    return ErrorHerramienta(
-        str(CodigoError.SCOPE_INSUFICIENTE),
-        f"The tool '{herramienta}' requires the '{requerido}' permission.",
+def scope_error(tool_name: str, requerido: str, presentes: list[str]) -> StructuredToolError:
+    return StructuredToolError(
+        str(ErrorCode.SCOPE_INSUFICIENTE),
+        f"The tool '{tool_name}' requires the '{requerido}' permission.",
         sugerencia=(
             f"Your token carries {presentes or ['no scopes']}. Request a token that "
             f"includes '{requerido}' before retrying. Do not call this tool again with "
             "the current token: the result will be the same."
         ),
         detalles={
-            "herramienta": herramienta,
+            "herramienta": tool_name,
             "scope_requerido": requerido,
             "scopes_del_token": presentes,
         },
     )
 
 
-def error_backend_caido(detalle: str) -> ErrorHerramienta:
+def backend_down_error(detalle: str) -> StructuredToolError:
     """The backend is unreachable. Not the caller's fault, so say so."""
-    return ErrorHerramienta(
+    return StructuredToolError(
         "BACKEND_NO_DISPONIBLE",
         "The clinic's system is not responding.",
         sugerencia=(

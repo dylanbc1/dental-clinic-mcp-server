@@ -36,14 +36,14 @@ def pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def obtener_token(issuer: str, scope: str, sujeto: str) -> str:
+def get_token(issuer: str, scope: str, subject: str) -> str:
     issuer = issuer.rstrip("/")
     verifier, challenge = pkce()
 
-    with httpx.Client(follow_redirects=False, timeout=10) as cliente:
-        metadata = cliente.get(f"{issuer}/.well-known/oauth-authorization-server").json()
+    with httpx.Client(follow_redirects=False, timeout=10) as client:
+        metadata = client.get(f"{issuer}/.well-known/oauth-authorization-server").json()
 
-        autorizacion = cliente.get(
+        autorizacion = client.get(
             metadata["authorization_endpoint"],
             params={
                 "response_type": "code",
@@ -53,21 +53,21 @@ def obtener_token(issuer: str, scope: str, sujeto: str) -> str:
                 "code_challenge_method": "S256",
                 "scope": scope,
                 "state": secrets.token_urlsafe(8),
-                "login_hint": sujeto,
+                "login_hint": subject,
             },
         )
         if autorizacion.status_code != 302:
             raise SystemExit(f"/authorize failed: {autorizacion.status_code} {autorizacion.text}")
 
-        consulta = parse_qs(urlparse(autorizacion.headers["location"]).query)
-        if "error" in consulta:
-            raise SystemExit(f"/authorize refused the request: {consulta}")
+        query = parse_qs(urlparse(autorizacion.headers["location"]).query)
+        if "error" in query:
+            raise SystemExit(f"/authorize refused the request: {query}")
 
-        token = cliente.post(
+        token = client.post(
             metadata["token_endpoint"],
             data={
                 "grant_type": "authorization_code",
-                "code": consulta["code"][0],
+                "code": query["code"][0],
                 "code_verifier": verifier,
                 "client_id": CLIENTE,
             },
@@ -81,9 +81,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--issuer", default="http://localhost:9000")
     parser.add_argument("--scope", default="read write")
-    parser.add_argument("--sujeto", default="recepcion@clinica.local")
+    parser.add_argument("--subject", default="recepcion@clinica.local")
     args = parser.parse_args()
-    print(obtener_token(args.issuer, args.scope, args.sujeto))
+    print(get_token(args.issuer, args.scope, args.subject))
     return 0
 
 

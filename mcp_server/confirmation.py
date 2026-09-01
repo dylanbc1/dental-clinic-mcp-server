@@ -30,10 +30,10 @@ from __future__ import annotations
 from mcp.server.mcpserver import Context
 from pydantic import BaseModel, Field
 
-from mcp_server.errors import ErrorHerramienta
+from mcp_server.errors import StructuredToolError
 
 
-def exigir_cliente_que_confirma(contexto: Context) -> None:
+def require_client_that_can_confirm(contexto: Context) -> None:
     """Refuse clearly when the client cannot ask a person anything.
 
     Without this the call dies deep in the transport with "no back-channel for
@@ -44,7 +44,7 @@ def exigir_cliente_que_confirma(contexto: Context) -> None:
     capacidades = contexto.client_capabilities
     if capacidades is not None and capacidades.elicitation is not None:
         return
-    raise ErrorHerramienta(
+    raise StructuredToolError(
         "CLIENTE_SIN_CONFIRMACION",
         "Your MCP client cannot ask a person for confirmation, and this server does "
         "not perform writes without one.",
@@ -60,7 +60,7 @@ def exigir_cliente_que_confirma(contexto: Context) -> None:
     )
 
 
-class Confirmacion(BaseModel):
+class Confirmation(BaseModel):
     """What the person approving is asked for.
 
     A single boolean on purpose: the decision is approve or do not approve, and
@@ -76,9 +76,9 @@ class Confirmacion(BaseModel):
     )
 
 
-def redactar_propuesta(
+def render_question(
     resumen: str,
-    efectos: list[str],
+    effects: list[str],
     advertencias: list[str] | None = None,
 ) -> str:
     """Render the question a human reads before approving.
@@ -87,10 +87,10 @@ def redactar_propuesta(
     names the appointment in words, and the effects are what they are actually
     consenting to.
     """
-    lineas = [resumen, "", "Esto va a pasar:"]
-    lineas += [f"  · {e}" for e in efectos]
+    lines = [resumen, "", "Esto va a pasar:"]
+    lines += [f"  · {e}" for e in effects]
     if advertencias:
-        lineas += ["", "Ten en cuenta:"]
-        lineas += [f"  ⚠ {a}" for a in advertencias]
-    lineas += ["", "¿Confirmas la operación?"]
-    return "\n".join(lineas)
+        lines += ["", "Ten en cuenta:"]
+        lines += [f"  ⚠ {a}" for a in advertencias]
+    lines += ["", "¿Confirmas la operación?"]
+    return "\n".join(lines)

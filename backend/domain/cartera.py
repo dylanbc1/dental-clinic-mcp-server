@@ -19,15 +19,15 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from backend.domain.afiliacion import (
-    CUOTA_MODERADORA_POR_NIVEL,
-    PORCENTAJE_COPAGO_SUBSIDIADO,
-    ResultadoAfiliacion,
-    tarifa_base,
+    CUOTA_MODERADORA_BY_BRACKET,
+    SUBSIDIADO_COPAGO_RATE,
+    AfiliacionResult,
+    base_tariff,
 )
 from backend.enums import ConceptoCargo, EstadoCargo, EstadoCartera, Regimen
 
 #: Ageing buckets the sector uses to prioritise collections.
-BUCKETS_ANTIGUEDAD: tuple[tuple[str, int, int | None], ...] = (
+AGEING_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
     ("corriente", -10_000, 0),  # not due yet
     ("1_30", 1, 30),
     ("31_60", 31, 60),
@@ -37,7 +37,7 @@ BUCKETS_ANTIGUEDAD: tuple[tuple[str, int, int | None], ...] = (
 
 
 @dataclass(frozen=True, slots=True)
-class PoliticaCartera:
+class CarteraPolicy:
     """Clinic-configurable collection policy."""
 
     cobra_no_show: bool = True
@@ -50,11 +50,11 @@ class PoliticaCartera:
     penaliza_solo_confirmadas: bool = True
 
 
-POLITICA_POR_DEFECTO = PoliticaCartera()
+DEFAULT_POLICY = CarteraPolicy()
 
 
 @dataclass(frozen=True, slots=True)
-class CargoCalculado:
+class CalculatedCharge:
     """A charge the domain decided to create, before it is persisted."""
 
     concepto: ConceptoCargo
@@ -63,7 +63,7 @@ class CargoCalculado:
 
 
 @dataclass(frozen=True, slots=True)
-class CargoPendiente:
+class PendingCharge:
     """Read model of a single outstanding charge."""
 
     cargo_id: int
@@ -72,13 +72,13 @@ class CargoPendiente:
     vencimiento: date
     estado: EstadoCargo
 
-    def dias_vencidos(self, hoy: date) -> int:
+    def days_overdue(self, hoy: date) -> int:
         """Positive when overdue, negative when it is not due yet."""
         return (hoy - self.vencimiento).days
 
 
 @dataclass(frozen=True, slots=True)
-class ResumenCartera:
+class CarteraSummary:
     """What `consultar_cartera` returns and what a collections agent acts on."""
 
     paciente_id: int
@@ -92,103 +92,103 @@ class ResumenCartera:
     mensaje: str = ""
 
 
-def _redondear(monto: Decimal) -> Decimal:
+def _round(monto: Decimal) -> Decimal:
     """COP has no cents in practice; round to the peso."""
     return monto.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
-def calcular_cargo_por_atencion(
-    afiliacion: ResultadoAfiliacion,
+def charge_for_visit(
+    afiliacion: AfiliacionResult,
     especialidad: str,
     *,
     nivel_cuota_moderadora: int = 1,
-) -> CargoCalculado | None:
+) -> CalculatedCharge | None:
     """Charge produced when an appointment reaches `atendida`.
 
     ``None`` when the service is fully covered (SOAT). That is a legitimate
     outcome, not an error.
     """
-    tarifa = tarifa_base(especialidad)
+    tariff = base_tariff(especialidad)
 
     if afiliacion.regimen_efectivo is Regimen.SOAT:
         return None
 
     if afiliacion.regimen_efectivo is Regimen.PARTICULAR:
-        return CargoCalculado(
+        return CalculatedCharge(
             concepto=ConceptoCargo.PARTICULAR,
-            monto=_redondear(tarifa),
+            monto=_round(tariff),
             descripcion=f"Private tariff · {especialidad}",
         )
 
     if afiliacion.regimen_efectivo is Regimen.CONTRIBUTIVO:
-        cuota = CUOTA_MODERADORA_POR_NIVEL.get(
-            nivel_cuota_moderadora, CUOTA_MODERADORA_POR_NIVEL[1]
+        fee = CUOTA_MODERADORA_BY_BRACKET.get(
+            nivel_cuota_moderadora, CUOTA_MODERADORA_BY_BRACKET[1]
         )
-        return CargoCalculado(
+        return CalculatedCharge(
             concepto=ConceptoCargo.CUOTA_MODERADORA,
-            monto=_redondear(cuota),
+            monto=_round(fee),
             descripcion=f"Cuota moderadora · {especialidad}",
         )
 
     # Subsidised regime: percentage copayment over the reference tariff.
-    return CargoCalculado(
+    return CalculatedCharge(
         concepto=ConceptoCargo.COPAGO,
-        monto=_redondear(tarifa * PORCENTAJE_COPAGO_SUBSIDIADO),
+        monto=_round(tariff * SUBSIDIADO_COPAGO_RATE),
         descripcion=f"Copago, subsidiado régimen · {especialidad}",
     )
 
 
-def calcular_cargo_por_no_show(
+def charge_for_no_show(
     *,
     estaba_confirmada: bool,
-    politica: PoliticaCartera = POLITICA_POR_DEFECTO,
-) -> CargoCalculado | None:
+    policy: CarteraPolicy = DEFAULT_POLICY,
+) -> CalculatedCharge | None:
     """Penalty charge for a missed appointment, if the policy enables it."""
-    if not politica.cobra_no_show:
+    if not policy.cobra_no_show:
         return None
-    if politica.penaliza_solo_confirmadas and not estaba_confirmada:
+    if policy.penaliza_solo_confirmadas and not estaba_confirmada:
         return None
-    return CargoCalculado(
+    return CalculatedCharge(
         concepto=ConceptoCargo.NO_SHOW,
-        monto=_redondear(politica.monto_no_show),
+        monto=_round(policy.monto_no_show),
         descripcion="No-show penalty, no prior cancellation",
     )
 
 
 def _bucket(dias: int) -> str:
-    for nombre, desde, hasta in BUCKETS_ANTIGUEDAD:
+    for nombre, desde, hasta in AGEING_BUCKETS:
         if dias >= desde and (hasta is None or dias <= hasta):
             return nombre
     return "corriente"
 
 
-def resumir_cartera(
+def summarise_cartera(
     paciente_id: int,
-    cargos: list[CargoPendiente],
+    cargos: list[PendingCharge],
     *,
     hoy: date,
-    politica: PoliticaCartera = POLITICA_POR_DEFECTO,
-) -> ResumenCartera:
+    policy: CarteraPolicy = DEFAULT_POLICY,
+) -> CarteraSummary:
     """Aggregate a patient's outstanding charges into a collections view."""
-    pendientes = [c for c in cargos if c.estado is EstadoCargo.PENDIENTE]
+    outstanding = [c for c in cargos if c.estado is EstadoCargo.PENDIENTE]
 
-    total_pendiente = _redondear(sum((c.monto for c in pendientes), Decimal("0")))
-    vencidos = [c for c in pendientes if c.dias_vencidos(hoy) > politica.dias_gracia]
-    total_vencido = _redondear(sum((c.monto for c in vencidos), Decimal("0")))
-    dias_mora_maximo = max((c.dias_vencidos(hoy) for c in vencidos), default=0)
+    total_pendiente = _round(sum((c.monto for c in outstanding), Decimal("0")))
+    overdue = [c for c in outstanding if c.days_overdue(hoy) > policy.dias_gracia]
+    total_vencido = _round(sum((c.monto for c in overdue), Decimal("0")))
+    dias_mora_maximo = max((c.days_overdue(hoy) for c in overdue), default=0)
 
-    antiguedad: dict[str, Decimal] = {nombre: Decimal("0") for nombre, _, _ in BUCKETS_ANTIGUEDAD}
-    for cargo in pendientes:
-        antiguedad[_bucket(cargo.dias_vencidos(hoy))] += cargo.monto
-    antiguedad = {k: _redondear(v) for k, v in antiguedad.items()}
+    antiguedad: dict[str, Decimal] = {nombre: Decimal("0") for nombre, _, _ in AGEING_BUCKETS}
+    for cargo in outstanding:
+        antiguedad[_bucket(cargo.days_overdue(hoy))] += cargo.monto
+    antiguedad = {k: _round(v) for k, v in antiguedad.items()}
 
-    estado = EstadoCartera.EN_MORA if vencidos else EstadoCartera.AL_DIA
-    supera_umbral = total_vencido >= politica.umbral_alerta_mora
+    estado = EstadoCartera.EN_MORA if overdue else EstadoCartera.AL_DIA
+    supera_umbral = total_vencido >= policy.umbral_alerta_mora
 
     if estado is EstadoCartera.AL_DIA:
         mensaje = (
             "Cartera up to date."
-            if not pendientes
+            if not outstanding
             else f"Cartera up to date. ${total_pendiente:,.0f} COP not yet due."
         )
     else:
@@ -199,20 +199,20 @@ def resumir_cartera(
         if supera_umbral:
             mensaje += " Above the clinic's alert threshold."
 
-    return ResumenCartera(
+    return CarteraSummary(
         paciente_id=paciente_id,
         estado=estado,
         total_pendiente=total_pendiente,
         total_vencido=total_vencido,
         dias_mora_maximo=dias_mora_maximo,
-        cantidad_cargos=len(pendientes),
+        cantidad_cargos=len(outstanding),
         antiguedad=antiguedad,
         supera_umbral_alerta=supera_umbral,
         mensaje=mensaje,
     )
 
 
-def alerta_al_agendar(resumen: ResumenCartera) -> str | None:
+def booking_warning(resumen: CarteraSummary) -> str | None:
     """Warning shown when scheduling a patient in arrears, never a block.
 
     Returning a string rather than raising is the point: the tool layer passes

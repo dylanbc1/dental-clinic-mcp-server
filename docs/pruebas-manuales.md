@@ -59,11 +59,11 @@ citas en los seis estados, y más de mil cupos libres para agendar.
 ### A3 · El seed es determinista
 
 ```bash
-uv run python -m backend.seed --fecha-base 2026-08-31
+uv run python -m backend.seed --base-date 2026-08-31
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
 
-uv run python -m backend.seed --fecha-base 2026-08-31
+uv run python -m backend.seed --base-date 2026-08-31
 docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select md5(string_agg(documento||nombre, '' order by documento)) from paciente;"
 ```

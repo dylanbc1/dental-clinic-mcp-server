@@ -14,13 +14,13 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from backend.domain.time import ahora_local
-from mcp_server.context import Contexto
+from backend.domain.time import now_at_clinic
+from mcp_server.context import ToolContext
 
 #: `strftime` follows the process locale, usually C in a container. An
 #: assistant that says "Monday 31 de August" reads as machine-translated.
-DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
-MESES = (
+WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+MONTHS = (
     "enero",
     "febrero",
     "marzo",
@@ -36,13 +36,11 @@ MESES = (
 )
 
 
-def fecha_en_espanol(momento: datetime) -> str:
-    return (
-        f"{DIAS[momento.weekday()]} {momento.day} de {MESES[momento.month - 1]} de {momento.year}"
-    )
+def date_in_spanish(when: datetime) -> str:
+    return f"{WEEKDAYS[when.weekday()]} {when.day} de {MONTHS[when.month - 1]} de {when.year}"
 
 
-PROMPT_RECEPCIONISTA = """\
+RECEPTIONIST_PROMPT = """\
 Eres el asistente de recepción de {nombre}, una clínica odontológica en {ciudad}, Colombia.
 Hablas español colombiano, tratas de "usted" a los pacientes y eres breve y concreto.
 
@@ -81,8 +79,8 @@ Hoy es {hoy} y son las {hora} (hora de {ciudad}).
 """
 
 
-def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
-    @servidor.resource(
+def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
+    @server_.resource(
         "clinica://info",
         name="Clinic information",
         description=(
@@ -91,10 +89,10 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         ),
         mime_type="application/json",
     )
-    async def info_clinica() -> str:
-        return json.dumps(await ctx.cliente.obtener("/clinica"), ensure_ascii=False, indent=2)
+    async def clinic_info_route() -> str:
+        return json.dumps(await ctx.client.get_object("/clinica"), ensure_ascii=False, indent=2)
 
-    @servidor.resource(
+    @server_.resource(
         "politicas://cartera",
         name="Cartera policy and tariffs",
         description=(
@@ -105,12 +103,12 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         ),
         mime_type="application/json",
     )
-    async def politicas_cartera() -> str:
+    async def cartera_policies_resource() -> str:
         return json.dumps(
-            await ctx.cliente.obtener("/politicas/cartera"), ensure_ascii=False, indent=2
+            await ctx.client.get_object("/politicas/cartera"), ensure_ascii=False, indent=2
         )
 
-    @servidor.resource(
+    @server_.resource(
         "agenda://hoy",
         name="Today's agenda",
         description=(
@@ -119,15 +117,15 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         ),
         mime_type="application/json",
     )
-    async def agenda_hoy() -> str:
-        hoy: date = ahora_local().date()
+    async def agenda_today() -> str:
+        hoy: date = now_at_clinic().date()
         return json.dumps(
-            await ctx.cliente.obtener(f"/agenda/{hoy.isoformat()}"),
+            await ctx.client.get_object(f"/agenda/{hoy.isoformat()}"),
             ensure_ascii=False,
             indent=2,
         )
 
-    @servidor.prompt(
+    @server_.prompt(
         name="recepcionista_odontologia",
         title="Dental clinic receptionist",
         description=(
@@ -138,11 +136,11 @@ def registrar(servidor: MCPServer[Any], ctx: Contexto) -> None:
         ),
     )
     async def recepcionista_odontologia() -> str:
-        clinica = await ctx.cliente.obtener("/clinica")
-        ahora = ahora_local()
-        return PROMPT_RECEPCIONISTA.format(
+        clinica = await ctx.client.get_object("/clinica")
+        now = now_at_clinic()
+        return RECEPTIONIST_PROMPT.format(
             nombre=clinica["nombre"],
             ciudad=clinica["ciudad"],
-            hoy=fecha_en_espanol(ahora),
-            hora=f"{ahora:%H:%M}",
+            hoy=date_in_spanish(now),
+            hora=f"{now:%H:%M}",
         )

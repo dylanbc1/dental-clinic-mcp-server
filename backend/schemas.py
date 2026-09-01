@@ -14,11 +14,11 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.domain.afiliacion import ResultadoAfiliacion
-from backend.domain.cartera import ResumenCartera
-from backend.domain.services import SlotDisponible
-from backend.domain.states import transiciones_posibles
-from backend.domain.time import a_local
+from backend.domain.afiliacion import AfiliacionResult
+from backend.domain.cartera import CarteraSummary
+from backend.domain.services import AvailableSlot
+from backend.domain.states import reachable_states
+from backend.domain.time import to_clinic_time
 from backend.enums import (
     ConceptoCargo,
     Especialidad,
@@ -30,13 +30,13 @@ from backend.enums import (
     Regimen,
     TipoDocumento,
 )
-from backend.models import Cargo, Cita, Clinica, ListaEspera, Paciente, Profesional
+from backend.models import Appointment, Charge, Clinic, Patient, Professional, WaitingList
 
-Documento = Annotated[str, Field(min_length=4, max_length=20, pattern=r"^[0-9A-Za-z\-]+$")]
-Motivo = Annotated[str, Field(min_length=3, max_length=500)]
+DocumentNumber = Annotated[str, Field(min_length=4, max_length=20, pattern=r"^[0-9A-Za-z\-]+$")]
+Reason = Annotated[str, Field(min_length=3, max_length=500)]
 
 
-class Modelo(BaseModel):
+class Model(BaseModel):
     model_config = ConfigDict(from_attributes=True, use_enum_values=False)
 
 
@@ -45,7 +45,7 @@ class Modelo(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
-class PacienteResumen(Modelo):
+class PatientSummary(Model):
     id: int
     tipo_documento: TipoDocumento
     documento: str
@@ -56,11 +56,11 @@ class PacienteResumen(Modelo):
     eps: str | None = None
 
     @classmethod
-    def desde(cls, paciente: Paciente) -> PacienteResumen:
+    def of(cls, paciente: Patient) -> PatientSummary:
         return cls.model_validate(paciente)
 
 
-class ProfesionalResumen(Modelo):
+class ProfessionalSummary(Model):
     id: int
     nombre: str
     registro: str
@@ -68,7 +68,7 @@ class ProfesionalResumen(Modelo):
     activo: bool
 
 
-class ClinicaInfo(Modelo):
+class ClinicInfo(Model):
     id: int
     nombre: str
     nit: str
@@ -77,16 +77,16 @@ class ClinicaInfo(Modelo):
     telefono: str | None = None
     ciudad: str
     zona_horaria: str
-    profesionales: list[ProfesionalResumen] = Field(default_factory=list)
+    profesionales: list[ProfessionalSummary] = Field(default_factory=list)
 
     @classmethod
-    def desde(cls, clinica: Clinica, profesionales: list[Profesional]) -> ClinicaInfo:
-        datos = cls.model_validate(clinica).model_dump()
-        datos["profesionales"] = [ProfesionalResumen.model_validate(p) for p in profesionales]
-        return cls.model_validate(datos)
+    def of(cls, clinica: Clinic, profesionales: list[Professional]) -> ClinicInfo:
+        payload = cls.model_validate(clinica).model_dump()
+        payload["profesionales"] = [ProfessionalSummary.model_validate(p) for p in profesionales]
+        return cls.model_validate(payload)
 
 
-class SlotLibre(Modelo):
+class FreeSlot(Model):
     slot_id: int
     profesional_id: int
     profesional: str
@@ -98,19 +98,19 @@ class SlotLibre(Modelo):
     fin_local: str
 
     @classmethod
-    def desde(cls, slot: SlotDisponible) -> SlotLibre:
+    def of(cls, slot: AvailableSlot) -> FreeSlot:
         return cls(
             slot_id=slot.slot_id,
             profesional_id=slot.profesional_id,
             profesional=slot.profesional,
             especialidad=slot.especialidad,
             inicio_utc=slot.inicio,
-            inicio_local=f"{a_local(slot.inicio):%Y-%m-%d %H:%M}",
-            fin_local=f"{a_local(slot.fin):%H:%M}",
+            inicio_local=f"{to_clinic_time(slot.inicio):%Y-%m-%d %H:%M}",
+            fin_local=f"{to_clinic_time(slot.fin):%H:%M}",
         )
 
 
-class HistorialItem(Modelo):
+class HistoryItem(Model):
     estado_anterior: EstadoCita | None
     estado_nuevo: EstadoCita
     usuario: str
@@ -118,7 +118,7 @@ class HistorialItem(Modelo):
     momento: datetime
 
 
-class CitaDetalle(Modelo):
+class AppointmentDetail(Model):
     id: int
     estado: EstadoCita
     paciente_id: int
@@ -140,10 +140,10 @@ class CitaDetalle(Modelo):
     #: pick the right tool, and so a write tool can refuse to propose a
     #: transition that would fail on confirmation.
     transiciones_validas: list[EstadoCita] = Field(default_factory=list)
-    historial: list[HistorialItem] = Field(default_factory=list)
+    historial: list[HistoryItem] = Field(default_factory=list)
 
     @classmethod
-    def desde(cls, cita: Cita, *, incluir_historial: bool = True) -> CitaDetalle:
+    def of(cls, cita: Appointment, *, incluir_historial: bool = True) -> AppointmentDetail:
         return cls(
             id=cita.id,
             estado=cita.estado,
@@ -153,23 +153,21 @@ class CitaDetalle(Modelo):
             profesional=cita.profesional.nombre,
             especialidad=cita.profesional.especialidad,
             slot_id=cita.slot_id,
-            inicio_local=f"{a_local(cita.slot.inicio):%Y-%m-%d %H:%M}",
-            fin_local=f"{a_local(cita.slot.fin):%H:%M}",
+            inicio_local=f"{to_clinic_time(cita.slot.inicio):%Y-%m-%d %H:%M}",
+            fin_local=f"{to_clinic_time(cita.slot.fin):%H:%M}",
             creada_por=cita.creada_por,
             creada_en=cita.creada_en,
             motivo_cancelacion=cita.motivo_cancelacion,
             motivo=cita.motivo,
             cita_origen_id=cita.cita_origen_id,
-            transiciones_validas=sorted(transiciones_posibles(cita.estado)),
+            transiciones_validas=sorted(reachable_states(cita.estado)),
             historial=(
-                [HistorialItem.model_validate(h) for h in cita.historial]
-                if incluir_historial
-                else []
+                [HistoryItem.model_validate(h) for h in cita.historial] if incluir_historial else []
             ),
         )
 
 
-class AfiliacionRespuesta(Modelo):
+class AfiliacionResponse(Model):
     paciente_id: int
     regimen: Regimen
     activa: bool
@@ -182,22 +180,22 @@ class AfiliacionRespuesta(Modelo):
     bloquea_agendamiento: bool
 
     @classmethod
-    def desde(cls, paciente_id: int, resultado: ResultadoAfiliacion) -> AfiliacionRespuesta:
+    def of(cls, paciente_id: int, result: AfiliacionResult) -> AfiliacionResponse:
         return cls(
             paciente_id=paciente_id,
-            regimen=resultado.regimen,
-            activa=resultado.activa,
-            regimen_efectivo=resultado.regimen_efectivo,
-            cubierto=resultado.cubierto,
-            requiere_copago=resultado.requiere_copago,
-            concepto_cargo=resultado.concepto_cargo,
-            mensaje=resultado.mensaje,
-            sugerencia=resultado.sugerencia,
-            bloquea_agendamiento=resultado.bloquea_agendamiento,
+            regimen=result.regimen,
+            activa=result.activa,
+            regimen_efectivo=result.regimen_efectivo,
+            cubierto=result.cubierto,
+            requiere_copago=result.requiere_copago,
+            concepto_cargo=result.concepto_cargo,
+            mensaje=result.mensaje,
+            sugerencia=result.sugerencia,
+            bloquea_agendamiento=result.bloquea_agendamiento,
         )
 
 
-class CargoResumen(Modelo):
+class ChargeSummary(Model):
     id: int
     concepto: ConceptoCargo
     monto: Decimal
@@ -207,11 +205,11 @@ class CargoResumen(Modelo):
     cita_id: int | None
 
     @classmethod
-    def desde(cls, cargo: Cargo) -> CargoResumen:
+    def of(cls, cargo: Charge) -> ChargeSummary:
         return cls.model_validate(cargo)
 
 
-class CarteraRespuesta(Modelo):
+class CarteraResponse(Model):
     paciente_id: int
     estado: EstadoCartera
     total_pendiente: Decimal
@@ -221,10 +219,10 @@ class CarteraRespuesta(Modelo):
     antiguedad: dict[str, Decimal]
     supera_umbral_alerta: bool
     mensaje: str
-    cargos: list[CargoResumen] = Field(default_factory=list)
+    cargos: list[ChargeSummary] = Field(default_factory=list)
 
     @classmethod
-    def desde(cls, resumen: ResumenCartera, cargos: list[Cargo]) -> CarteraRespuesta:
+    def of(cls, resumen: CarteraSummary, cargos: list[Charge]) -> CarteraResponse:
         return cls(
             paciente_id=resumen.paciente_id,
             estado=resumen.estado,
@@ -235,11 +233,11 @@ class CarteraRespuesta(Modelo):
             antiguedad=resumen.antiguedad,
             supera_umbral_alerta=resumen.supera_umbral_alerta,
             mensaje=resumen.mensaje,
-            cargos=[CargoResumen.desde(c) for c in cargos],
+            cargos=[ChargeSummary.of(c) for c in cargos],
         )
 
 
-class EntradaEsperaResumen(Modelo):
+class WaitingEntrySummary(Model):
     id: int
     paciente_id: int
     paciente: str
@@ -250,20 +248,20 @@ class EntradaEsperaResumen(Modelo):
     notas: str | None = None
 
     @classmethod
-    def desde(cls, entrada: ListaEspera) -> EntradaEsperaResumen:
+    def of(cls, entry: WaitingList) -> WaitingEntrySummary:
         return cls(
-            id=entrada.id,
-            paciente_id=entrada.paciente_id,
-            paciente=entrada.paciente.nombre,
-            especialidad=entrada.especialidad,
-            prioridad=entrada.prioridad,
-            estado=entrada.estado,
-            creada_en=entrada.creada_en,
-            notas=entrada.notas,
+            id=entry.id,
+            paciente_id=entry.paciente_id,
+            paciente=entry.paciente.nombre,
+            especialidad=entry.especialidad,
+            prioridad=entry.prioridad,
+            estado=entry.estado,
+            creada_en=entry.creada_en,
+            notas=entry.notas,
         )
 
 
-class PoliticasCartera(Modelo):
+class CarteraPolicies(Model):
     cobra_no_show: bool
     monto_no_show: Decimal
     dias_gracia: int
@@ -281,27 +279,27 @@ class PoliticasCartera(Modelo):
 # --------------------------------------------------------------------------- #
 
 
-class AgendarRequest(BaseModel):
+class BookRequest(BaseModel):
     paciente_id: int = Field(gt=0)
     slot_id: int = Field(gt=0)
     especialidad_esperada: Especialidad | None = None
     idempotency_key: str | None = Field(default=None, max_length=80)
 
 
-class CancelarRequest(BaseModel):
-    motivo: Motivo
+class CancelRequest(BaseModel):
+    motivo: Reason
 
 
-class ReprogramarRequest(BaseModel):
+class RescheduleRequest(BaseModel):
     nuevo_slot_id: int = Field(gt=0)
     motivo: str | None = Field(default=None, max_length=500)
 
 
-class AsistenciaRequest(BaseModel):
+class AttendanceRequest(BaseModel):
     estado: EstadoCita
 
     @model_validator(mode="after")
-    def _solo_estados_de_asistencia(self) -> AsistenciaRequest:
+    def _attendance_states_only(self) -> AttendanceRequest:
         permitidos = {EstadoCita.EN_ESPERA, EstadoCita.ATENDIDA, EstadoCita.NO_ASISTIO}
         if self.estado not in permitidos:
             raise ValueError(
@@ -310,15 +308,15 @@ class AsistenciaRequest(BaseModel):
         return self
 
 
-class MotivoConsultaRequest(BaseModel):
-    motivo: Motivo
+class VisitReasonRequest(BaseModel):
+    motivo: Reason
 
 
-class OfrecerCupoRequest(BaseModel):
+class OfferSlotRequest(BaseModel):
     slot_id: int = Field(gt=0)
 
 
-class InscribirEsperaRequest(BaseModel):
+class JoinWaitingListRequest(BaseModel):
     paciente_id: int = Field(gt=0)
     especialidad: Especialidad
     prioridad: PrioridadListaEspera = PrioridadListaEspera.ANTIGUEDAD
@@ -330,27 +328,27 @@ class InscribirEsperaRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
-class AgendarRespuesta(Modelo):
-    cita: CitaDetalle
-    afiliacion: AfiliacionRespuesta
+class BookResponse(Model):
+    cita: AppointmentDetail
+    afiliacion: AfiliacionResponse
     #: Present when the patient is in arrears. Informational: the appointment
     #: was created regardless (§2.3).
     alerta_cartera: str | None = None
     reutilizada: bool = False
 
 
-class TransicionRespuesta(Modelo):
-    cita: CitaDetalle
+class TransitionResponse(Model):
+    cita: AppointmentDetail
     estado_anterior: EstadoCita
     estado_nuevo: EstadoCita
     libero_cupo: bool
     genero_cargo: bool
-    cargo: CargoResumen | None = None
-    siguiente_en_lista_espera: EntradaEsperaResumen | None = None
+    cargo: ChargeSummary | None = None
+    siguiente_en_lista_espera: WaitingEntrySummary | None = None
     mensaje: str
 
 
-class OfertaCupoRespuesta(Modelo):
+class SlotOfferResponse(Model):
     entrada_id: int
     paciente_id: int
     paciente: str
@@ -363,14 +361,14 @@ class OfertaCupoRespuesta(Modelo):
     mensaje: str
 
 
-class AgendaDelDia(Modelo):
+class DayAgenda(Model):
     fecha: date
     total: int
     por_estado: dict[str, int]
-    citas: list[CitaDetalle]
+    citas: list[AppointmentDetail]
 
 
-class RespuestaError(BaseModel):
+class ErrorResponse(BaseModel):
     """Documented shape of every failure, for the OpenAPI schema."""
 
     error: bool = True

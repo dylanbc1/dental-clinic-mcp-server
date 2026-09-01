@@ -14,20 +14,20 @@ from sqlalchemy.orm import sessionmaker
 from backend import database
 from backend.database import get_engine, get_session, get_sessionmaker, session_scope
 from backend.enums import Regimen, TipoDocumento
-from backend.models import Paciente
+from backend.models import Patient
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def scope_de_prueba(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scope(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the module-level session factory at the throwaway test database."""
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     monkeypatch.setattr(database, "get_sessionmaker", lambda: factory)
 
 
-def _paciente(documento: str) -> Paciente:
-    return Paciente(
+def _paciente(documento: str) -> Patient:
+    return Patient(
         tipo_documento=TipoDocumento.CC,
         documento=documento,
         nombre="Persona de prueba",
@@ -46,61 +46,61 @@ class TestCacheDeConexion:
 
 
 class TestSessionScope:
-    def test_confirma_al_salir_sin_error(self, scope_de_prueba: None) -> None:
-        with session_scope() as sesion:
-            sesion.add(_paciente("9000001"))
+    def test_confirma_al_salir_sin_error(self, test_scope: None) -> None:
+        with session_scope() as session_:
+            session_.add(_paciente("9000001"))
 
         with session_scope() as verificacion:
-            assert verificacion.scalar(select(Paciente).where(Paciente.documento == "9000001"))
+            assert verificacion.scalar(select(Patient).where(Patient.documento == "9000001"))
 
-    def test_revierte_ante_una_excepcion(self, scope_de_prueba: None) -> None:
-        with pytest.raises(RuntimeError, match="algo falló"), session_scope() as sesion:
-            sesion.add(_paciente("9000002"))
-            sesion.flush()
+    def test_revierte_ante_una_excepcion(self, test_scope: None) -> None:
+        with pytest.raises(RuntimeError, match="algo falló"), session_scope() as session_:
+            session_.add(_paciente("9000002"))
+            session_.flush()
             raise RuntimeError("algo falló")
 
         with session_scope() as verificacion:
             assert (
-                verificacion.scalar(select(Paciente).where(Paciente.documento == "9000002")) is None
+                verificacion.scalar(select(Patient).where(Patient.documento == "9000002")) is None
             )
 
-    def test_una_escritura_parcial_no_sobrevive(self, scope_de_prueba: None) -> None:
+    def test_una_escritura_parcial_no_sobrevive(self, test_scope: None) -> None:
         """The property the audit trail depends on: either both rows land or
         neither does."""
-        with pytest.raises(RuntimeError), session_scope() as sesion:
-            sesion.add(_paciente("9000003"))
-            sesion.flush()
-            sesion.add(_paciente("9000004"))
-            sesion.flush()
+        with pytest.raises(RuntimeError), session_scope() as session_:
+            session_.add(_paciente("9000003"))
+            session_.flush()
+            session_.add(_paciente("9000004"))
+            session_.flush()
             raise RuntimeError("interrupción a mitad de camino")
 
         with session_scope() as verificacion:
             encontrados = verificacion.scalars(
-                select(Paciente).where(Paciente.documento.in_(["9000003", "9000004"]))
+                select(Patient).where(Patient.documento.in_(["9000003", "9000004"]))
             ).all()
             assert encontrados == []
 
-    def test_la_sesion_queda_cerrada_al_terminar(self, scope_de_prueba: None) -> None:
-        with session_scope() as sesion:
+    def test_la_sesion_queda_cerrada_al_terminar(self, test_scope: None) -> None:
+        with session_scope() as session_:
             pass
-        assert not sesion.is_active or sesion.get_bind() is not None
+        assert not session_.is_active or session_.get_bind() is not None
 
 
 class TestDependenciaFastapi:
-    def test_get_session_entrega_una_sesion_utilizable(self, scope_de_prueba: None) -> None:
+    def test_get_session_entrega_una_sesion_utilizable(self, test_scope: None) -> None:
         generador = get_session()
-        sesion = next(generador)
+        session_ = next(generador)
         try:
-            sesion.add(_paciente("9000005"))
+            session_.add(_paciente("9000005"))
         finally:
             generador.close()
 
-    def test_get_session_confirma_al_agotarse(self, scope_de_prueba: None) -> None:
+    def test_get_session_confirma_al_agotarse(self, test_scope: None) -> None:
         generador = get_session()
-        sesion = next(generador)
-        sesion.add(_paciente("9000006"))
+        session_ = next(generador)
+        session_.add(_paciente("9000006"))
         with pytest.raises(StopIteration):
             next(generador)
 
         with session_scope() as verificacion:
-            assert verificacion.scalar(select(Paciente).where(Paciente.documento == "9000006"))
+            assert verificacion.scalar(select(Patient).where(Patient.documento == "9000006"))
