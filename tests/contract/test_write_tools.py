@@ -11,9 +11,11 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.domain.errors import ErrorCode
 from backend.domain.services import book_appointment, join_waiting_list
 from backend.enums import AppointmentState, SlotState, Specialty
 from backend.models import AgendaSlot, Appointment
+from mcp_server.errors import StructuredToolError
 from tests.conftest import SUBJECT, MCPTestClient, Scenario, ToolCallError, as_caller
 
 pytestmark = pytest.mark.integration
@@ -121,6 +123,57 @@ class TestTheSecondCallExecutes:
 
         assert result["appointment"]["status"] == "scheduled"
         assert count_appointments(backend_session) == 1
+
+    async def test_a_retry_with_the_same_key_asks_nobody_and_books_nothing_new(
+        self, mcp: MCPTestClient, backend_session: Session, scenario: Scenario
+    ) -> None:
+        """The README promises a retrying agent gets the same appointment back.
+
+        It did not, through the only path an agent has. The resolver checked the
+        slot before proposing, and on the retry the slot was taken by the first
+        attempt, so the call died with SLOT_UNAVAILABLE and the backend's
+        idempotency was never reached. The key is consulted first now, and a
+        retry of a completed operation asks no one to approve it again, because
+        nothing new is about to happen.
+        """
+        args = {
+            "patient_id": scenario.ana_id,
+            "slot_id": scenario.slots_general[0],
+            "idempotency_key": "same-key-twice",
+        }
+        with as_caller(SUBJECT, WRITE):
+            first = await mcp.approve("book_appointment", args)
+            # `call` and not `approve`: a retry must not raise a second question.
+            again = await mcp.call_tool("book_appointment", args)
+
+        assert again["appointment"]["id"] == first["appointment"]["id"]
+        assert count_appointments(backend_session) == 1
+
+    async def test_a_backend_failure_on_the_key_lookup_is_not_swallowed(
+        self, mcp: MCPTestClient, scenario: Scenario, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only "no appointment for this key" means "not a retry".
+
+        Treating any failure of that lookup as a fresh booking would turn a
+        backend hiccup into a duplicate appointment, which is the exact outcome
+        the key exists to prevent.
+        """
+        from mcp_server import client as client_module
+
+        async def explode(self: object, path: str, **params: object) -> dict[str, object]:
+            raise StructuredToolError(
+                str(ErrorCode.BACKEND_UNAVAILABLE), "The clinic's system is not responding."
+            )
+
+        monkeypatch.setattr(client_module.BackendClient, "get_object", explode)
+        args = {
+            "patient_id": scenario.ana_id,
+            "slot_id": scenario.slots_general[0],
+            "idempotency_key": "lookup-blows-up",
+        }
+        with as_caller(SUBJECT, WRITE), pytest.raises(ToolCallError) as exc:
+            await mcp.ask("book_appointment", args)
+        assert "BACKEND_UNAVAILABLE" in exc.value.text_of
 
     async def test_the_tokens_actor_lands_in_the_backend_audit(
         self, mcp: MCPTestClient, scenario: Scenario

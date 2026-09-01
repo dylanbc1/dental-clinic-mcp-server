@@ -22,7 +22,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend import internal_auth
@@ -35,12 +37,12 @@ from backend.domain.affiliation import (
     SUBSIDIADO_COPAGO_RATE,
 )
 from backend.domain.cartera import DEFAULT_POLICY
-from backend.domain.errors import DomainError, ErrorCode
+from backend.domain.errors import AppointmentNotFound, DomainError, ErrorCode
 from backend.domain.services import PAYMENT_TERM
 from backend.domain.time import now_utc, to_clinic_time
 from backend.domain.waiting_list import in_queue_order
 from backend.enums import ChargeState, Specialty
-from backend.models import Charge, Professional
+from backend.models import Appointment, Charge, Professional
 from backend.schemas import (
     AffiliationResponse,
     AppointmentDetail,
@@ -231,6 +233,31 @@ async def handle_request_validation(_: Request, exc: RequestValidationError) -> 
 @app.exception_handler(ValidationError)
 async def handle_validation(_: Request, exc: ValidationError) -> JSONResponse:
     return _validation_envelope(exc)
+
+
+@app.exception_handler(StaleDataError)
+@app.exception_handler(IntegrityError)
+async def handle_lost_race(_: Request, exc: Exception) -> JSONResponse:
+    """The net under every path that races, present and future.
+
+    `backend/domain/services.py` maps these where it knows a slot is involved,
+    which is where the message can name the slot and suggest another. This
+    catches the ones nobody thought about: a race is a conflict the caller can
+    act on, and answering it with a 500 tells an agent to retry the same call
+    forever. Ten concurrent bookings produced six of those before this existed.
+    """
+    logger.info("lost race mapped to a conflict", exc_info=exc)
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error": True,
+            "code": str(ErrorCode.CONCURRENCY_CONFLICT),
+            "message": "Another process changed the same record first.",
+            "suggestion": (
+                "Read the current state and decide again; do not repeat the call blindly."
+            ),
+        },
+    )
 
 
 @app.exception_handler(Exception)
@@ -447,6 +474,36 @@ def bookable_slot(
             end=slot.end,
         )
     )
+
+
+@app.get(
+    "/appointments/by-key/{idempotency_key}",
+    tags=["read"],
+    response_model=AppointmentDetail,
+    responses=ERROR_RESPONSES,
+)
+def appointment_by_key_route(session: SessionDep, idempotency_key: str) -> AppointmentDetail:
+    """The appointment a booking key already produced, if any.
+
+    Declared before `/appointments/{appointment_id}` on purpose: FastAPI matches
+    in order, and `by-key` would otherwise be read as an appointment id.
+
+    It exists so the MCP layer can tell a retry from a new request *before* it
+    validates the slot. Without it, retrying a booking with the same key was
+    refused with SLOT_UNAVAILABLE, because the slot the first call took is no
+    longer free. The idempotency the backend has always implemented was
+    unreachable through the only path an agent actually has.
+    """
+    appointment = session.scalar(
+        select(Appointment).where(Appointment.idempotency_key == idempotency_key)
+    )
+    if appointment is None:
+        raise AppointmentNotFound(
+            f"No appointment was created with the key {idempotency_key}.",
+            suggestion="The key is unused, so this is a first attempt, not a retry.",
+            details={"idempotency_key": idempotency_key},
+        )
+    return AppointmentDetail.of(appointment)
 
 
 @app.get(

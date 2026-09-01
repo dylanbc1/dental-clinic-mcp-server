@@ -24,6 +24,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from backend.domain.affiliation import AffiliationResult, validate_affiliation
 from backend.domain.cartera import (
@@ -126,6 +127,9 @@ class SlotOffer:
     patient: Patient
     slot: AgendaSlot
     original_position: int
+    #: True when the call returned an offer that already stood, rather than
+    #: making a new one. Mirrors `BookingResult.reused`.
+    reused: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -388,27 +392,39 @@ def bookable_slot(session: Session, slot_id: int, *, now: datetime | None = None
             details={"slot_id": slot_id, "start": slot.start.isoformat()},
         )
     if slot.status is not SlotState.FREE:
-        alternatives = list_available_slots(
-            session,
-            specialty=slot.professional.specialty,
-            limit=SUGGESTED_ALTERNATIVES,
-            now=now,
-        )
-        raise SlotUnavailable(
-            f"The slot at {to_clinic_time(slot.start):%Y-%m-%d %H:%M} is no longer free.",
-            suggestion=(
-                "The closest free slots are: " + ", ".join(a.label for a in alternatives) + "."
-                if alternatives
-                else "There are no free slots coming up for that specialty."
-            ),
-            details={
-                "slot_id": slot_id,
-                "alternatives": [
-                    {"slot_id": a.slot_id, "start": a.start.isoformat()} for a in alternatives
-                ],
-            },
-        )
+        raise _slot_is_taken(session, slot, now=now)
     return slot
+
+
+def _slot_is_taken(session: Session, slot: AgendaSlot, *, now: datetime) -> SlotUnavailable:
+    """The refusal for a slot somebody else holds, with somewhere else to go.
+
+    Raised from two places that are the same situation seen at two moments: the
+    check before booking, and losing the race at flush time. Answering the racer
+    with a bare conflict made one fact have two shapes, and only one of them
+    carried the alternatives that let an agent recover on its own turn. Timing
+    is the caller's problem to survive, not to interpret.
+    """
+    alternatives = list_available_slots(
+        session,
+        specialty=slot.professional.specialty,
+        limit=SUGGESTED_ALTERNATIVES,
+        now=now,
+    )
+    return SlotUnavailable(
+        f"The slot at {to_clinic_time(slot.start):%Y-%m-%d %H:%M} is no longer free.",
+        suggestion=(
+            "The closest free slots are: " + ", ".join(a.label for a in alternatives) + "."
+            if alternatives
+            else "There are no free slots coming up for that specialty."
+        ),
+        details={
+            "slot_id": slot.id,
+            "alternatives": [
+                {"slot_id": a.slot_id, "start": a.start.isoformat()} for a in alternatives
+            ],
+        },
+    )
 
 
 def validate_booking(
@@ -469,6 +485,40 @@ def validate_booking(
     return slot
 
 
+def _flush_or_conflict(
+    session: Session, *, slot_id: int, slot: AgendaSlot | None = None, now: datetime | None = None
+) -> None:
+    """Flush a slot mutation, turning a lost race into a typed conflict.
+
+    Two different exceptions mean the same thing here and only one of them used
+    to be caught. `IntegrityError` is the partial unique index refusing a second
+    live appointment on the slot; `StaleDataError` is the optimistic
+    `version_id` on `agenda_slot` finding the row already moved. Ten concurrent
+    bookings over HTTP produced one success, two clean SLOT_UNAVAILABLE and six
+    `500`s, because the second exception escaped as an unhandled error. A
+    project whose first promise is "never a mute 500" cannot answer a race that
+    way.
+
+    The caller's transaction scope performs the rollback.
+    """
+    try:
+        session.flush()
+    except (IntegrityError, StaleDataError) as exc:
+        if slot is not None:
+            # The same answer a caller who arrived a second later would get,
+            # alternatives included. `session.rollback()` first: the failed
+            # flush leaves the session unusable for the query behind it.
+            session.rollback()
+            fresh = session.get(AgendaSlot, slot_id)
+            if fresh is not None:
+                raise _slot_is_taken(session, fresh, now=now or now_utc()) from exc
+        raise ConcurrencyConflict(
+            "Another process took that slot while the appointment was being created.",
+            suggestion="Check availability again and book a different slot.",
+            details={"slot_id": slot_id},
+        ) from exc
+
+
 def book_appointment(
     session: Session,
     *,
@@ -526,17 +576,7 @@ def book_appointment(
     slot.status = SlotState.BUSY
     session.add(appointment)
 
-    try:
-        session.flush()
-    except IntegrityError as exc:
-        # Lost the race against another agent between the check and the write.
-        # The database is what turns that into a conflict rather than a
-        # duplicate. The caller's transaction scope performs the rollback.
-        raise ConcurrencyConflict(
-            "Another process took that slot while the appointment was being created.",
-            suggestion="Check availability again and book a different slot.",
-            details={"slot_id": slot_id},
-        ) from exc
+    _flush_or_conflict(session, slot_id=slot_id, slot=slot, now=reference)
 
     _audit(
         session,
@@ -641,7 +681,8 @@ def change_state(
             session, appointment.professional.specialty, exclude=appointment.patient_id
         )
 
-    session.flush()
+    # A transition can free or hold the slot, so it moves the versioned row too.
+    _flush_or_conflict(session, slot_id=appointment.slot_id)
     return TransitionResult(
         appointment=appointment, effects=effects, created_charge=charge, next_in_queue=next_up
     )
@@ -743,7 +784,8 @@ def reschedule_appointment(
     )
     new_slot.status = SlotState.BUSY
     session.add(replacement)
-    session.flush()
+    # Same race as booking: rescheduling takes a slot, so it can lose it.
+    _flush_or_conflict(session, slot_id=new_slot.id)
 
     _audit(
         session,
@@ -770,6 +812,27 @@ def offer_slot_to_waiting_list(
     reference = now or now_utc()
     slot = bookable_slot(session, slot_id, now=reference)
     specialty = slot.professional.specialty
+
+    standing = session.scalar(
+        select(WaitingList).where(
+            WaitingList.offered_slot_id == slot.id,
+            WaitingList.status == WaitingListState.OFFERED,
+        )
+    )
+    if standing is not None:
+        # A slot can only be promised to one person. Offering it twice was
+        # possible and observable: replaying an approved confirmation offered
+        # the same freed slot to a second patient, so two people were told to
+        # come in for one appointment. Repeating the call now returns the
+        # standing offer, which is what the domain meant all along and is also
+        # what makes the operation safe to retry.
+        return SlotOffer(
+            entry=standing,
+            patient=standing.patient,
+            slot=slot,
+            original_position=1,
+            reused=True,
+        )
 
     entries = waiting_list_entries(session, specialty)
     as_entries = [to_queue_entry(e) for e in entries]

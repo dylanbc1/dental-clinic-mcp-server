@@ -122,6 +122,16 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
         return result
 
+    async def _already_booked(idempotency_key: str) -> bool:
+        """Whether this booking key has already produced an appointment."""
+        try:
+            await ctx.client.get_object(f"/appointments/by-key/{idempotency_key}")
+        except StructuredToolError as exc:
+            if exc.code == str(ErrorCode.APPOINTMENT_NOT_FOUND):
+                return False
+            raise
+        return True
+
     # --- book_appointment ---------------------------------------------------- #
 
     async def _ask_book(
@@ -130,7 +140,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         slot_id: int,
         expected_specialty: str | None = None,
         idempotency_key: str | None = None,
-    ) -> Elicit[Confirmation]:
+    ) -> Elicit[Confirmation] | Confirmation:
         arguments = {
             "patient_id": patient_id,
             "slot_id": slot_id,
@@ -138,6 +148,18 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "idempotency_key": idempotency_key,
         }
         identity = ctx.authorize_audited("book_appointment", SCOPE, arguments)
+
+        if idempotency_key and await _already_booked(idempotency_key):
+            # A retry of a call that already succeeded, so nothing new is about
+            # to happen and nobody is asked to approve it again. Without this
+            # the retry died at the slot check below with SLOT_UNAVAILABLE,
+            # because the slot the first attempt took is no longer free: the
+            # backend's idempotency was unreachable from the only path an agent
+            # has. Returning the approval directly lets the tool body call
+            # through, and the backend answers with the appointment it already
+            # made.
+            return Confirmation(confirmed=True)
+
         require_client_that_can_confirm(context)
         async with ctx.audit_failure("book_appointment", SCOPE, arguments, identity):
             # Built from live data, so the person approves what will actually
