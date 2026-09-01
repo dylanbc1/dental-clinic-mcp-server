@@ -65,13 +65,23 @@ class TestAnUnsignedCaller:
 
 
 class TestASignedCaller:
-    def test_is_let_through(self, client: TestClient) -> None:
-        assert client.get("/clinic", headers=signed("/clinic")).status_code == 200
+    """These assert `!= 401`, not `== 200`, on purpose.
+
+    What is under test is the middleware, and it runs before anything touches
+    the database. Asserting a 200 would quietly make these database tests: they
+    passed locally against a running stack and returned 500 and 503 in CI, where
+    this module has no schema. Whether the handler behind the guard can answer
+    is a different question, asked by `tests/integration/test_api.py`.
+    """
+
+    def test_a_signed_read_gets_past_the_guard(self, client: TestClient) -> None:
+        assert client.get("/clinic", headers=signed("/clinic")).status_code != 401
 
     def test_the_probes_need_no_signature(self, client: TestClient) -> None:
-        """An orchestrator has to probe before it can hold a key."""
+        """An orchestrator has to probe before it can hold a key. `/ready`
+        answers 503 without a database, which is it working, not it refusing."""
         assert client.get("/health").status_code == 200
-        assert client.get("/ready").status_code == 200
+        assert client.get("/ready").status_code != 401
 
 
 class TestWhatTheSignatureCovers:
