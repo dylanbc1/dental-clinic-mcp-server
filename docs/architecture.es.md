@@ -4,6 +4,15 @@
 
 ## Las tres capas
 
+<!-- diagram:capas -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/capas-dark.svg">
+  <img alt="Cliente MCP, servidor MCP con sus cinco capas, y el backend de dominio" src="docs/img/capas.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
 ```mermaid
 flowchart TB
     C["Cliente MCP, no se construye aquí<br/>Claude Desktop · Cursor · Inspector"]
@@ -27,6 +36,9 @@ flowchart TB
     C -->|"Streamable HTTP"| A1
     T -->|"firmada, servidor a servidor"| API
 ```
+
+</details>
+<!-- /diagram:capas -->
 
 El LLM nunca llega a PostgreSQL. Toda petición atraviesa las cinco capas antes
 de tocar una sola fila.
@@ -58,6 +70,24 @@ de tocar una sola fila.
 
 ## Modelo de dominio
 
+<!-- diagram:modelo-dominio -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/modelo-dominio-dark.svg">
+  <img alt="Relaciones: clinica, profesional, paciente, cupo, cita, cargo" src="docs/img/modelo-dominio.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
+<!-- diagram:modelo-dominio -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/modelo-dominio-dark.svg">
+  <img alt="Relaciones: clinica, profesional, paciente, cupo, cita, cargo" src="docs/img/modelo-dominio.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
 ```mermaid
 erDiagram
     CLINICA ||--o{ PROFESIONAL : emplea
@@ -70,7 +100,31 @@ erDiagram
     PACIENTE ||--o{ LISTA_ESPERA : espera
 ```
 
+</details>
+<!-- /diagram:modelo-dominio -->
+
+</details>
+<!-- /diagram:modelo-dominio -->
+
 ### La máquina de estados de la cita
+
+<!-- diagram:estados-cita -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/estados-cita-dark.svg">
+  <img alt="La maquina de estados de una cita y sus transiciones legales" src="docs/img/estados-cita.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
+<!-- diagram:estados-cita -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/estados-cita-dark.svg">
+  <img alt="La maquina de estados de una cita y sus transiciones legales" src="docs/img/estados-cita.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
 
 ```mermaid
 stateDiagram-v2
@@ -90,6 +144,12 @@ stateDiagram-v2
     rescheduled --> [*]
     no_show --> [*]
 ```
+
+</details>
+<!-- /diagram:estados-cita -->
+
+</details>
+<!-- /diagram:estados-cita -->
 
 Tres reglas viajan sobre este diagrama, todas implementadas en
 `backend/domain/states.py` y probadas exhaustivamente:

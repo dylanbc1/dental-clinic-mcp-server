@@ -47,6 +47,9 @@ token: ## Print an access token obtained through the real PKCE flow
 smoke: ## End-to-end check against the running stack
 	uv run python scripts/smoke.py
 
+diagrams: ## Re-render every mermaid block to a committed image
+	uv run python scripts/render_diagrams.py
+
 probe: ## Block E: the five assumptions the manual checks do not cover
 	uv run python scripts/probe.py
 
@@ -95,5 +98,5 @@ audit: ## Dependency and static security audit
 
 check: lint test audit ## Everything CI runs
 
-.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke probe consola inspector \
+.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke probe diagrams consola inspector \
 	inspector-cli lint fmt test test-fast test-unit test-security test-contract audit check

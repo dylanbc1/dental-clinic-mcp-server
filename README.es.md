@@ -59,6 +59,15 @@ scope `clinical` y la aprobación humana obligatoria.
 
 ## Arquitectura
 
+<!-- diagram:arquitectura -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/arquitectura-dark.svg">
+  <img alt="Las cinco capas de seguridad, el servidor MCP y el backend de dominio" src="docs/img/arquitectura.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
 ```mermaid
 flowchart TB
     C["MCP client<br/>Claude · Cursor · Inspector"]
@@ -82,6 +91,9 @@ flowchart TB
     C --> A1
     T -->|"petición firmada"| API
 ```
+
+</details>
+<!-- /diagram:arquitectura -->
 
 | Capa | Stack | Responsabilidad |
 |---|---|---|

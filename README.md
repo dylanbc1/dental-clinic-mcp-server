@@ -59,6 +59,15 @@ human approval live.
 
 ## Architecture
 
+<!-- diagram:architecture -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/architecture-dark.svg">
+  <img alt="The five security layers, the MCP server and the domain backend" src="docs/img/architecture.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
 ```mermaid
 flowchart TB
     C["MCP client<br/>Claude · Cursor · Inspector"]
@@ -82,6 +91,9 @@ flowchart TB
     C --> A1
     T -->|"signed request"| API
 ```
+
+</details>
+<!-- /diagram:architecture -->
 
 | Layer | Stack | Responsibility |
 |---|---|---|

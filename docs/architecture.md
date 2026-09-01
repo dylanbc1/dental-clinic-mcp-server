@@ -4,6 +4,15 @@
 
 ## The three layers
 
+<!-- diagram:layers -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/layers-dark.svg">
+  <img alt="MCP client, MCP server with its five layers, and the domain backend" src="docs/img/layers.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
 ```mermaid
 flowchart TB
     C["MCP client, not built here<br/>Claude Desktop · Cursor · Inspector"]
@@ -27,6 +36,9 @@ flowchart TB
     C -->|"Streamable HTTP"| A1
     T -->|"signed, server to server"| API
 ```
+
+</details>
+<!-- /diagram:layers -->
 
 The LLM never reaches PostgreSQL. Every request crosses the five controls
 before a single row is touched.
@@ -58,6 +70,24 @@ before a single row is touched.
 
 ## Domain model
 
+<!-- diagram:domain-model -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/domain-model-dark.svg">
+  <img alt="Entity relationships: clinic, professional, patient, slot, appointment, charge" src="docs/img/domain-model.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
+<!-- diagram:domain-model -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/domain-model-dark.svg">
+  <img alt="Entity relationships: clinic, professional, patient, slot, appointment, charge" src="docs/img/domain-model.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
 ```mermaid
 erDiagram
     CLINICA ||--o{ PROFESIONAL : emplea
@@ -70,7 +100,31 @@ erDiagram
     PACIENTE ||--o{ LISTA_ESPERA : espera
 ```
 
+</details>
+<!-- /diagram:domain-model -->
+
+</details>
+<!-- /diagram:domain-model -->
+
 ### The appointment state machine
+
+<!-- diagram:appointment-states -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/appointment-states-dark.svg">
+  <img alt="The appointment state machine and its legal transitions" src="docs/img/appointment-states.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
+
+<!-- diagram:appointment-states -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/appointment-states-dark.svg">
+  <img alt="The appointment state machine and its legal transitions" src="docs/img/appointment-states.svg">
+</picture>
+
+<details>
+<summary>Diagram source</summary>
 
 ```mermaid
 stateDiagram-v2
@@ -90,6 +144,12 @@ stateDiagram-v2
     rescheduled --> [*]
     no_show --> [*]
 ```
+
+</details>
+<!-- /diagram:appointment-states -->
+
+</details>
+<!-- /diagram:appointment-states -->
 
 Three rules ride on this diagram, all of them enforced in
 `backend/domain/states.py` and exhaustively tested:
