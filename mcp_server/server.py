@@ -38,7 +38,7 @@ from mcp_server.tools import clinical, read, write
 REPOSITORY = "https://github.com/dylanbc1/dental-clinic-mcp-server"
 
 RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
-METADATA_ROUTE_NAME = "metadata_recurso_corregida"
+METADATA_ROUTE_NAME = "corrected_resource_metadata"
 
 INSTRUCTIONS = """\
 MCP server for a dental clinic in Colombia. It exposes the real front-desk
@@ -148,15 +148,15 @@ def _publish_resource_metadata(server_: MCPServer[Any], config: Settings) -> Non
     three scopes exist, none of them is globally required, and which one a call
     needs depends on the tool.
 
-    The SDK registers its own route for this path first, so `_preferir_nuestra_metadata`
+    The SDK registers its own route for this path first, so `_prefer_our_metadata`
     drops it once the app is built and leaves exactly one handler here.
     """
-    document_number = {
+    metadata = {
         "resource": config.mcp_public_url,
         "authorization_servers": [config.oauth_issuer],
         "scopes_supported": SUPPORTED_SCOPES,
         "bearer_methods_supported": ["header"],
-        "resource_name": "Clínica Odontológica · MCP",
+        "resource_name": "Dental clinic · MCP",
         # The repository, not a path on this server: /docs does not exist here.
         "resource_documentation": REPOSITORY,
     }
@@ -165,7 +165,7 @@ def _publish_resource_metadata(server_: MCPServer[Any], config: Settings) -> Non
         RESOURCE_METADATA_PATH, methods=["GET"], include_in_schema=False, name=METADATA_ROUTE_NAME
     )
     async def resource_metadata(_: Request) -> JSONResponse:
-        return JSONResponse(document_number)
+        return JSONResponse(metadata)
 
 
 def _prefer_our_metadata(app: Starlette) -> None:
