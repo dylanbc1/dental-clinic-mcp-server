@@ -12,7 +12,7 @@
   <img alt="spec 2026-07-28" src="https://img.shields.io/badge/spec-2026--07--28%20MRTR-7c5cff">
   <img alt="OAuth 2.1 + PKCE" src="https://img.shields.io/badge/OAuth-2.1%20%2B%20PKCE-1f8b4c">
   <img alt="cobertura 99%" src="https://img.shields.io/badge/cobertura-99%25-1f8b4c">
-  <img alt="831 pruebas" src="https://img.shields.io/badge/pruebas-831-1f8b4c">
+  <img alt="832 pruebas" src="https://img.shields.io/badge/pruebas-832-1f8b4c">
 </p>
 
 ```bash
@@ -310,7 +310,7 @@ zona), el MCP server real, el Authorization Server real.
 | `tests/security` | **La matriz completa 13 × 3 de scopes** sobre el cable, el estado sellado bajo ataque (alteración, reuso cruzado, principal equivocado, expiración, rotación de claves), PKCE obligatorio, audiencia del JWT y `alg=none`, guardas de Host/Origin, ausencia de estado, rate limiting |
 | `scripts/smoke.py` | El camino completo del cliente sobre HTTP real, ejecutado en CI |
 
-831 pruebas: 361 unitarias, 231 de integración, 89 de contrato, 150 de seguridad.
+832 pruebas: 361 unitarias, 231 de integración, 90 de contrato, 150 de seguridad.
 **¿Quieres comprobarlo tú mismo?** [`docs/pruebas-manuales.md`](./docs/pruebas-manuales.md)
 es un recorrido de 25 minutos con trece pruebas, cada una diciendo qué correr y
 qué deberías ver. [`docs/inspector.es.md`](./docs/inspector.es.md) cubre lo mismo
@@ -328,7 +328,7 @@ Seis comandos, en este orden, desde un checkout limpio. Cada uno falla ruidoso.
 make reset            # volumen vacío, cadena completa de migraciones, seed determinista
 make lint             # ruff + ruff format --check + mypy --strict
 make audit            # bandit + pip-audit
-make test-fast        # 831 pruebas contra el stack corriendo, piso de cobertura del 95%
+make test-fast        # 832 pruebas contra el stack corriendo, piso de cobertura del 95%
 make smoke            # el camino del cliente en nueve pasos sobre HTTP real
 make keycloak && make keycloak-verify    # la capa de auth es intercambiable
 ```

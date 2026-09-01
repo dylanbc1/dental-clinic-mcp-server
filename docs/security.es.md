@@ -145,6 +145,11 @@ cita a esa hora y que la transición de estado sea legal. Todo con la misma
 validación del backend que corre al agendar, así que ambas rechazan exactamente
 por las mismas razones.
 
+"Lo que puede" está haciendo trabajo real en esa frase. El consentimiento
+registrado es la única precondición que queda deliberadamente fuera, por una
+razón que se explica en la capa 3 más abajo: leerlo aquí revelaría justo aquello
+que el rechazo existe para proteger.
+
 La alternativa es pedirle a alguien que apruebe una operación que va a fallar al
 confirmar, lo que entrena a la gente a aprobar sin leer. Las comprobaciones se
 repiten al ejecutar porque el estado puede cambiar en el medio, y esa segunda es
@@ -199,10 +204,30 @@ token que perdió un scope en el medio no ejecuta, y una cita que otra persona
 canceló en el medio se rechaza. Una confirmación autoriza una acción; no congela
 el mundo que vio, y no vuelve legal una operación ilegal.
 
-**Un rechazo nunca llega a la persona.** Un llamador sin permiso, o una operación
-que no puede funcionar, se corta antes de que alguien tenga que aprobarla.
-Pedirle a alguien que apruebe algo que va a fallar lo entrena a aprobar sin leer,
-que es como esta capa se desactiva en silencio.
+**Un rechazo llega a la persona solo cuando no queda otra.** Por regla general,
+un llamador sin permiso o una operación que no puede funcionar se corta antes de
+que alguien tenga que aprobarla: los fallos de scope y de precondición salen a la
+luz al proponer, no después de aprobar. Pedirle a alguien que apruebe algo que va
+a fallar lo entrena a aprobar sin leer, que es como esta capa se desactiva en
+silencio.
+
+**El consentimiento es la única excepción deliberada.** Se comprueba en el
+momento del efecto, después de que la persona aprobó, y no antes. Eso rompe la
+regla de arriba, y lo hace a sabiendas. Comprobarlo antes obligaría a responder
+"¿este paciente consintió?" en una ruta de lectura, y el estado de consentimiento
+de un paciente es en sí mismo un metadato sensible: publicarlo temprano para
+cumplir el fail-fast construiría justo la superficie de enumeración que este
+servidor existe para negar. Así que el intercambio se hace al revés. Se acepta un
+`CONSENT_REQUIRED` tardío, después de la aprobación, antes que filtrar el estado
+de consentimiento a una comprobación previa legible; y la pregunta de
+confirmación lo dice de frente ("Se rechazará si el paciente no tiene
+consentimiento informado registrado"), así que a quien decide se le avisa de
+antemano que la operación todavía puede rechazarse por ese motivo.
+
+Esa es la forma real de la regla: **fallar antes de preguntar, salvo que fallar
+antes de preguntar exija revelar aquello mismo que el rechazo protege.** Un
+principio de seguridad que nombra su propio límite es más fuerte que uno
+absoluto que se rompe en silencio.
 
 Nada de esto necesita estado en el servidor, y por eso desapareció el registro
 en proceso de aprobaciones gastadas junto con la limitación que arrastraba.

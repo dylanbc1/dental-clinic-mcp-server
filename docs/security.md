@@ -144,6 +144,10 @@ appointment at that hour, and that the state transition is legal. All of it via
 the same backend validation the booking path runs, so both refuse for exactly
 the same reasons.
 
+"What it can" is doing real work in that sentence. Recorded consent is the one
+precondition deliberately left out of it, for a reason given under layer 3
+below: reading it here would disclose the thing the refusal exists to protect.
+
 The alternative is asking someone to approve an operation that will fail on
 confirmation, which trains people to approve without reading. The checks are
 repeated at execution because the state can change in between, and that second
@@ -195,10 +199,29 @@ between cannot execute, and an appointment cancelled by someone else in between
 is refused. A confirmation authorises an action; it does not freeze the world it
 saw, and it does not make an illegal operation legal.
 
-**A refusal never reaches the person.** An unauthorised caller, or an operation
-that cannot succeed, is turned away before anyone is asked to approve it. Asking
-someone to approve something that will fail trains them to approve without
-reading, which quietly disables the whole layer.
+**A refusal reaches the person only when it has to.** As a rule, an
+unauthorised caller or an operation that cannot succeed is turned away before
+anyone is asked to approve it: scope failures and precondition failures are
+surfaced at proposal time, not after approval. Asking someone to approve
+something that will fail trains them to approve without reading, which quietly
+disables the whole layer.
+
+**Consent is the one deliberate exception.** It is checked at the moment of
+effect, after the human has approved, and not before. That breaks the rule
+above, knowingly. Checking it earlier would mean answering "has this patient
+consented?" on a read path, and a patient's consent status is itself sensitive
+metadata: publishing it early to satisfy fail-fast would build precisely the
+enumeration surface this server exists to deny. So the trade runs the other way.
+A late `CONSENT_REQUIRED` after approval is accepted rather than leaking consent
+state into a readable pre-check, and the confirmation question says so out loud
+("Se rechazará si el paciente no tiene consentimiento informado registrado"), so
+the person deciding is told beforehand that the operation may still be refused
+on those grounds.
+
+That is the real shape of the rule: **fail before asking, unless failing before
+asking would require disclosing the very thing the refusal protects.** A
+security principle that names its own boundary is stronger than an absolute one
+that breaks in silence.
 
 Nothing about this needs server-side state, which is why the earlier design's
 in-process store of spent approvals is gone along with the limitation it carried.

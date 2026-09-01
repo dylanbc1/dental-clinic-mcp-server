@@ -13,6 +13,17 @@ Three gates stack, and each is necessary because the others do not cover it:
 3. **Recorded consent for this specific patient**, enforced by the backend. The
    caller can hold every scope and a fresh approval and still be refused,
    because consent belongs to the patient, not to the operator.
+
+Gate 3 is the only precondition in this server checked *after* the human
+approves rather than before, which is a deliberate departure from the rule that
+an operation destined to fail never reaches a person. Moving it earlier would
+mean answering "has this patient consented?" on a read path, and consent status
+is sensitive metadata in its own right: a pre-check that fails fast would also
+enumerate, for anyone holding `clinical`, which patients have and have not
+signed. A late refusal is the cheaper leak. The confirmation question warns the
+approver that consent may still refuse the write, so nobody is asked to approve
+something whose outcome was hidden from them. `docs/security.md`, layer 3,
+carries the full argument.
 """
 
 # No `from __future__ import annotations` here on purpose: the SDK evaluates a

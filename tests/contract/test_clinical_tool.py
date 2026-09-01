@@ -99,6 +99,28 @@ class TestWithoutConsent:
         backend_session.expire_all()
         assert get_appointment(backend_session, appointment_without_consent).reason is None
 
+    async def test_the_question_is_still_asked_first(
+        self, mcp: MCPTestClient, appointment_without_consent: int
+    ) -> None:
+        """Pins the one documented exception to "never ask about something that
+        will fail".
+
+        Every other precondition is checked before a person is asked. Consent is
+        not, and that is deliberate: a pre-check would have to answer "has this
+        patient consented?" on a read path, handing anyone with `clinical` a way
+        to enumerate who has signed and who has not. A late refusal is the
+        cheaper leak.
+
+        If you are here because you moved the consent check earlier to make the
+        flow tidier, read layer 3 of `docs/security.md` before deleting this
+        test. The question warns the approver that consent may still refuse the
+        write, so nobody is asked to approve an outcome hidden from them.
+        """
+        args = {"appointment_id": appointment_without_consent, "reason": "Dolor"}
+        with as_caller(SUBJECT, CLINICAL):
+            question = await mcp.ask("record_visit_reason", args)
+        assert "consentimiento informado" in mcp.question_text(question)
+
 
 class TestClinicalAudit:
     async def test_clinical_access_has_its_own_event(

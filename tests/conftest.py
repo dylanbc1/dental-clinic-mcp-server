@@ -539,7 +539,7 @@ class MCPTestClient:
         result = await self._rpc("tools/call", {"name": name, "arguments": arguments})
         if result.get("resultType") != "input_required":
             self._unwrap(result)  # raises if it was an error
-            raise AssertionError(f"{name} no pidió confirmación: {result}")
+            raise AssertionError(f"{name} did not ask for confirmation: {result}")
         return result
 
     async def respond(
