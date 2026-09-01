@@ -5,35 +5,27 @@
 ## The three layers
 
 ```mermaid
-flowchart LR
-    subgraph client["MCP client (not built here)"]
-        C["Claude Desktop · Cursor · MCP Inspector"]
+flowchart TB
+    C["MCP client, not built here<br/>Claude Desktop · Cursor · Inspector"]
+    subgraph mcp["MCP server · MCP SDK v2 · Streamable HTTP"]
+      A1["1 · OAuth 2.1 + PKCE, identity"]
+      A2["2 · Scope check: read / write / clinical"]
+      A3["3 · Human in the loop, sealed request state"]
+      T["tools · resources · prompts"]
+      A4["4 · Structured errors"]
+      A5["5 · Audit + transport guards"]
+      A1 --> A2 --> A3 --> T
+      T --> A4
+      T --> A5
     end
-
-    subgraph mcp["MCP server · FastMCP · Streamable HTTP"]
-        direction TB
-        A1["1· OAuth 2.1 + PKCE<br/>identity"]
-        A2["2· Scope check<br/>read / write / clinical"]
-        A3["3· Human-in-the-loop<br/>signed proposal"]
-        T["tools · resources · prompts"]
-        A4["4· Structured errors"]
-        A5["5· Audit + transport guards"]
-        A1 --> A2 --> A3 --> T --> A4
-        T --> A5
-    end
-
     subgraph backend["Domain backend · FastAPI"]
-        API["Internal REST API"]
-        DOM["Domain logic<br/>state machine · cartera · afiliación · lista de espera"]
-        DB[("PostgreSQL 16")]
-        API --> DOM --> DB
+      API["Internal REST API"]
+      DOM["state machine · cartera<br/>affiliation · waiting list"]
+      DB[("PostgreSQL 16")]
+      API --> DOM --> DB
     end
-
-    C -- "Streamable HTTP" --> A1
-    T -- "HTTP, server-to-server" --> API
-
-    style mcp fill:#f6f2ff,stroke:#7c5cff
-    style backend fill:#f0f7ff,stroke:#3b82f6
+    C -->|"Streamable HTTP"| A1
+    T -->|"signed, server to server"| API
 ```
 
 The LLM never reaches PostgreSQL. Every request crosses the five controls

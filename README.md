@@ -60,21 +60,27 @@ human approval live.
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     C["MCP client<br/>Claude · Cursor · Inspector"]
     subgraph mcp["MCP server · Streamable HTTP"]
-      direction TB
-      A1["1· OAuth 2.1 + PKCE"] --> A2["2· Scope check"] --> A3["3· Human approval<br/>(MRTR)"] --> T["13 tools · 3 resources · 1 prompt"]
-      T --> A4["4· Structured errors"]
-      T --> A5["5· Audit + transport guards"]
+      A1["1 · OAuth 2.1 + PKCE"]
+      A2["2 · Scope check"]
+      A3["3 · Human approval, MRTR"]
+      T["13 tools · 3 resources · 1 prompt"]
+      A4["4 · Structured errors"]
+      A5["5 · Audit + transport guards"]
+      A1 --> A2 --> A3 --> T
+      T --> A4
+      T --> A5
     end
     subgraph be["Domain backend · FastAPI"]
-      API["REST API"] --> DOM["state machine · cartera<br/>affiliation · waiting list"] --> DB[("PostgreSQL 16")]
+      API["REST API"]
+      DOM["state machine · cartera<br/>affiliation · waiting list"]
+      DB[("PostgreSQL 16")]
+      API --> DOM --> DB
     end
     C --> A1
-    T --> API
-    style mcp fill:#f6f2ff,stroke:#7c5cff
-    style be fill:#f0f7ff,stroke:#3b82f6
+    T -->|"signed request"| API
 ```
 
 | Layer | Stack | Responsibility |
