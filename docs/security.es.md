@@ -40,8 +40,8 @@ sistema responde las dos.
 | 1 | OAuth 2.1 + PKCE, cero API keys | `mcp_server/auth.py`, `mcp_server/oauth/` |
 | 2 | Scopes por herramienta (`read`/`write`/`clinical`) | `mcp_server/auth.py` |
 | 3 | Human-in-the-loop en toda mutación | `mcp_server/aprobacion.py` |
-| 4 | Errores estructurados y accionables | `backend/domain/errores.py`, `mcp_server/errores.py` |
-| 5 | Auditoría + guardas de transporte | `mcp_server/auditoria.py`, `mcp_server/limites.py`, `backend/models.py` |
+| 4 | Errores estructurados y accionables | `backend/domain/errors.py`, `mcp_server/errors.py` |
+| 5 | Auditoría + guardas de transporte | `mcp_server/audit.py`, `mcp_server/rate_limit.py`, `backend/models.py` |
 
 ---
 
@@ -95,7 +95,7 @@ gratis para un atacante.
 > keycloak up` levanta un realm real de Keycloak con los mismos tres scopes *y un
 > segundo MCP server que confía en él*, lado a lado con el original. Misma
 > imagen, mismo código; solo cambian `OAUTH_ISSUER` y `OAUTH_JWKS_URL`.
-> `scripts/verificar_keycloak.py` obtiene un token de Keycloak, lo usa, y después
+> `scripts/verify_keycloak.py` obtiene un token de Keycloak, lo usa, y después
 > muestra a cada servidor devolviendo `401` ante el token del otro.
 >
 > Construirlo dejó la lección que vale la pena conservar: **Keycloak no pone la
@@ -291,7 +291,7 @@ CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
 
 - **La doble reserva es imposible.** Dos agentes leen «cupo libre» antes de que
   alguno escriba; ningún `if` gana esa carrera.
-  `tests/integration/test_concurrencia.py` corre dos conexiones vivas contra un
+  `tests/integration/test_concurrency.py` corre dos conexiones vivas contra un
   cupo y verifica que sobreviva exactamente una. El bloqueo optimista sobre
   `agenda_slot.version_id` cubre las ediciones concurrentes del cupo mismo.
 - **Los reintentos son idempotentes.** `cita.idempotency_key` es única, así que

@@ -11,7 +11,9 @@ install: ## Create the virtualenv and install every dependency
 	uv sync --all-groups
 
 up: ## Start the whole stack: postgres + backend + oauth + mcp
-	docker compose up -d --wait
+	# --build so a code change is never served from a stale image. Layers are
+	# cached, so it costs a couple of seconds when nothing changed.
+	docker compose up -d --build --wait
 	@echo "  backend  http://localhost:8000/docs"
 	@echo "  oauth    http://localhost:9000/.well-known/oauth-authorization-server"
 	@echo "  mcp      http://localhost:8080/mcp"
@@ -26,12 +28,12 @@ logs: ## Follow the logs of every service
 	docker compose logs -f
 
 keycloak: ## Start Keycloak plus a second MCP server that trusts it
-	docker compose --profile keycloak up -d --wait
+	docker compose --profile keycloak up -d --build --wait
 	@echo "  keycloak     http://localhost:9100 (admin/admin, realm 'clinica')"
 	@echo "  mcp-keycloak http://localhost:8081/mcp"
 
 keycloak-verify: ## Prove the auth layer is pluggable, against the running Keycloak
-	uv run python scripts/verificar_keycloak.py
+	uv run python scripts/verify_keycloak.py
 
 migrate: ## Apply database migrations
 	uv run alembic upgrade head
@@ -40,23 +42,23 @@ seed: ## Load deterministic synthetic data (Faker, fixed seed)
 	uv run python -m backend.seed
 
 token: ## Print an access token obtained through the real PKCE flow
-	@uv run python scripts/obtener_token.py --scope "read write clinical"
+	@uv run python scripts/get_token.py --scope "read write clinical"
 
 smoke: ## End-to-end check against the running stack
 	uv run python scripts/smoke.py
 
 consola: ## Interactive client: you answer the confirmations yourself
-	uv run python scripts/consola.py
+	uv run python scripts/console.py
 
 inspector: ## Open the MCP Inspector (read tools only, see docs/inspector.md)
-	@TOKEN=$$(uv run python scripts/obtener_token.py --scope "read write clinical"); \
+	@TOKEN=$$(uv run python scripts/get_token.py --scope "read write clinical"); \
 		npx -y @modelcontextprotocol/inspector \
 			--transport http \
 			--server-url http://localhost:8080/mcp \
 			--header "Authorization: Bearer $$TOKEN"
 
 inspector-cli: ## List the tools through the Inspector CLI (no browser)
-	@TOKEN=$$(uv run python scripts/obtener_token.py --scope "read write clinical"); \
+	@TOKEN=$$(uv run python scripts/get_token.py --scope "read write clinical"); \
 		npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
 			--transport http --header "Authorization: Bearer $$TOKEN" --method tools/list
 

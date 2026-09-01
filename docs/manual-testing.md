@@ -127,7 +127,7 @@ is an open redirect.
 ### B3 · Layer 2 · A `read` token cannot write
 
 ```bash
-TOKEN_READ=$(uv run python scripts/obtener_token.py --scope "read")
+TOKEN_READ=$(uv run python scripts/get_token.py --scope "read")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_READ" \
@@ -142,7 +142,7 @@ token actual"*. That last detail is what stops an agent looping.
 ### B4 · Layer 2 · Scopes do not nest
 
 ```bash
-TOKEN_RW=$(uv run python scripts/obtener_token.py --scope "read write")
+TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
@@ -160,7 +160,7 @@ Write tools pause to ask a person. The Inspector renders that question and sends
 your answer back on its own; to see it raw, use `curl`:
 
 ```bash
-TOKEN_RW=$(uv run python scripts/obtener_token.py --scope "read write")
+TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 
 # With no session to remember the handshake, every call carries its own protocol
 # version and capabilities. That is the visible cost of a stateless transport.
@@ -344,7 +344,7 @@ refuses anyway. **Human approval does not make an illegal operation legal.**
 ### C4 · Double-booking is impossible
 
 ```bash
-uv run pytest tests/integration/test_concurrencia.py -v 2>&1 | tail -20
+uv run pytest tests/integration/test_concurrency.py -v 2>&1 | tail -20
 ```
 
 **Expect:** 15 green tests. The key one is

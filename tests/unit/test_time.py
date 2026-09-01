@@ -13,7 +13,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from backend.domain.tiempo import (
+from backend.domain.time import (
     APERTURA,
     CIERRE,
     DURACION_SLOT,

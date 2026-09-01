@@ -18,7 +18,7 @@ from typing import Any
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from backend.domain.errores import CodigoError, ErrorDominio
+from backend.domain.errors import CodigoError, ErrorDominio
 
 #: Errors whose remedy is for the *caller* to obtain something (a permission, an
 #: approval, a consent) rather than to correct a parameter. Rendered with a

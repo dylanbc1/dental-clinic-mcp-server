@@ -27,12 +27,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from backend.config import Settings, get_settings
-from mcp_server import recursos
-from mcp_server.auditoria import Auditor, configurar_logging
+from mcp_server import resources
+from mcp_server.audit import Auditor, configurar_logging
 from mcp_server.auth import Scope, VerificadorJWT
-from mcp_server.cliente import ClienteBackend
-from mcp_server.contexto import Contexto
-from mcp_server.limites import LimitadorDePeticiones
+from mcp_server.client import ClienteBackend
+from mcp_server.context import Contexto
+from mcp_server.rate_limit import LimitadorDePeticiones
 from mcp_server.tools import clinical, read, write
 
 REPOSITORIO = "https://github.com/dylanbc1/dental-clinic-mcp-server"
@@ -133,7 +133,7 @@ def crear_servidor(
     read.registrar(servidor, ctx)
     write.registrar(servidor, ctx)
     clinical.registrar(servidor, ctx)
-    recursos.registrar(servidor, ctx)
+    resources.registrar(servidor, ctx)
     return servidor
 
 

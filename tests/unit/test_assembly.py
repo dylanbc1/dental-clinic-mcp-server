@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from backend.config import Settings
-from mcp_server.cliente import ClienteBackend
-from mcp_server.contexto import Contexto
+from mcp_server.client import ClienteBackend
+from mcp_server.context import Contexto
 from mcp_server.server import (
     SCOPES_SOPORTADOS,
     construir_auth,

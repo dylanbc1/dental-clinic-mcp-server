@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from backend.api import app
 from backend.database import get_session
-from backend.domain.servicios import agendar_cita, inscribir_en_lista_espera
+from backend.domain.services import agendar_cita, inscribir_en_lista_espera
 from backend.enums import Especialidad
 from tests.conftest import Escenario
 

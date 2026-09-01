@@ -14,8 +14,8 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from backend.domain.tiempo import ahora_local
-from mcp_server.contexto import Contexto
+from backend.domain.time import ahora_local
+from mcp_server.context import Contexto
 
 #: `strftime` follows the process locale, usually C in a container. An
 #: assistant that says "Monday 31 de August" reads as machine-translated.

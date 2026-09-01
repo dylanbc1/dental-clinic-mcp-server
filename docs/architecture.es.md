@@ -100,7 +100,7 @@ stateDiagram-v2
 ```
 
 Tres reglas viajan sobre este diagrama, todas implementadas en
-`backend/domain/estados.py` y probadas exhaustivamente:
+`backend/domain/states.py` y probadas exhaustivamente:
 
 - `cancelada` **exige motivo**. Cancelar sin razón destruye la capacidad de la
   clínica de auditar su propia tasa de inasistencia.
@@ -113,7 +113,7 @@ Tres reglas viajan sobre este diagrama, todas implementadas en
 
 ### Guardar en UTC, presentar en America/Bogota
 
-Todo timestamp persistido es UTC con zona; `backend/domain/tiempo.py` es el
+Todo timestamp persistido es UTC con zona; `backend/domain/time.py` es el
 único lugar que convierte. Los datetime naive se rechazan en vez de asumirse:
 adivinar una zona es como una agenda se corre cinco horas sin que nadie note.
 
@@ -139,7 +139,7 @@ restricción en vez de crear un duplicado.
 ### Migraciones, no `create_all`
 
 La suite construye su esquema con `alembic upgrade head`, así que un cambio de
-modelo sin migración rompe CI. `tests/integration/test_migraciones.py` además
+modelo sin migración rompe CI. `tests/integration/test_migrations.py` además
 verifica que el esquema migrado sigue coincidiendo con los modelos y que la
 migración es reversible.
 
@@ -147,26 +147,26 @@ migración es reversible.
 
 ```
 backend/            fuente de verdad del dominio, no sabe nada de MCP
-  domain/           lógica pura: estados, cartera, afiliacion, lista_espera, tiempo, errores
+  domain/           lógica pura: states, cartera, afiliacion, waiting_list, time, errors
   models.py         esquema SQLAlchemy 2.x
   seed.py           datos sintéticos deterministas (Faker, semilla fija)
   api.py            API REST interna
   migrations/       alembic
 mcp_server/
   tools/            read.py · write.py · clinical.py
-  contexto.py       todo lo que necesitan las tools, inyectado en vez de global
+  context.py       todo lo que necesitan las tools, inyectado en vez de global
   auth.py           verificación de token y scopes            (capas 1-2)
-  confirmacion.py   la pregunta que responde una persona      (capa 3)
-  errores.py        fallos estructurados para el modelo       (capa 4)
-  auditoria.py      log de auditoría · limites.py  rate limit (capa 5)
-  cliente.py        cliente HTTP hacia el backend
-  recursos.py       resources y el prompt de recepcionista
+  confirmation.py   la pregunta que responde una persona      (capa 3)
+  errors.py        fallos estructurados para el modelo       (capa 4)
+  audit.py      log de auditoría · rate_limit.py  rate limit (capa 5)
+  client.py        cliente HTTP hacia el backend
+  resources.py       resources y el prompt de recepcionista
   oauth/            el Authorization Server propio
 tests/
   unit/             dominio puro, sin base de datos ni docker
   integration/      PostgreSQL real: esquema, concurrencia, seed, migraciones
   contract/         superficie del protocolo MCP, cada tool de punta a punta
   security/         matriz de scopes, aprobaciones, OAuth, guardas de transporte
-scripts/            obtener_token.py (flujo PKCE) · smoke.py (punta a punta)
+scripts/            get_token.py (flujo PKCE) · smoke.py (punta a punta)
 docs/
 ```

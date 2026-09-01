@@ -31,7 +31,7 @@ import jwt
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
-from mcp_server.errores import ErrorHerramienta, error_no_autenticado, error_scope
+from mcp_server.errors import ErrorHerramienta, error_no_autenticado, error_scope
 
 
 class Scope(StrEnum):

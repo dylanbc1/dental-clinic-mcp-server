@@ -30,7 +30,7 @@ from __future__ import annotations
 from mcp.server.mcpserver import Context
 from pydantic import BaseModel, Field
 
-from mcp_server.errores import ErrorHerramienta
+from mcp_server.errors import ErrorHerramienta
 
 
 def exigir_cliente_que_confirma(contexto: Context) -> None:
@@ -51,7 +51,7 @@ def exigir_cliente_que_confirma(contexto: Context) -> None:
         sugerencia=(
             "Read tools work normally. For the write tools you need a client on the "
             "2026-07-28 spec that declares the 'elicitation' capability. If you are "
-            "exploring, use `uv run python scripts/consola.py`."
+            "exploring, use `uv run python scripts/console.py`."
         ),
         detalles={
             "protocolo_negociado": contexto.protocol_version,

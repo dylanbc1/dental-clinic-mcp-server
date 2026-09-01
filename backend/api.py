@@ -25,17 +25,17 @@ from sqlalchemy.orm import Session
 
 from backend.config import get_settings
 from backend.database import get_engine, get_session
-from backend.domain import servicios
+from backend.domain import services
 from backend.domain.afiliacion import (
     CUOTA_MODERADORA_POR_NIVEL,
     PORCENTAJE_COPAGO_SUBSIDIADO,
     TARIFA_PARTICULAR,
 )
 from backend.domain.cartera import POLITICA_POR_DEFECTO
-from backend.domain.errores import CodigoError, ErrorDominio
-from backend.domain.lista_espera import ordenar
-from backend.domain.servicios import PLAZO_PAGO
-from backend.domain.tiempo import a_local, ahora_utc
+from backend.domain.errors import CodigoError, ErrorDominio
+from backend.domain.services import PLAZO_PAGO
+from backend.domain.time import a_local, ahora_utc
+from backend.domain.waiting_list import ordenar
 from backend.enums import Especialidad
 from backend.models import Cargo, Profesional
 from backend.schemas import (
@@ -207,7 +207,7 @@ async def listo() -> JSONResponse:
 
 @app.get("/clinica", tags=["lectura"], response_model=ClinicaInfo)
 def info_clinica(session: SesionDep) -> ClinicaInfo:
-    clinica = servicios.obtener_clinica(session)
+    clinica = services.obtener_clinica(session)
     profesionales = list(
         session.scalars(
             select(Profesional)
@@ -250,7 +250,7 @@ def buscar_pacientes(
     nombre: Annotated[str | None, Query(max_length=160)] = None,
     limite: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> list[PacienteResumen]:
-    encontrados = servicios.buscar_pacientes(
+    encontrados = services.buscar_pacientes(
         session, documento=documento, nombre=nombre, limite=limite
     )
     return [PacienteResumen.desde(p) for p in encontrados]
@@ -264,7 +264,7 @@ def buscar_pacientes(
 )
 def afiliacion(session: SesionDep, paciente_id: int) -> AfiliacionRespuesta:
     return AfiliacionRespuesta.desde(
-        paciente_id, servicios.validar_afiliacion_paciente(session, paciente_id)
+        paciente_id, services.validar_afiliacion_paciente(session, paciente_id)
     )
 
 
@@ -275,7 +275,7 @@ def afiliacion(session: SesionDep, paciente_id: int) -> AfiliacionRespuesta:
     responses=RESPUESTAS_ERROR,
 )
 def cartera(session: SesionDep, paciente_id: int) -> CarteraRespuesta:
-    resumen = servicios.consultar_cartera(session, paciente_id)
+    resumen = services.consultar_cartera(session, paciente_id)
     cargos = list(
         session.scalars(
             select(Cargo)
@@ -299,7 +299,7 @@ def citas_de_paciente(
     hasta: date | None = None,
     limite: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[CitaDetalle]:
-    citas = servicios.listar_citas_paciente(
+    citas = services.listar_citas_paciente(
         session, paciente_id, desde=desde, hasta=hasta, limite=limite
     )
     return [CitaDetalle.desde(c, incluir_historial=False) for c in citas]
@@ -318,7 +318,7 @@ def disponibilidad(
     profesional_id: int | None = None,
     limite: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> list[SlotLibre]:
-    slots = servicios.consultar_disponibilidad(
+    slots = services.consultar_disponibilidad(
         session,
         especialidad=especialidad,
         fecha=fecha,
@@ -350,7 +350,7 @@ def slot_reservable(
     `excluir_cita_id` skips one appointment in that check, which is what a
     reschedule needs: the visit being moved must not conflict with itself.
     """
-    slot = servicios.validar_reserva(
+    slot = services.validar_reserva(
         session,
         slot_id,
         paciente_id=paciente_id,
@@ -358,7 +358,7 @@ def slot_reservable(
         excluir_cita_id=excluir_cita_id,
     )
     return SlotLibre.desde(
-        servicios.SlotDisponible(
+        services.SlotDisponible(
             slot_id=slot.id,
             profesional_id=slot.profesional_id,
             profesional=slot.profesional.nombre,
@@ -373,12 +373,12 @@ def slot_reservable(
     "/citas/{cita_id}", tags=["lectura"], response_model=CitaDetalle, responses=RESPUESTAS_ERROR
 )
 def detalle_cita(session: SesionDep, cita_id: int) -> CitaDetalle:
-    return CitaDetalle.desde(servicios.obtener_cita(session, cita_id))
+    return CitaDetalle.desde(services.obtener_cita(session, cita_id))
 
 
 @app.get("/agenda/{fecha}", tags=["lectura"], response_model=AgendaDelDia)
 def agenda_dia(session: SesionDep, fecha: date) -> AgendaDelDia:
-    citas = servicios.agenda_del_dia(session, fecha)
+    citas = services.agenda_del_dia(session, fecha)
     por_estado: dict[str, int] = {}
     for cita in citas:
         por_estado[str(cita.estado)] = por_estado.get(str(cita.estado), 0) + 1
@@ -394,10 +394,10 @@ def agenda_dia(session: SesionDep, fecha: date) -> AgendaDelDia:
 def lista_espera(
     session: SesionDep, especialidad: Especialidad | None = None
 ) -> list[EntradaEsperaResumen]:
-    filas = servicios.entradas_lista_espera(session, especialidad)
+    filas = services.entradas_lista_espera(session, especialidad)
     orden = {
         e.entrada_id: i
-        for i, e in enumerate(ordenar([servicios.a_entrada_dominio(f) for f in filas]))
+        for i, e in enumerate(ordenar([services.a_entrada_dominio(f) for f in filas]))
     }
     filas.sort(key=lambda f: orden.get(f.id, 10**6))
     return [EntradaEsperaResumen.desde(f) for f in filas]
@@ -408,7 +408,7 @@ def lista_espera(
 # --------------------------------------------------------------------------- #
 
 
-def _mensaje_transicion(resultado: servicios.ResultadoTransicion) -> str:
+def _mensaje_transicion(resultado: services.ResultadoTransicion) -> str:
     partes = [
         f"Appointment {resultado.cita.id}: {resultado.efectos.estado_anterior} → "
         f"{resultado.efectos.estado_nuevo}."
@@ -429,7 +429,7 @@ def _mensaje_transicion(resultado: servicios.ResultadoTransicion) -> str:
     return " ".join(partes)
 
 
-def _a_respuesta(resultado: servicios.ResultadoTransicion) -> TransicionRespuesta:
+def _a_respuesta(resultado: services.ResultadoTransicion) -> TransicionRespuesta:
     return TransicionRespuesta(
         cita=CitaDetalle.desde(resultado.cita),
         estado_anterior=resultado.efectos.estado_anterior,
@@ -452,7 +452,7 @@ def _a_respuesta(resultado: servicios.ResultadoTransicion) -> TransicionRespuest
 
 @app.post("/citas", tags=["escritura"], response_model=AgendarRespuesta, responses=RESPUESTAS_ERROR)
 def agendar(session: SesionDep, actor: ActorDep, cuerpo: AgendarRequest) -> AgendarRespuesta:
-    resultado = servicios.agendar_cita(
+    resultado = services.agendar_cita(
         session,
         paciente_id=cuerpo.paciente_id,
         slot_id=cuerpo.slot_id,
@@ -475,7 +475,7 @@ def agendar(session: SesionDep, actor: ActorDep, cuerpo: AgendarRequest) -> Agen
     responses=RESPUESTAS_ERROR,
 )
 def confirmar(session: SesionDep, actor: ActorDep, cita_id: int) -> TransicionRespuesta:
-    return _a_respuesta(servicios.confirmar_cita(session, cita_id, usuario=actor))
+    return _a_respuesta(services.confirmar_cita(session, cita_id, usuario=actor))
 
 
 @app.post(
@@ -488,7 +488,7 @@ def cancelar(
     session: SesionDep, actor: ActorDep, cita_id: int, cuerpo: CancelarRequest
 ) -> TransicionRespuesta:
     return _a_respuesta(
-        servicios.cancelar_cita(session, cita_id, motivo=cuerpo.motivo, usuario=actor)
+        services.cancelar_cita(session, cita_id, motivo=cuerpo.motivo, usuario=actor)
     )
 
 
@@ -502,7 +502,7 @@ def reprogramar(
     session: SesionDep, actor: ActorDep, cita_id: int, cuerpo: ReprogramarRequest
 ) -> TransicionRespuesta:
     return _a_respuesta(
-        servicios.reprogramar_cita(
+        services.reprogramar_cita(
             session, cita_id, cuerpo.nuevo_slot_id, usuario=actor, motivo=cuerpo.motivo
         )
     )
@@ -518,7 +518,7 @@ def asistencia(
     session: SesionDep, actor: ActorDep, cita_id: int, cuerpo: AsistenciaRequest
 ) -> TransicionRespuesta:
     return _a_respuesta(
-        servicios.registrar_asistencia(session, cita_id, cuerpo.estado, usuario=actor)
+        services.registrar_asistencia(session, cita_id, cuerpo.estado, usuario=actor)
     )
 
 
@@ -531,7 +531,7 @@ def asistencia(
 def ofrecer_cupo(
     session: SesionDep, actor: ActorDep, cuerpo: OfrecerCupoRequest
 ) -> OfertaCupoRespuesta:
-    oferta = servicios.ofrecer_cupo_lista_espera(session, cuerpo.slot_id, usuario=actor)
+    oferta = services.ofrecer_cupo_lista_espera(session, cuerpo.slot_id, usuario=actor)
     inicio = f"{a_local(oferta.slot.inicio):%Y-%m-%d %H:%M}"
     return OfertaCupoRespuesta(
         entrada_id=oferta.entrada.id,
@@ -558,7 +558,7 @@ def ofrecer_cupo(
     responses=RESPUESTAS_ERROR,
 )
 def inscribir_espera(session: SesionDep, cuerpo: InscribirEsperaRequest) -> EntradaEsperaResumen:
-    entrada = servicios.inscribir_en_lista_espera(
+    entrada = services.inscribir_en_lista_espera(
         session,
         paciente_id=cuerpo.paciente_id,
         especialidad=cuerpo.especialidad,
@@ -580,5 +580,5 @@ def registrar_motivo(
 ) -> CitaDetalle:
     """Clinical data (Res. 2654/2019). Refused without recorded consent."""
     return CitaDetalle.desde(
-        servicios.registrar_motivo_consulta(session, cita_id, cuerpo.motivo, usuario=actor)
+        services.registrar_motivo_consulta(session, cita_id, cuerpo.motivo, usuario=actor)
     )

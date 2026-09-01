@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from mcp_server.auditoria import (
+from mcp_server.audit import (
     CAMPOS_REDACTADOS,
     REDACTADO,
     Auditor,

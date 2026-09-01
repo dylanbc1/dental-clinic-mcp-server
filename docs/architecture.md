@@ -100,7 +100,7 @@ stateDiagram-v2
 ```
 
 Three rules ride on this diagram, all of them enforced in
-`backend/domain/estados.py` and exhaustively tested:
+`backend/domain/states.py` and exhaustively tested:
 
 - `cancelada` **requires a reason**. A cancellation without one destroys the
   clinic's ability to audit its own no-show rate.
@@ -113,7 +113,7 @@ Three rules ride on this diagram, all of them enforced in
 
 ### Store UTC, present America/Bogota
 
-Every persisted timestamp is timezone-aware UTC; `backend/domain/tiempo.py` is
+Every persisted timestamp is timezone-aware UTC; `backend/domain/time.py` is
 the only place that converts. Naive datetimes are rejected rather than assumed: guessing a timezone is how a schedule silently drifts five hours.
 
 ### Double-booking is prevented by the database, not by an `if`
@@ -138,7 +138,7 @@ instead of creating a duplicate.
 ### Migrations, not `create_all`
 
 The test-suite builds its schema with `alembic upgrade head`, so a model change
-without a migration fails CI. `tests/integration/test_migraciones.py` also
+without a migration fails CI. `tests/integration/test_migrations.py` also
 asserts the migrated schema still matches the models and that the migration is
 reversible.
 
@@ -146,26 +146,26 @@ reversible.
 
 ```
 backend/            domain source of truth, knows nothing about MCP
-  domain/           pure logic: estados, cartera, afiliacion, lista_espera, tiempo, errores
+  domain/           pure logic: states, cartera, afiliacion, waiting_list, time, errors
   models.py         SQLAlchemy 2.x schema
   seed.py           deterministic synthetic data (Faker, fixed seed)
   api.py            internal REST API
   migrations/       alembic
 mcp_server/
   tools/            read.py · write.py · clinical.py
-  contexto.py       everything the tools need, injected rather than global
+  context.py       everything the tools need, injected rather than global
   auth.py           token verification and scopes            (layers 1-2)
-  confirmacion.py   the question a person answers            (layer 3)
-  errores.py        structured failures for the model        (layer 4)
-  auditoria.py      audit log · limites.py  rate limiting    (layer 5)
-  cliente.py        HTTP client to the backend
-  recursos.py       resources and the receptionist prompt
+  confirmation.py   the question a person answers            (layer 3)
+  errors.py        structured failures for the model        (layer 4)
+  audit.py      audit log · rate_limit.py  rate limiting    (layer 5)
+  client.py        HTTP client to the backend
+  resources.py       resources and the receptionist prompt
   oauth/            the in-repo authorization server
 tests/
   unit/             pure domain, no database, no docker
   integration/      real PostgreSQL: schema, concurrency, seed, migrations
   contract/         MCP protocol surface, every tool end to end
   security/         scope matrix, approvals, OAuth, transport guards
-scripts/            obtener_token.py (PKCE flow) · smoke.py (end-to-end)
+scripts/            get_token.py (PKCE flow) · smoke.py (end-to-end)
 docs/
 ```

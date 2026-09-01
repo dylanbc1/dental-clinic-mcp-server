@@ -4,7 +4,7 @@ Everything under `backend/domain/` up to here is pure. This module is where
 that pure logic meets the database, and it is deliberately the *only* place
 where an appointment changes state. Three invariants hold for every mutation:
 
-1. The transition is validated by :mod:`backend.domain.estados` first. There is
+1. The transition is validated by :mod:`backend.domain.states` first. There is
    no code path that writes ``cita.estado`` without going through it.
 2. The audit row is written in the same unit of work as the change it records,
    so an audit gap is not possible.
@@ -36,7 +36,7 @@ from backend.domain.cartera import (
     calcular_cargo_por_no_show,
     resumir_cartera,
 )
-from backend.domain.errores import (
+from backend.domain.errors import (
     CitaNoEncontrada,
     ConflictoConcurrencia,
     ConsentimientoRequerido,
@@ -50,9 +50,9 @@ from backend.domain.errores import (
     SlotNoEncontrado,
     YaEnListaEspera,
 )
-from backend.domain.estados import EfectosTransicion, validar_transicion
-from backend.domain.lista_espera import EntradaListaEspera, siguiente_en_lista
-from backend.domain.tiempo import a_local, ahora_utc
+from backend.domain.states import EfectosTransicion, validar_transicion
+from backend.domain.time import a_local, ahora_utc
+from backend.domain.waiting_list import EntradaListaEspera, siguiente_en_lista
 from backend.enums import (
     ESTADOS_QUE_OCUPAN_SLOT,
     ConceptoCargo,

@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api import app, manejar_error_dominio
-from backend.domain.errores import ErrorDominio, PacienteNoEncontrado, SlotNoDisponible
+from backend.domain.errors import ErrorDominio, PacienteNoEncontrado, SlotNoDisponible
 
 pytestmark = pytest.mark.integration
 

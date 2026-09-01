@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
-from backend.domain.servicios import agendar_cita
+from backend.domain.services import agendar_cita
 from mcp_server.auth import Scope
 from tests.conftest import SUJETO, ClienteMCP, ErrorDeHerramienta, Escenario, como
 

@@ -13,15 +13,15 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from backend.domain.errores import CodigoError, ListaEsperaVacia
-from backend.domain.lista_espera import (
+from backend.domain.errors import CodigoError, ListaEsperaVacia
+from backend.domain.time import UTC
+from backend.domain.waiting_list import (
     EntradaListaEspera,
     candidatos_para_cupo,
     ordenar,
     posicion_en_lista,
     siguiente_en_lista,
 )
-from backend.domain.tiempo import UTC
 from backend.enums import Especialidad, EstadoListaEspera, PrioridadListaEspera
 
 BASE = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)

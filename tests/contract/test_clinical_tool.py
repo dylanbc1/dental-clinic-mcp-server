@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
-from backend.domain.servicios import agendar_cita, obtener_cita
+from backend.domain.services import agendar_cita, obtener_cita
 from tests.conftest import SUJETO, ClienteMCP, ErrorDeHerramienta, Escenario, como
 
 pytestmark = [pytest.mark.integration, pytest.mark.security]

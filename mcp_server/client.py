@@ -14,7 +14,7 @@ from typing import Any, cast
 
 import httpx
 
-from mcp_server.errores import ErrorHerramienta, error_backend_caido
+from mcp_server.errors import ErrorHerramienta, error_backend_caido
 
 TIEMPO_LIMITE = httpx.Timeout(10.0, connect=5.0)
 

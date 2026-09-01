@@ -15,8 +15,8 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from mcp_server.auth import Scope
-from mcp_server.contexto import Contexto
-from mcp_server.errores import ErrorHerramienta
+from mcp_server.context import Contexto
+from mcp_server.errors import ErrorHerramienta
 
 SCOPE = Scope.READ
 

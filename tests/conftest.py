@@ -50,12 +50,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.api import app as backend_app
 from backend.config import Settings
 from backend.database import get_session
-from backend.domain.tiempo import UTC, a_local, ahora_local, slots_del_dia
+from backend.domain.time import UTC, a_local, ahora_local, slots_del_dia
 from backend.enums import ConceptoCargo, Especialidad, EstadoCargo, Regimen, TipoDocumento
 from backend.models import AgendaSlot, Base, Cargo, Clinica, Paciente, Profesional
-from mcp_server.auditoria import Auditor
-from mcp_server.cliente import ClienteBackend
-from mcp_server.contexto import Contexto
+from mcp_server.audit import Auditor
+from mcp_server.client import ClienteBackend
+from mcp_server.context import Contexto
 from mcp_server.server import construir_app, crear_servidor
 
 FECHA_BASE_TESTS = date(2026, 8, 31)

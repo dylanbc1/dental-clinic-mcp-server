@@ -250,15 +250,15 @@ un literal con forma de secreto o una llave privada.
 
 ```
 backend/            fuente de verdad del dominio, no sabe nada de MCP
-  domain/           lógica pura: estados, cartera, afiliacion, lista_espera, tiempo, errores
+  domain/           lógica pura: states, cartera, afiliacion, waiting_list, time, errors
   models.py         esquema SQLAlchemy 2.x · api.py  API REST interna
   seed.py           datos sintéticos deterministas (Faker, semilla fija)
 mcp_server/
   tools/            read.py · write.py · clinical.py
   auth.py           verificación OAuth y scopes         (capas 1-2)
-  confirmacion.py   la pregunta que responde una persona (capa 3)
-  errores.py        fallos estructurados y accionables  (capa 4)
-  auditoria.py      log de auditoría · limites.py rate  (capa 5)
+  confirmation.py   la pregunta que responde una persona (capa 3)
+  errors.py        fallos estructurados y accionables  (capa 4)
+  audit.py      log de auditoría · rate_limit.py rate  (capa 5)
   oauth/            el Authorization Server propio
 tests/              unit · integration · contract · security
 docs/               architecture.md · security.md (bilingües)

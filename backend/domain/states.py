@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final
 
-from backend.domain.errores import CodigoError, MotivoRequerido, TransicionInvalida
+from backend.domain.errors import CodigoError, MotivoRequerido, TransicionInvalida
 from backend.enums import ESTADOS_FINALES, EstadoCita
 
 #: From KEY you may go to any of VALUES. Taken from the state machine Colombian

@@ -11,8 +11,8 @@ import inspect
 
 import pytest
 
-from backend.domain import errores as mod
-from backend.domain.errores import (
+from backend.domain import errors as mod
+from backend.domain.errors import (
     CodigoError,
     ConflictoConcurrencia,
     ErrorDominio,

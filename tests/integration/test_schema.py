@@ -14,7 +14,7 @@ from sqlalchemy import DateTime, inspect, text
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.domain.tiempo import UTC
+from backend.domain.time import UTC
 from backend.enums import (
     Especialidad,
     EstadoCargo,

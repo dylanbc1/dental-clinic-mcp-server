@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from backend.domain.errores import CodigoError
+from backend.domain.errors import CodigoError
 
 
 @dataclass(slots=True)

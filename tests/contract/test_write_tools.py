@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.domain.servicios import agendar_cita, inscribir_en_lista_espera
+from backend.domain.services import agendar_cita, inscribir_en_lista_espera
 from backend.enums import Especialidad, EstadoCita, EstadoSlot
 from backend.models import AgendaSlot, Cita
 from tests.conftest import SUJETO, ClienteMCP, ErrorDeHerramienta, Escenario, como
@@ -154,7 +154,7 @@ class TestLaSegundaLlamadaEjecuta:
     async def test_registrar_asistencia_genera_el_cargo(
         self, mcp: ClienteMCP, sesion_backend: Session, cita_existente: int
     ) -> None:
-        from backend.domain.servicios import confirmar_cita, registrar_asistencia
+        from backend.domain.services import confirmar_cita, registrar_asistencia
 
         confirmar_cita(sesion_backend, cita_existente, usuario="setup")
         registrar_asistencia(sesion_backend, cita_existente, EstadoCita.EN_ESPERA, usuario="setup")
@@ -326,7 +326,7 @@ class TestLaValidacionSeRepiteAlEjecutar:
         the human approved. Approval authorises an action; it does not freeze the
         world it saw.
         """
-        from backend.domain.servicios import cancelar_cita
+        from backend.domain.services import cancelar_cita
 
         with como(SUJETO, ESCRITURA):
             pregunta = await mcp.preguntar("confirmar_cita", {"cita_id": cita_existente})

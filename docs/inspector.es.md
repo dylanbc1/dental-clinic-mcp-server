@@ -40,7 +40,7 @@ servidor autenticarse por su cuenta.
 ### 2 · Un token `read` no puede escribir (capa 2)
 
 ```bash
-TOKEN=$(uv run python scripts/obtener_token.py --scope "read")
+TOKEN=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN" \
   --method tools/call --tool-name cancelar_cita \

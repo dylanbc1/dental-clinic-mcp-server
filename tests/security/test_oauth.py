@@ -22,8 +22,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from mcp_server.auth import Scope, VerificadorJWT
-from mcp_server.oauth.llaves import ParDeLlaves, generar
-from mcp_server.oauth.servidor import CLIENTE_DEMO, AuthorizationServer, verificar_pkce
+from mcp_server.oauth.keys import ParDeLlaves, generar
+from mcp_server.oauth.server import CLIENTE_DEMO, AuthorizationServer, verificar_pkce
 
 pytestmark = pytest.mark.security
 
@@ -370,7 +370,7 @@ class TestFabrica:
     def test_crear_as_toma_los_scopes_del_servidor_mcp(self) -> None:
         """One definition of the scope list, not three."""
         from backend.config import Settings
-        from mcp_server.oauth.servidor import crear_as
+        from mcp_server.oauth.server import crear_as
         from mcp_server.server import SCOPES_SOPORTADOS
 
         ajustes = Settings(  # type: ignore[call-arg]

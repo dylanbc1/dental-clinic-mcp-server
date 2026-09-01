@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from mcp_server.oauth import llaves as mod
-from mcp_server.oauth.llaves import VARIABLE_LLAVE, cargar_desde_entorno, generar, llaves
+from mcp_server.oauth import keys as mod
+from mcp_server.oauth.keys import VARIABLE_LLAVE, cargar_desde_entorno, generar, llaves
 
 pytestmark = pytest.mark.security
 

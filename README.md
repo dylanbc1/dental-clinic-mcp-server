@@ -246,15 +246,15 @@ literal or a private key ever lands in the source.
 
 ```
 backend/            domain source of truth, knows nothing about MCP
-  domain/           pure logic: estados, cartera, afiliacion, lista_espera, tiempo, errores
+  domain/           pure logic: states, cartera, afiliacion, waiting_list, time, errors
   models.py         SQLAlchemy 2.x schema · api.py  internal REST API
   seed.py           deterministic synthetic data (Faker, fixed seed)
 mcp_server/
   tools/            read.py · write.py · clinical.py
   auth.py           OAuth verification and scopes      (layers 1-2)
-  confirmacion.py   the question a person answers      (layer 3)
-  errores.py        structured, actionable failures    (layer 4)
-  auditoria.py      audit log · limites.py rate limit  (layer 5)
+  confirmation.py   the question a person answers      (layer 3)
+  errors.py        structured, actionable failures    (layer 4)
+  audit.py      audit log · rate_limit.py rate limit  (layer 5)
   oauth/            the in-repo authorization server
 tests/              unit · integration · contract · security
 docs/               architecture.md · security.md (bilingual)

@@ -14,7 +14,7 @@ from mcp_server.auth import (
     scopes_de,
     validar_scopes_solicitados,
 )
-from mcp_server.errores import ErrorHerramienta
+from mcp_server.errors import ErrorHerramienta
 
 pytestmark = pytest.mark.security
 

@@ -24,12 +24,12 @@ from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from pydantic import Field
 
 from mcp_server.auth import Scope
-from mcp_server.confirmacion import (
+from mcp_server.confirmation import (
     Confirmacion,
     exigir_cliente_que_confirma,
     redactar_propuesta,
 )
-from mcp_server.contexto import Contexto
+from mcp_server.context import Contexto
 from mcp_server.tools.write import exigir_aprobacion
 
 SCOPE = Scope.CLINICAL

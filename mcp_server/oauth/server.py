@@ -45,7 +45,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
-from mcp_server.oauth.llaves import ParDeLlaves, llaves
+from mcp_server.oauth.keys import ParDeLlaves, llaves
 
 #: OAuth 2.1: PKCE is required and only S256 is acceptable. `plain` offers no
 #: protection against an intercepted authorization code.

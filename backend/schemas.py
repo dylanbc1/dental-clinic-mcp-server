@@ -16,9 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.domain.afiliacion import ResultadoAfiliacion
 from backend.domain.cartera import ResumenCartera
-from backend.domain.estados import transiciones_posibles
-from backend.domain.servicios import SlotDisponible
-from backend.domain.tiempo import a_local
+from backend.domain.services import SlotDisponible
+from backend.domain.states import transiciones_posibles
+from backend.domain.time import a_local
 from backend.enums import (
     ConceptoCargo,
     Especialidad,

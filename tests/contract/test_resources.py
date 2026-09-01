@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver import MCPServer
 
-from backend.domain.servicios import agendar_cita
-from backend.domain.tiempo import ahora_local
+from backend.domain.services import agendar_cita
+from backend.domain.time import ahora_local
 from backend.models import AgendaSlot
 from tests.conftest import SUJETO, Escenario, como
 

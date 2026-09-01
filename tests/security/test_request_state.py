@@ -113,7 +113,7 @@ class TestAtadoALaOperacion:
     ) -> None:
         """The attack this defeats: get an approval for something harmless, then
         redeem it against something else."""
-        from backend.domain.servicios import agendar_cita as agendar
+        from backend.domain.services import agendar_cita as agendar
 
         cita = agendar(
             sesion_backend,

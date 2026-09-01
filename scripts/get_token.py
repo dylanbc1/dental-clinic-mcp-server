@@ -4,8 +4,8 @@ Useful for the MCP Inspector, for curl, and for convincing yourself the flow is
 not a stub. It does exactly what a client does: generate a verifier, derive the
 S256 challenge, hit /authorize, exchange the code. No shortcuts.
 
-    uv run python scripts/obtener_token.py --scope "read write"
-    uv run python scripts/obtener_token.py --scope "read write clinical" \
+    uv run python scripts/get_token.py --scope "read write"
+    uv run python scripts/get_token.py --scope "read write clinical" \
         --sujeto odontologa@clinica.local
 
 (The file is deliberately not named `token.py`: on the script path it would

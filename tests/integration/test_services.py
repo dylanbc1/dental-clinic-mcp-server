@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.domain.errores import (
+from backend.domain.errors import (
     CitaNoEncontrada,
     ConsentimientoRequerido,
     EspecialidadNoCoincide,
@@ -30,7 +30,7 @@ from backend.domain.errores import (
     TransicionInvalida,
     YaEnListaEspera,
 )
-from backend.domain.servicios import (
+from backend.domain.services import (
     agenda_del_dia,
     agendar_cita,
     buscar_pacientes,

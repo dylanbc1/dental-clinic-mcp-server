@@ -39,8 +39,8 @@ the patient consent, and who touched the data?", so the system answers both.
 | 1 | OAuth 2.1 + PKCE, no API keys anywhere | `mcp_server/auth.py`, `mcp_server/oauth/` |
 | 2 | Per-tool scopes (`read`/`write`/`clinical`) | `mcp_server/auth.py` |
 | 3 | Human-in-the-loop on every mutation | `mcp_server/aprobacion.py` |
-| 4 | Structured, actionable errors | `backend/domain/errores.py`, `mcp_server/errores.py` |
-| 5 | Audit trail + transport guards | `mcp_server/auditoria.py`, `mcp_server/limites.py`, `backend/models.py` |
+| 4 | Structured, actionable errors | `backend/domain/errors.py`, `mcp_server/errors.py` |
+| 5 | Audit trail + transport guards | `mcp_server/audit.py`, `mcp_server/rate_limit.py`, `backend/models.py` |
 
 ---
 
@@ -93,7 +93,7 @@ free reconnaissance.
 > up` starts a real Keycloak realm carrying the same three scopes *and a second
 > MCP server that trusts it*, side by side with the original. Same image, same
 > code; only `OAUTH_ISSUER` and `OAUTH_JWKS_URL` differ.
-> `scripts/verificar_keycloak.py` gets a Keycloak token, uses it, and then shows
+> `scripts/verify_keycloak.py` gets a Keycloak token, uses it, and then shows
 > each server returning `401` for the other's token.
 >
 > Building it surfaced the lesson worth keeping: **Keycloak does not put a
@@ -282,7 +282,7 @@ CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
 ```
 
 - **Double-booking is impossible.** Two agents both read "slot free" before
-  either writes; no `if` can win that race. `tests/integration/test_concurrencia.py`
+  either writes; no `if` can win that race. `tests/integration/test_concurrency.py`
   runs two live connections against one slot and asserts exactly one survives.
   Optimistic locking on `agenda_slot.version_id` covers concurrent edits to the
   slot itself.

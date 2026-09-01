@@ -7,7 +7,7 @@ accident, because each server refuses the other's token. That refusal is the
 issuer and audience binding doing its job.
 
     docker compose --profile keycloak up -d --wait
-    uv run python scripts/verificar_keycloak.py
+    uv run python scripts/verify_keycloak.py
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 
 import httpx
 
-from scripts.obtener_token import obtener_token
+from scripts.get_token import obtener_token
 from scripts.smoke import CABECERAS, ClienteMCP
 
 KEYCLOAK = "http://localhost:9100/realms/clinica"

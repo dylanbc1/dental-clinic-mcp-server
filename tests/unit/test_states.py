@@ -14,8 +14,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from backend.domain.errores import CodigoError, MotivoRequerido, TransicionInvalida
-from backend.domain.estados import (
+from backend.domain.errors import CodigoError, MotivoRequerido, TransicionInvalida
+from backend.domain.states import (
     TRANSICIONES,
     TRANSICIONES_QUE_EXIGEN_MOTIVO,
     TRANSICIONES_QUE_GENERAN_CARGO,

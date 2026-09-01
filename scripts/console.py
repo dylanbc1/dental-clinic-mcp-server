@@ -9,8 +9,8 @@ It is a real client, not a mock: OAuth 2.1 + PKCE for the token, Streamable
 HTTP, and the full MRTR round trip. When a tool asks for a confirmation, you are
 the human in the loop.
 
-    uv run python scripts/consola.py
-    uv run python scripts/consola.py --scope "read"        # try being refused
+    uv run python scripts/console.py
+    uv run python scripts/console.py --scope "read"        # try being refused
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Any
 
 import httpx
 
-from scripts.obtener_token import obtener_token
+from scripts.get_token import obtener_token
 
 VERDE, ROJO, AZUL, GRIS, NEGRITA, FIN = (
     "\033[32m",

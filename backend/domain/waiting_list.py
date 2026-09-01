@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from backend.domain.errores import ListaEsperaVacia
+from backend.domain.errors import ListaEsperaVacia
 from backend.enums import Especialidad, EstadoListaEspera, PrioridadListaEspera
 
 #: Lower is served first. Explicit rather than enum order, so adding a priority

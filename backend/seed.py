@@ -32,7 +32,7 @@ from backend.domain.cartera import (
     calcular_cargo_por_atencion,
     calcular_cargo_por_no_show,
 )
-from backend.domain.tiempo import a_local, ahora_local, local, slots_del_dia
+from backend.domain.time import a_local, ahora_local, local, slots_del_dia
 from backend.enums import (
     Especialidad,
     EstadoCargo,

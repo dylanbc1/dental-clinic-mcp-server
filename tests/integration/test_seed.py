@@ -22,7 +22,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.domain.estados import es_transicion_valida
+from backend.domain.states import es_transicion_valida
 from backend.enums import (
     ESTADOS_QUE_OCUPAN_SLOT,
     EstadoCargo,

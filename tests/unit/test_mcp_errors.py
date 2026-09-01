@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.domain.errores import CodigoError, SlotNoDisponible
-from mcp_server.errores import (
+from backend.domain.errors import CodigoError, SlotNoDisponible
+from mcp_server.errors import (
     ErrorHerramienta,
     error_backend_caido,
     error_no_autenticado,

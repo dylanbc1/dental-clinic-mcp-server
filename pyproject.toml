@@ -82,7 +82,7 @@ known-first-party = ["backend", "mcp_server", "tests"]
 # S105/S106: OAuth protocol constants and literal test tokens, not credentials.
 "tests/**" = ["S101", "S105", "S106", "ANN", "RUF002"]
 # The prompt character is deliberate, not a mistyped greater-than sign.
-"scripts/consola.py" = ["RUF001"]        # asserts and loose typing are fine in tests
+"scripts/console.py" = ["RUF001"]        # asserts and loose typing are fine in tests
 "backend/migrations/**" = ["ANN", "E501", "I001"]
 "backend/seed.py" = ["S311"]        # Faker/random is not cryptographic here, on purpose
 

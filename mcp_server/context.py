@@ -12,10 +12,10 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from mcp_server.auditoria import Auditor
+from mcp_server.audit import Auditor
 from mcp_server.auth import Identidad, Scope, exigir_scope, identidad_actual
-from mcp_server.cliente import ClienteBackend
-from mcp_server.errores import ErrorHerramienta
+from mcp_server.client import ClienteBackend
+from mcp_server.errors import ErrorHerramienta
 
 
 @dataclass(slots=True)

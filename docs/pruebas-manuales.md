@@ -128,7 +128,7 @@ atacante controla es un open redirect.
 ### B3 · Capa 2 · Un token `read` no puede escribir
 
 ```bash
-TOKEN_READ=$(uv run python scripts/obtener_token.py --scope "read")
+TOKEN_READ=$(uv run python scripts/get_token.py --scope "read")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_READ" \
@@ -143,7 +143,7 @@ actual"*. Ese último detalle es lo que evita que un agente entre en bucle.
 ### B4 · Capa 2 · Los scopes no anidan
 
 ```bash
-TOKEN_RW=$(uv run python scripts/obtener_token.py --scope "read write")
+TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
@@ -161,7 +161,7 @@ Las tools de escritura se detienen a preguntarle a una persona. El Inspector
 renderiza esa pregunta y reenvía tu respuesta solo; para verlo crudo, `curl`:
 
 ```bash
-TOKEN_RW=$(uv run python scripts/obtener_token.py --scope "read write")
+TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 
 # Sin sesión que recuerde el handshake, cada llamada lleva su propia versión de
 # protocolo y sus capacidades. Es el costo visible del transporte sin estado.
@@ -342,7 +342,7 @@ rechaza igual. **La aprobación humana no vuelve legal una operación ilegal.**
 ### C4 · Doble reserva imposible
 
 ```bash
-uv run pytest tests/integration/test_concurrencia.py -v 2>&1 | tail -20
+uv run pytest tests/integration/test_concurrency.py -v 2>&1 | tail -20
 ```
 
 **Esperas:** 15 pruebas verdes. La clave es

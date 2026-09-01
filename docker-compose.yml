@@ -75,7 +75,7 @@ services:
 
   oauth:
     <<: *python
-    command: python -m mcp_server.oauth.servidor
+    command: python -m mcp_server.oauth.server
     environment:
       <<: *entorno-comun
       # The issuer is the *public* identity: it lands in the `iss` claim and in

@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from scripts.obtener_token import obtener_token
+from scripts.get_token import obtener_token
 
 CABECERAS = {
     "Content-Type": "application/json",

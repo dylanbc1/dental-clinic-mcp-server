@@ -27,10 +27,10 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from backend.config import Settings
-from mcp_server.auditoria import Auditor
-from mcp_server.cliente import ClienteBackend
-from mcp_server.contexto import Contexto
-from mcp_server.limites import LimitadorDePeticiones, VentanaDeslizante
+from mcp_server.audit import Auditor
+from mcp_server.client import ClienteBackend
+from mcp_server.context import Contexto
+from mcp_server.rate_limit import LimitadorDePeticiones, VentanaDeslizante
 from mcp_server.server import construir_app
 
 pytestmark = pytest.mark.security
