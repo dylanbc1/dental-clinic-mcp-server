@@ -457,7 +457,7 @@ def ctx(backend_client: BackendClient) -> ToolContext:
 @pytest.fixture
 def server_(ctx: ToolContext, mcp_settings: Settings) -> MCPServer[Any]:
     """The real server, for assertions about its catalogue."""
-    return build_server(ctx, config=mcp_settings, con_auth=False)
+    return build_server(ctx, config=mcp_settings, with_auth=False)
 
 
 class ToolCallError(Exception):
@@ -581,7 +581,7 @@ class MCPTestClient:
 @asynccontextmanager
 async def http_server(ctx: ToolContext, settings_: Settings) -> AsyncIterator[MCPTestClient]:
     """A running server over HTTP, for tests that need custom settings."""
-    app = build_app(ctx, config=settings_, con_auth=False)
+    app = build_app(ctx, config=settings_, with_auth=False)
     async with LifespanManager(app):
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8080") as http:
@@ -593,7 +593,7 @@ async def mcp_without_elicitation(
     ctx: ToolContext, mcp_settings: Settings
 ) -> AsyncIterator[MCPTestClient]:
     """A client that cannot ask a person anything, like an older one."""
-    app = build_app(ctx, config=mcp_settings, con_auth=False)
+    app = build_app(ctx, config=mcp_settings, with_auth=False)
     async with LifespanManager(app):
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8080") as http:
@@ -603,7 +603,7 @@ async def mcp_without_elicitation(
 @pytest.fixture
 async def mcp(ctx: ToolContext, mcp_settings: Settings) -> AsyncIterator[MCPTestClient]:
     """The server over HTTP, with the lifespan running."""
-    app = build_app(ctx, config=mcp_settings, con_auth=False)
+    app = build_app(ctx, config=mcp_settings, with_auth=False)
     async with LifespanManager(app):
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8080") as http:

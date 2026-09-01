@@ -98,3 +98,24 @@ class TestEnvironment:
     def test_an_unknown_environment_is_refused(self) -> None:
         with pytest.raises(ValueError, match="app_env"):
             Settings(_env_file=None, app_env="staging")  # type: ignore[call-arg]
+
+
+class TestTheDatabaseDriver:
+    """Every managed Postgres publishes a bare `postgresql://` DSN, and
+    SQLAlchemy reads that as psycopg2, which this project does not install."""
+
+    @pytest.mark.parametrize("scheme", ["postgresql", "postgres"])
+    def test_a_bare_dsn_is_pinned_to_psycopg(self, scheme: str) -> None:
+        settings = Settings(_env_file=None, database_url=f"{scheme}://u:p@h:5432/d")
+        assert settings.database_url == "postgresql+psycopg://u:p@h:5432/d"
+
+    def test_an_explicit_driver_is_left_alone(self) -> None:
+        dsn = "postgresql+psycopg://u:p@h:5432/d"
+        assert Settings(_env_file=None, database_url=dsn).database_url == dsn
+
+    def test_only_the_scheme_is_touched(self) -> None:
+        """A password containing the scheme must not be rewritten too."""
+        dsn = "postgresql://u:postgresql://x@h:5432/d"
+        assert Settings(_env_file=None, database_url=dsn).database_url == (
+            "postgresql+psycopg://u:postgresql://x@h:5432/d"
+        )

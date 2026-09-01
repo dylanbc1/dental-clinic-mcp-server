@@ -64,7 +64,7 @@ def ctx_without_backend() -> ToolContext:
 @pytest.fixture
 def client(ctx_without_backend: ToolContext, settings_: Settings) -> Iterator[TestClient]:
     """The production shape: authentication on."""
-    app = build_app(ctx_without_backend, config=settings_, con_auth=True)
+    app = build_app(ctx_without_backend, config=settings_, with_auth=True)
     with TestClient(app, base_url="http://localhost:8080") as c:
         yield c
 
@@ -80,7 +80,7 @@ def client_without_auth(
     whoever reaches it. So the Host/Origin guard is asserted here.
     """
     ctx_without_backend.require_auth = False
-    app = build_app(ctx_without_backend, config=settings_, con_auth=False)
+    app = build_app(ctx_without_backend, config=settings_, with_auth=False)
     with TestClient(app, base_url="http://localhost:8080") as c:
         yield c
 
@@ -367,7 +367,7 @@ class TestProtectedResourceMetadata:
     ) -> None:
         """Starlette matches the first route that fits. Two handlers on the same
         path means the corrected document is one refactor away from unreachable."""
-        app = build_app(ctx_without_backend, config=settings_, con_auth=True)
+        app = build_app(ctx_without_backend, config=settings_, with_auth=True)
         rutas = [
             r
             for r in app.routes
@@ -430,7 +430,7 @@ class TestStatelessTransport:
         """Configurable rather than hard-coded: a future feature needing
         resumability should not require a rewrite."""
         with_session = settings_.model_copy(update={"mcp_stateless": False})
-        app = build_app(ctx_without_backend, config=with_session, con_auth=False)
+        app = build_app(ctx_without_backend, config=with_session, with_auth=False)
         with TestClient(app, base_url=PUBLIC) as c:
             response = c.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
         assert "mcp-session-id" in {k.lower() for k in response.headers}

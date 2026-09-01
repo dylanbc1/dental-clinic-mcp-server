@@ -120,7 +120,11 @@ services:
       # Public issuer vs internal fetch URL: `localhost:9000` is not resolvable
       # from inside this container, but the `iss` claim must still say it.
       OAUTH_JWKS_URL: http://oauth:9000/jwks.json
-      APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
+      # Seals the paused operation the client carries back. Named
+      # APPROVAL_SIGNING_KEY until the MRTR rewrite; `Settings` has read
+      # REQUEST_STATE_KEYS since, so the old name set nothing and the ring
+      # silently stayed on its development default.
+      REQUEST_STATE_KEYS: ${REQUEST_STATE_KEYS:-dev-only-request-state-key-change-me-32b}
     ports:
       - "${MCP_PORT:-8080}:8080"
     healthcheck:
@@ -175,7 +179,11 @@ services:
       OAUTH_ISSUER: http://localhost:9100/realms/clinic
       OAUTH_AUDIENCE: http://localhost:8081
       OAUTH_JWKS_URL: http://keycloak:9100/realms/clinic/protocol/openid-connect/certs
-      APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:-dev-only-approval-key-change-me}
+      # Seals the paused operation the client carries back. Named
+      # APPROVAL_SIGNING_KEY until the MRTR rewrite; `Settings` has read
+      # REQUEST_STATE_KEYS since, so the old name set nothing and the ring
+      # silently stayed on its development default.
+      REQUEST_STATE_KEYS: ${REQUEST_STATE_KEYS:-dev-only-request-state-key-change-me-32b}
     ports:
       - "8081:8081"
     healthcheck:

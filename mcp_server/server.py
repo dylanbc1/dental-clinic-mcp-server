@@ -100,12 +100,12 @@ def build_server(
     ctx: ToolContext,
     *,
     config: Settings | None = None,
-    con_auth: bool = True,
+    with_auth: bool = True,
 ) -> MCPServer[Any]:
     settings_ = config or get_settings()
     auth_settings: AuthSettings | None = None
     verifier: JWTVerifier | None = None
-    if con_auth:
+    if with_auth:
         auth_settings, verifier = build_auth(settings_)
 
     server_: MCPServer[Any] = MCPServer(
@@ -187,7 +187,7 @@ def _prefer_our_metadata(app: Starlette) -> None:
 
 
 def build_app(
-    ctx: ToolContext, *, config: Settings | None = None, con_auth: bool = True
+    ctx: ToolContext, *, config: Settings | None = None, with_auth: bool = True
 ) -> Starlette:
     """ASGI app with the transport guards of layer 5 switched on.
 
@@ -196,7 +196,7 @@ def build_app(
     localhost and drive it with the user's own credentials.
     """
     settings_ = config or get_settings()
-    server_ = build_server(ctx, config=settings_, con_auth=con_auth)
+    server_ = build_server(ctx, config=settings_, with_auth=with_auth)
     app = server_.streamable_http_app(
         streamable_http_path="/mcp",
         # Stateless on purpose. A stateful application does not require a
@@ -212,7 +212,7 @@ def build_app(
             allowed_origins=settings_.mcp_allowed_origins,
         ),
     )
-    if con_auth:
+    if with_auth:
         _prefer_our_metadata(app)
     app.add_middleware(
         RequestLimiter,
@@ -243,7 +243,7 @@ def main() -> None:  # pragma: no cover - process entry point
     configure_logging(config.log_level)
     ctx = build_context(config)
     uvicorn.run(
-        build_app(ctx, config=config, con_auth=config.mcp_auth_enabled),
+        build_app(ctx, config=config, with_auth=config.mcp_auth_enabled),
         host=config.mcp_host,
         port=config.mcp_port,
     )

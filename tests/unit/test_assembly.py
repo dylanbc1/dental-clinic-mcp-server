@@ -116,7 +116,7 @@ class TestServer:
 
     def test_it_can_be_built_with_auth(self, settings_: Settings) -> None:
         server_ = build_server(
-            ToolContext(client=BackendClient("http://x")), config=settings_, con_auth=True
+            ToolContext(client=BackendClient("http://x")), config=settings_, with_auth=True
         )
         assert server_.name == "dental-clinic"
         assert server_.version == "0.1.0"

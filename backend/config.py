@@ -98,6 +98,27 @@ class Settings(BaseSettings):
     def jwks_url(self) -> str:
         return self.oauth_jwks_url or f"{self.oauth_issuer.rstrip('/')}/jwks.json"
 
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _pin_the_driver(cls, value: str) -> str:
+        """Accept the bare `postgresql://` DSN every managed Postgres hands out.
+
+        SQLAlchemy reads `postgresql://` as "use psycopg2", which is not a
+        dependency here and never will be: this project is on psycopg 3. The
+        failure is `ModuleNotFoundError: No module named 'psycopg2'` at the
+        first connection, which reads like a missing package rather than a
+        misread URL and sends people to install the wrong thing. Railway,
+        Heroku, Fly and Supabase all publish the bare form, so the driver is
+        pinned here instead of asking every deployment to rewrite the string.
+        """
+        for bare, driven in (
+            ("postgresql://", "postgresql+psycopg://"),
+            ("postgres://", "postgresql+psycopg://"),
+        ):
+            if value.startswith(bare):
+                return driven + value[len(bare) :]
+        return value
+
     @field_validator(
         "mcp_allowed_origins", "mcp_allowed_hosts", "request_state_keys", mode="before"
     )
