@@ -22,7 +22,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -233,6 +233,33 @@ async def handle_request_validation(_: Request, exc: RequestValidationError) -> 
 @app.exception_handler(ValidationError)
 async def handle_validation(_: Request, exc: ValidationError) -> JSONResponse:
     return _validation_envelope(exc)
+
+
+@app.exception_handler(DataError)
+async def handle_unusable_value(_: Request, exc: DataError) -> JSONResponse:
+    """A value the database cannot hold is the caller's problem, not a fault.
+
+    Two of these reached the caller as INTERNAL_ERROR, which reads as "the
+    server broke" and invites a retry of the same doomed call: an id larger than
+    PostgreSQL's four-byte integer, and a NUL byte inside a text field. Both are
+    input, both are fixable by whoever sent them, and neither is worth a 500.
+
+    Deliberately says nothing about the column or the type. Schema shape is free
+    reconnaissance, and the caller does not need it to fix the call.
+    """
+    logger.info("unusable value mapped to invalid input", exc_info=exc)
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": True,
+            "code": str(ErrorCode.INVALID_INPUT),
+            "message": "One of the values sent cannot be stored as given.",
+            "suggestion": (
+                "Check the identifiers are ordinary positive integers and the text "
+                "carries no control characters, then call again."
+            ),
+        },
+    )
 
 
 @app.exception_handler(StaleDataError)
