@@ -24,7 +24,7 @@ from backend.domain.afiliacion import (
     AfiliacionResult,
     base_tariff,
 )
-from backend.enums import ConceptoCargo, EstadoCargo, EstadoCartera, Regimen
+from backend.enums import CarteraState, ChargeConcept, ChargeState, Regimen
 
 #: Ageing buckets the sector uses to prioritise collections.
 AGEING_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
@@ -57,7 +57,7 @@ DEFAULT_POLICY = CarteraPolicy()
 class CalculatedCharge:
     """A charge the domain decided to create, before it is persisted."""
 
-    concepto: ConceptoCargo
+    concepto: ChargeConcept
     monto: Decimal
     descripcion: str
 
@@ -67,10 +67,10 @@ class PendingCharge:
     """Read model of a single outstanding charge."""
 
     cargo_id: int
-    concepto: ConceptoCargo
+    concepto: ChargeConcept
     monto: Decimal
     vencimiento: date
-    estado: EstadoCargo
+    estado: ChargeState
 
     def days_overdue(self, hoy: date) -> int:
         """Positive when overdue, negative when it is not due yet."""
@@ -79,10 +79,10 @@ class PendingCharge:
 
 @dataclass(frozen=True, slots=True)
 class CarteraSummary:
-    """What `consultar_cartera` returns and what a collections agent acts on."""
+    """What `check_cartera` returns and what a collections agent acts on."""
 
     paciente_id: int
-    estado: EstadoCartera
+    estado: CarteraState
     total_pendiente: Decimal
     total_vencido: Decimal
     dias_mora_maximo: int
@@ -115,7 +115,7 @@ def charge_for_visit(
 
     if afiliacion.regimen_efectivo is Regimen.PARTICULAR:
         return CalculatedCharge(
-            concepto=ConceptoCargo.PARTICULAR,
+            concepto=ChargeConcept.PARTICULAR,
             monto=_round(tariff),
             descripcion=f"Private tariff · {especialidad}",
         )
@@ -125,14 +125,14 @@ def charge_for_visit(
             nivel_cuota_moderadora, CUOTA_MODERADORA_BY_BRACKET[1]
         )
         return CalculatedCharge(
-            concepto=ConceptoCargo.CUOTA_MODERADORA,
+            concepto=ChargeConcept.CUOTA_MODERADORA,
             monto=_round(fee),
             descripcion=f"Cuota moderadora · {especialidad}",
         )
 
     # Subsidised regime: percentage copayment over the reference tariff.
     return CalculatedCharge(
-        concepto=ConceptoCargo.COPAGO,
+        concepto=ChargeConcept.COPAGO,
         monto=_round(tariff * SUBSIDIADO_COPAGO_RATE),
         descripcion=f"Copago, subsidiado régimen · {especialidad}",
     )
@@ -149,7 +149,7 @@ def charge_for_no_show(
     if policy.penaliza_solo_confirmadas and not estaba_confirmada:
         return None
     return CalculatedCharge(
-        concepto=ConceptoCargo.NO_SHOW,
+        concepto=ChargeConcept.NO_SHOW,
         monto=_round(policy.monto_no_show),
         descripcion="No-show penalty, no prior cancellation",
     )
@@ -170,7 +170,7 @@ def summarise_cartera(
     policy: CarteraPolicy = DEFAULT_POLICY,
 ) -> CarteraSummary:
     """Aggregate a patient's outstanding charges into a collections view."""
-    outstanding = [c for c in cargos if c.estado is EstadoCargo.PENDIENTE]
+    outstanding = [c for c in cargos if c.estado is ChargeState.PENDING]
 
     total_pendiente = _round(sum((c.monto for c in outstanding), Decimal("0")))
     overdue = [c for c in outstanding if c.days_overdue(hoy) > policy.dias_gracia]
@@ -182,10 +182,10 @@ def summarise_cartera(
         antiguedad[_bucket(cargo.days_overdue(hoy))] += cargo.monto
     antiguedad = {k: _round(v) for k, v in antiguedad.items()}
 
-    estado = EstadoCartera.EN_MORA if overdue else EstadoCartera.AL_DIA
+    estado = CarteraState.EN_MORA if overdue else CarteraState.AL_DIA
     supera_umbral = total_vencido >= policy.umbral_alerta_mora
 
-    if estado is EstadoCartera.AL_DIA:
+    if estado is CarteraState.AL_DIA:
         mensaje = (
             "Cartera up to date."
             if not outstanding
@@ -218,7 +218,7 @@ def booking_warning(resumen: CarteraSummary) -> str | None:
     Returning a string rather than raising is the point: the tool layer passes
     it to the model as context and the appointment still goes through.
     """
-    if resumen.estado is EstadoCartera.AL_DIA or not resumen.supera_umbral_alerta:
+    if resumen.estado is CarteraState.AL_DIA or not resumen.supera_umbral_alerta:
         return None
     return (
         f"Heads-up: the patient has ${resumen.total_vencido:,.0f} COP of overdue "

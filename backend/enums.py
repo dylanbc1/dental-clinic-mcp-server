@@ -1,9 +1,15 @@
 """Domain vocabulary.
 
-Spanish on purpose. These are the words Colombian clinics and IPS use, they
-appear verbatim in the tool schemas, and translating them would make the model
-reason about a domain nobody in the sector describes that way. Docs and comments
-are English; the domain is not.
+Class names and generic values are English, because an engineer reads them.
+A value stays Spanish only when it is a Colombian legal term that English does
+not carry: `cartera` states, affiliation regimes, charge concepts and document
+types. "Estar en mora" has a weight `overdue` loses, and `cuota_moderadora` is
+not a copay. The generic machinery around them (scheduled, free, pending) has
+exact English equivalents and uses them.
+
+These values reach the wire, so renaming one is a migration, never an edit.
+Nothing here is ever shown raw to a human: `backend/domain/labels.py` maps a
+state to the Spanish a clinic employee reads.
 """
 
 from __future__ import annotations
@@ -11,26 +17,27 @@ from __future__ import annotations
 from enum import StrEnum
 
 
-class EstadoCita(StrEnum):
+class AppointmentState(StrEnum):
     """The appointment state machine of §2.1, the sector standard."""
 
-    AGENDADA = "agendada"
-    CONFIRMADA = "confirmada"
-    EN_ESPERA = "en_espera"
-    ATENDIDA = "atendida"
-    CANCELADA = "cancelada"
-    REPROGRAMADA = "reprogramada"
-    NO_ASISTIO = "no_asistio"
+    SCHEDULED = "scheduled"
+    CONFIRMED = "confirmed"
+    WAITING = "waiting"
+    ATTENDED = "attended"
+    CANCELLED = "cancelled"
+    RESCHEDULED = "rescheduled"
+    NO_SHOW = "no_show"
 
 
-class EstadoSlot(StrEnum):
-    LIBRE = "libre"
-    OCUPADO = "ocupado"
-    BLOQUEADO = "bloqueado"
+class SlotState(StrEnum):
+    FREE = "free"
+    BUSY = "busy"
+    BLOCKED = "blocked"
 
 
 class Regimen(StrEnum):
-    """Colombian health-system affiliation regimes."""
+    """Colombian affiliation regimes. No English equivalent carries the
+    entitlement rules attached to each one, so the names stand."""
 
     CONTRIBUTIVO = "contributivo"
     SUBSIDIADO = "subsidiado"
@@ -38,7 +45,7 @@ class Regimen(StrEnum):
     SOAT = "soat"
 
 
-class TipoDocumento(StrEnum):
+class DocumentType(StrEnum):
     CC = "CC"  # cedula de ciudadania
     TI = "TI"  # tarjeta de identidad (minors)
     CE = "CE"  # cedula de extranjeria
@@ -47,61 +54,67 @@ class TipoDocumento(StrEnum):
     PPT = "PPT"  # permiso por proteccion temporal
 
 
-class Especialidad(StrEnum):
-    ODONTOLOGIA_GENERAL = "odontologia_general"
-    ORTODONCIA = "ortodoncia"
-    ENDODONCIA = "endodoncia"
-    PERIODONCIA = "periodoncia"
-    ODONTOPEDIATRIA = "odontopediatria"
+class Specialty(StrEnum):
+    GENERAL_DENTISTRY = "general_dentistry"
+    ORTHODONTICS = "orthodontics"
+    ENDODONTICS = "endodontics"
+    PERIODONTICS = "periodontics"
+    PEDIATRIC_DENTISTRY = "pediatric_dentistry"
 
 
-class ConceptoCargo(StrEnum):
+class ChargeConcept(StrEnum):
+    """What a charge is for. `copago` and `cuota_moderadora` are distinct
+    instruments under Colombian law, and `particular` is the self-pay tier."""
+
     COPAGO = "copago"
     CUOTA_MODERADORA = "cuota_moderadora"
     PARTICULAR = "particular"
     NO_SHOW = "no_show"
 
 
-class EstadoCargo(StrEnum):
-    PENDIENTE = "pendiente"
-    PAGADO = "pagado"
-    ANULADO = "anulado"
+class ChargeState(StrEnum):
+    PENDING = "pending"
+    PAID = "paid"
+    VOIDED = "voided"
 
 
-class EstadoCartera(StrEnum):
+class CarteraState(StrEnum):
+    """Whether the patient's account is current. The values stay Spanish: a
+    patient `en_mora` is in a defined legal condition, not merely late."""
+
     AL_DIA = "al_dia"
     EN_MORA = "en_mora"
 
 
-class PrioridadListaEspera(StrEnum):
-    URGENCIA = "urgencia"
-    ANTIGUEDAD = "antiguedad"
+class WaitingListPriority(StrEnum):
+    URGENT = "urgent"
+    SENIORITY = "seniority"
 
 
-class EstadoListaEspera(StrEnum):
-    ACTIVA = "activa"
-    OFRECIDA = "ofrecida"
-    ACEPTADA = "aceptada"
-    RETIRADA = "retirada"
+class WaitingListState(StrEnum):
+    ACTIVE = "active"
+    OFFERED = "offered"
+    ACCEPTED = "accepted"
+    WITHDRAWN = "withdrawn"
 
 
 #: Terminal states: no transition leaves them.
-FINAL_STATES: frozenset[EstadoCita] = frozenset(
+FINAL_STATES: frozenset[AppointmentState] = frozenset(
     {
-        EstadoCita.ATENDIDA,
-        EstadoCita.CANCELADA,
-        EstadoCita.REPROGRAMADA,
-        EstadoCita.NO_ASISTIO,
+        AppointmentState.ATTENDED,
+        AppointmentState.CANCELLED,
+        AppointmentState.RESCHEDULED,
+        AppointmentState.NO_SHOW,
     }
 )
 
 #: States in which an appointment still holds its slot. Drives the partial
 #: unique index that makes double-booking impossible in the database.
-STATES_HOLDING_SLOT: frozenset[EstadoCita] = frozenset(
+STATES_HOLDING_SLOT: frozenset[AppointmentState] = frozenset(
     {
-        EstadoCita.AGENDADA,
-        EstadoCita.CONFIRMADA,
-        EstadoCita.EN_ESPERA,
-        EstadoCita.ATENDIDA,
+        AppointmentState.SCHEDULED,
+        AppointmentState.CONFIRMED,
+        AppointmentState.WAITING,
+        AppointmentState.ATTENDED,
     }
 )

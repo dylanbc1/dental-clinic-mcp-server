@@ -32,9 +32,9 @@ class TestRedaccion:
         assert redact({campo: "valor real"})[campo] == REDACTED
 
     def test_los_demas_campos_se_conservan(self) -> None:
-        assert redact({"cita_id": 7, "estado": "atendida"}) == {
+        assert redact({"cita_id": 7, "estado": "attended"}) == {
             "cita_id": 7,
-            "estado": "atendida",
+            "estado": "attended",
         }
 
     def test_un_none_no_se_redacta_innecesariamente(self) -> None:
@@ -55,7 +55,7 @@ class TestAuditor:
         logger = LoggerFalso()
         auditor = Auditor(logger)
         auditor.tool_call(
-            "buscar_paciente",
+            "search_patients",
             subject="ana@clinica.test",
             scope="read",
             arguments={"documento": "123"},
@@ -85,8 +85,8 @@ class TestAuditor:
 
     def test_propuesta_y_confirmacion_son_eventos_distintos(self) -> None:
         auditor = Auditor(LoggerFalso())
-        auditor.question_asked("cancelar_cita", subject="a", nonce="n1")
-        auditor.question_answered("cancelar_cita", subject="a", nonce="n1")
+        auditor.question_asked("cancel_appointment", subject="a", nonce="n1")
+        auditor.question_answered("cancel_appointment", subject="a", nonce="n1")
         assert [e["event"] for e in auditor.events] == [
             "approval.proposed",
             "approval.confirmed",

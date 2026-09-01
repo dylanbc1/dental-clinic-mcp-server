@@ -52,7 +52,7 @@ select count(*) as cupos_libres from agenda_slot where estado='libre';"
 ```
 
 **Expect:** all four regimes present, some with `afiliacion_activa = f` (with none,
-`validar_afiliacion` would have nothing to catch), appointments across all six
+`validate_afiliacion` would have nothing to catch), appointments across all six
 states, and over a thousand free slots to book into.
 
 ### A3 · The seed is deterministic
@@ -131,7 +131,7 @@ TOKEN_READ=$(uv run python scripts/get_token.py --scope "read")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_READ" \
-  --method tools/call --tool-name cancelar_cita \
+  --method tools/call --tool-name cancel_appointment \
   --tool-arg cita_id=1 --tool-arg motivo="manual check"
 ```
 
@@ -146,7 +146,7 @@ TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name registrar_motivo_consulta \
+  --method tools/call --tool-name record_visit_reason \
   --tool-arg cita_id=1 --tool-arg motivo="tooth pain"
 ```
 
@@ -170,8 +170,8 @@ curl -s -X POST localhost:8080/mcp \
   -H "Authorization: Bearer $TOKEN_RW" -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'MCP-Protocol-Version: 2026-07-28' \
-  -H 'mcp-method: tools/call' -H 'mcp-name: agendar_cita' \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"agendar_cita\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
+  -H 'mcp-method: tools/call' -H 'mcp-name: book_appointment' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"book_appointment\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
 ```
 
 **Expect:** `"resultType": "input_required"`, an `inputRequests` carrying the
@@ -195,7 +195,7 @@ Resend **the same call**, adding the person's answer and the state. `CLAVE` is
 the single key of the `inputRequests` object you got back:
 
 ```bash
-  ...,\"params\":{\"name\":\"agendar_cita\",\"arguments\":{ ...the same... },
+  ...,\"params\":{\"name\":\"book_appointment\",\"arguments\":{ ...the same... },
      \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmado\":true}}},
      \"requestState\":\"v1....\",$META}
 ```
@@ -206,7 +206,7 @@ the state:
 | What you do | What must happen |
 |---|---|
 | Change one character of the `requestState` | Refused |
-| Use the state from `confirmar_cita` to run `cancelar_cita` | Refused: it is bound to the request |
+| Use the state from `confirm_appointment` to run `cancel_appointment` | Refused: it is bound to the request |
 | Change `paciente_id` on the second round | Refused: the arguments are part of what was approved |
 | Obtain the state as one subject, redeem it as another | Refused: it is bound to the principal |
 | Answer `"confirmado": false` | `OPERACION_NO_APROBADA`, nothing touched |
@@ -223,7 +223,7 @@ Try booking the slot you just took:
 ```bash
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name agendar_cita \
+  --method tools/call --tool-name book_appointment \
   --tool-arg paciente_id=2 --tool-arg slot_id=SAME_SLOT
 ```
 
@@ -323,17 +323,17 @@ docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select id from paciente where afiliacion_activa=false and regimen<>'particular' limit 1;"
 ```
 
-Call `validar_afiliacion` with that id. **Expect:** `regimen_efectivo:
+Call `validate_afiliacion` with that id. **Expect:** `regimen_efectivo:
 "particular"`, `bloquea_agendamiento: false`, and a suggestion about reactivating
 with the EPS.
 
 ### C3 · The state machine allows no shortcuts
 
-On an appointment in `agendada`, propose and confirm `registrar_asistencia` with
-`estado=atendida`, skipping `confirmada` and `en_espera`.
+On an appointment in `scheduled`, propose and confirm `record_attendance` with
+`estado=attended`, skipping `confirmed` and `waiting`.
 
 **Expect:** `TRANSICION_INVALIDA` **before you are asked anything**, listing which transitions
-would be valid. Ask `consultar_cita` first: the `transiciones_validas` field says
+would be valid. Ask `get_appointment` first: the `transiciones_validas` field says
 exactly what can happen next, which is the same information the model uses to
 pick its next tool.
 

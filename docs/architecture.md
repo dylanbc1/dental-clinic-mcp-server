@@ -53,7 +53,7 @@ before a single row is touched.
 2. **Layer 1** validates the OAuth 2.1 access token. Missing or invalid ⇒ `401`
    with a `WWW-Authenticate` header pointing at the protected-resource metadata.
 3. **Layer 2** checks the token's scopes against the scope the tool declares.
-   A `read` token calling `agendar_cita` is refused here.
+   A `read` token calling `book_appointment` is refused here.
 4. **Layer 3**, for any `write` or `clinical` tool, returns `input_required`
    instead of acting: the question a person must answer, plus a sealed
    `requestState`. The client obtains the answer and retries the same call
@@ -82,34 +82,52 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> agendada
-    agendada --> confirmada
-    agendada --> cancelada : exige motivo
-    agendada --> reprogramada
-    agendada --> no_asistio
-    confirmada --> en_espera
-    confirmada --> cancelada : exige motivo
-    confirmada --> reprogramada
-    confirmada --> no_asistio
-    en_espera --> atendida
-    en_espera --> cancelada : exige motivo
-    atendida --> [*]
-    cancelada --> [*]
-    reprogramada --> [*]
-    no_asistio --> [*]
+    [*] --> scheduled
+    scheduled --> confirmed
+    scheduled --> cancelled : exige motivo
+    scheduled --> rescheduled
+    scheduled --> no_show
+    confirmed --> waiting
+    confirmed --> cancelled : exige motivo
+    confirmed --> rescheduled
+    confirmed --> no_show
+    waiting --> attended
+    waiting --> cancelled : exige motivo
+    attended --> [*]
+    cancelled --> [*]
+    rescheduled --> [*]
+    no_show --> [*]
 ```
 
 Three rules ride on this diagram, all of them enforced in
 `backend/domain/states.py` and exhaustively tested:
 
-- `cancelada` **requires a reason**. A cancellation without one destroys the
+- `cancelled` **requires a reason**. A cancellation without one destroys the
   clinic's ability to audit its own no-show rate.
-- `cancelada`, `reprogramada` and `no_asistio` **free the slot**; only
-  `cancelada` triggers the waiting list, because a reschedule moves the same
+- `cancelled`, `rescheduled` and `no_show` **free the slot**; only
+  `cancelled` triggers the waiting list, because a reschedule moves the same
   patient and a no-show happens once the slot has already elapsed.
-- `atendida` and `no_asistio` **produce a charge** in accounts receivable.
+- `attended` and `no_show` **produce a charge** in accounts receivable.
 
 ## Decisions worth arguing about
+
+### English values, Spanish for the person reading
+
+Every internal value is English: state-machine values, error codes, tool names.
+Every word a clinic employee reads is Spanish. The two never mix in one string.
+
+The exceptions are values with legal weight that English does not carry, and
+they stay Spanish on the wire too: `cartera` states (`al_dia`, `en_mora`),
+affiliation regimes (`contributivo`, `subsidiado`), charge concepts (`copago`,
+`cuota_moderadora`) and Colombian document types. "Estar en mora" is a defined
+condition, not a synonym for late.
+
+`backend/domain/labels.py` is the only place a value becomes words. Callers ask
+it for a label when the value informs the reader, and say what changes when it
+does not: the front desk learns more from "el cupo quedará libre" than from
+"la cita pasará a 'cancelled'". A contract test calls every write tool and
+fails if any internal value shows up in the question a human approves, which is
+how the specialty leaked into it once and did not survive.
 
 ### Store UTC, present America/Bogota
 
@@ -126,7 +144,7 @@ covers concurrent edits to the slot itself.
 
 ```sql
 CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('agendada','confirmada','en_espera','atendida');
+  WHERE estado IN ('scheduled','confirmed','waiting','attended');
 ```
 
 ### Idempotency keys on booking

@@ -50,7 +50,7 @@ class TestConConsentimiento:
     ) -> None:
         args = {"cita_id": appointment_with_consent, "motivo": "Dolor en molar inferior"}
         with as_caller(SUBJECT, CLINICO):
-            result = await mcp.aprobar("registrar_motivo_consulta", args)
+            result = await mcp.aprobar("record_visit_reason", args)
 
         assert result["motivo"] == "Dolor en molar inferior"
         backend_session.expire_all()
@@ -64,7 +64,7 @@ class TestConConsentimiento:
     ) -> None:
         args = {"cita_id": appointment_with_consent, "motivo": "Dolor"}
         with as_caller(SUBJECT, CLINICO):
-            mensaje = mcp.mensaje_de(await mcp.ask("registrar_motivo_consulta", args))
+            mensaje = mcp.question_text(await mcp.ask("record_visit_reason", args))
         assert "2654" in mensaje
         assert "1581" in mensaje
 
@@ -73,7 +73,7 @@ class TestConConsentimiento:
     ) -> None:
         args = {"cita_id": appointment_with_consent, "motivo": "Dolor agudo"}
         with as_caller(SUBJECT, CLINICO):
-            await mcp.ask("registrar_motivo_consulta", args)
+            await mcp.ask("record_visit_reason", args)
         backend_session.expire_all()
         assert get_appointment(backend_session, appointment_with_consent).motivo is None
 
@@ -86,7 +86,7 @@ class TestSinConsentimiento:
         the one that must still stop it."""
         args = {"cita_id": appointment_without_consent, "motivo": "Dolor"}
         with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError) as exc:
-            await mcp.aprobar("registrar_motivo_consulta", args)
+            await mcp.aprobar("record_visit_reason", args)
         assert "CONSENTIMIENTO_REQUERIDO" in exc.value.text_of
         assert "2654" in exc.value.text_of
         assert "Action required" in exc.value.text_of
@@ -96,7 +96,7 @@ class TestSinConsentimiento:
     ) -> None:
         args = {"cita_id": appointment_without_consent, "motivo": "Dolor severo"}
         with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError):
-            await mcp.aprobar("registrar_motivo_consulta", args)
+            await mcp.aprobar("record_visit_reason", args)
         backend_session.expire_all()
         assert get_appointment(backend_session, appointment_without_consent).motivo is None
 
@@ -109,7 +109,7 @@ class TestAuditoriaClinica:
         invocation stream makes it unanswerable at audit time."""
         args = {"cita_id": appointment_with_consent, "motivo": "Control"}
         with as_caller("odontologa@clinica.test", CLINICO):
-            await mcp.aprobar("registrar_motivo_consulta", args)
+            await mcp.aprobar("record_visit_reason", args)
 
         clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
         assert clinicos[-1]["result"] == "registrado"
@@ -121,7 +121,7 @@ class TestAuditoriaClinica:
     ) -> None:
         args = {"cita_id": appointment_without_consent, "motivo": "Dolor"}
         with as_caller(SUBJECT, CLINICO), pytest.raises(ToolCallError):
-            await mcp.aprobar("registrar_motivo_consulta", args)
+            await mcp.aprobar("record_visit_reason", args)
         clinicos = [e for e in ctx.auditor.events if e["event"] == "clinical.access"]
         assert clinicos[-1]["result"] == "rechazado:CONSENTIMIENTO_REQUERIDO"
 
@@ -133,7 +133,7 @@ class TestAuditoriaClinica:
         secreto = "sangrado gingival persistente hace tres semanas"
         with as_caller(SUBJECT, CLINICO):
             await mcp.aprobar(
-                "registrar_motivo_consulta",
+                "record_visit_reason",
                 {"cita_id": appointment_with_consent, "motivo": secreto},
             )
         assert secreto not in str(ctx.auditor.events)
@@ -151,9 +151,9 @@ class TestAuditoriaClinica:
         through the client would put clinical data in one more place."""
         secreto = "absceso periapical según el paciente"
         with as_caller(SUBJECT, CLINICO):
-            mensaje = mcp.mensaje_de(
+            mensaje = mcp.question_text(
                 await mcp.ask(
-                    "registrar_motivo_consulta",
+                    "record_visit_reason",
                     {"cita_id": appointment_with_consent, "motivo": secreto},
                 )
             )

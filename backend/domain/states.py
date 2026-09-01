@@ -12,46 +12,48 @@ from datetime import datetime
 from typing import Final
 
 from backend.domain.errors import ErrorCode, InvalidTransition, ReasonRequired
-from backend.enums import FINAL_STATES, EstadoCita
+from backend.enums import FINAL_STATES, AppointmentState
 
 #: From KEY you may go to any of VALUES. Taken from the state machine Colombian
 #: clinic systems use, not invented.
-TRANSITIONS: Final[dict[EstadoCita, frozenset[EstadoCita]]] = {
-    EstadoCita.AGENDADA: frozenset(
+TRANSITIONS: Final[dict[AppointmentState, frozenset[AppointmentState]]] = {
+    AppointmentState.SCHEDULED: frozenset(
         {
-            EstadoCita.CONFIRMADA,
-            EstadoCita.CANCELADA,
-            EstadoCita.REPROGRAMADA,
-            EstadoCita.NO_ASISTIO,
+            AppointmentState.CONFIRMED,
+            AppointmentState.CANCELLED,
+            AppointmentState.RESCHEDULED,
+            AppointmentState.NO_SHOW,
         }
     ),
-    EstadoCita.CONFIRMADA: frozenset(
+    AppointmentState.CONFIRMED: frozenset(
         {
-            EstadoCita.EN_ESPERA,
-            EstadoCita.CANCELADA,
-            EstadoCita.REPROGRAMADA,
-            EstadoCita.NO_ASISTIO,
+            AppointmentState.WAITING,
+            AppointmentState.CANCELLED,
+            AppointmentState.RESCHEDULED,
+            AppointmentState.NO_SHOW,
         }
     ),
-    EstadoCita.EN_ESPERA: frozenset({EstadoCita.ATENDIDA, EstadoCita.CANCELADA}),
-    EstadoCita.ATENDIDA: frozenset(),
-    EstadoCita.CANCELADA: frozenset(),
-    EstadoCita.REPROGRAMADA: frozenset(),
-    EstadoCita.NO_ASISTIO: frozenset(),
+    AppointmentState.WAITING: frozenset({AppointmentState.ATTENDED, AppointmentState.CANCELLED}),
+    AppointmentState.ATTENDED: frozenset(),
+    AppointmentState.CANCELLED: frozenset(),
+    AppointmentState.RESCHEDULED: frozenset(),
+    AppointmentState.NO_SHOW: frozenset(),
 }
 
 #: Cancelling without a reason destroys the clinic's ability to audit its own
 #: cancellations, so the domain refuses it.
-TRANSITIONS_REQUIRING_REASON: Final[frozenset[EstadoCita]] = frozenset({EstadoCita.CANCELADA})
+TRANSITIONS_REQUIRING_REASON: Final[frozenset[AppointmentState]] = frozenset(
+    {AppointmentState.CANCELLED}
+)
 
 #: Free the slot back into the agenda, and may trigger the waiting list (§2.4).
-TRANSITIONS_FREEING_SLOT: Final[frozenset[EstadoCita]] = frozenset(
-    {EstadoCita.CANCELADA, EstadoCita.REPROGRAMADA, EstadoCita.NO_ASISTIO}
+TRANSITIONS_FREEING_SLOT: Final[frozenset[AppointmentState]] = frozenset(
+    {AppointmentState.CANCELLED, AppointmentState.RESCHEDULED, AppointmentState.NO_SHOW}
 )
 
 #: Transitions that produce a charge in accounts receivable (§2.3).
-TRANSITIONS_CREATING_CHARGE: Final[frozenset[EstadoCita]] = frozenset(
-    {EstadoCita.ATENDIDA, EstadoCita.NO_ASISTIO}
+TRANSITIONS_CREATING_CHARGE: Final[frozenset[AppointmentState]] = frozenset(
+    {AppointmentState.ATTENDED, AppointmentState.NO_SHOW}
 )
 
 
@@ -63,8 +65,8 @@ class TransitionEffects:
     rules, and so the effects are testable on their own.
     """
 
-    estado_anterior: EstadoCita
-    estado_nuevo: EstadoCita
+    estado_anterior: AppointmentState
+    estado_nuevo: AppointmentState
     libera_slot: bool
     genera_cargo: bool
     dispara_lista_espera: bool
@@ -75,31 +77,31 @@ class TransitionEffects:
 class HistoryRecord:
     """One immutable audit row for a state change (security layer 5)."""
 
-    estado_anterior: EstadoCita
-    estado_nuevo: EstadoCita
+    estado_anterior: AppointmentState
+    estado_nuevo: AppointmentState
     usuario: str
     momento: datetime
     motivo: str | None = None
     metadatos: dict[str, str] = field(default_factory=dict)
 
 
-def reachable_states(estado: EstadoCita) -> frozenset[EstadoCita]:
+def reachable_states(estado: AppointmentState) -> frozenset[AppointmentState]:
     """States reachable from `estado` in one step."""
     return TRANSITIONS[estado]
 
 
-def is_final(estado: EstadoCita) -> bool:
+def is_final(estado: AppointmentState) -> bool:
     return estado in FINAL_STATES
 
 
-def is_valid_transition(current: EstadoCita, new_state: EstadoCita) -> bool:
+def is_valid_transition(current: AppointmentState, new_state: AppointmentState) -> bool:
     """Pure predicate, no exceptions. Useful for filtering and for tests."""
     return new_state in TRANSITIONS[current]
 
 
 def validate_transition(
-    current: EstadoCita,
-    new_state: EstadoCita,
+    current: AppointmentState,
+    new_state: AppointmentState,
     *,
     motivo: str | None = None,
 ) -> TransitionEffects:
@@ -115,7 +117,7 @@ def validate_transition(
                 f"The appointment is already in final state '{current}' and accepts no "
                 "further changes.",
                 sugerencia=(
-                    "If the patient needs another visit, book a new appointment with agendar_cita."
+                    "If the patient needs another visit, book a new one with book_appointment."
                 ),
                 detalles={"estado_actual": str(current), "estado_solicitado": str(new_state)},
                 codigo=ErrorCode.CITA_EN_ESTADO_FINAL,
@@ -151,5 +153,5 @@ def validate_transition(
         # Only a cancellation frees a slot someone on the waiting list could
         # take. A reschedule moves the same patient; a no-show happens once the
         # slot has already elapsed.
-        dispara_lista_espera=new_state is EstadoCita.CANCELADA,
+        dispara_lista_espera=new_state is AppointmentState.CANCELLED,
     )

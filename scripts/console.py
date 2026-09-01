@@ -154,9 +154,9 @@ AYUDA = f"""
   {AZUL}quit{FIN}
 
 {NEGRITA}To get started{FIN}
-  {GRIS}buscar_paciente {{"nombre": "a", "limite": 3}}{FIN}
-  {GRIS}consultar_disponibilidad {{"limite": 3}}{FIN}
-  {GRIS}agendar_cita {{"paciente_id": 20, "slot_id": 719}}{FIN}   ← this one will ask you
+  {GRIS}search_patients {{"nombre": "a", "limite": 3}}{FIN}
+  {GRIS}check_availability {{"limite": 3}}{FIN}
+  {GRIS}book_appointment {{"paciente_id": 20, "slot_id": 719}}{FIN}   ← this one will ask you
 """
 
 

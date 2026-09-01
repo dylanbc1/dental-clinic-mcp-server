@@ -25,10 +25,10 @@ from sqlalchemy.orm import Session
 from backend.domain.states import is_valid_transition
 from backend.enums import (
     STATES_HOLDING_SLOT,
-    EstadoCargo,
-    EstadoCita,
-    EstadoSlot,
+    AppointmentState,
+    ChargeState,
     Regimen,
+    SlotState,
 )
 from backend.models import (
     AgendaSlot,
@@ -188,7 +188,7 @@ class TestConsistenciaDelDataset:
     def test_el_estado_del_slot_concuerda_con_su_cita(self, seeded: Session) -> None:
         for cita in seeded.scalars(select(Appointment)):
             if cita.estado in STATES_HOLDING_SLOT:
-                assert cita.slot.estado is EstadoSlot.OCUPADO, cita.id
+                assert cita.slot.estado is SlotState.BUSY, cita.id
 
     def test_todo_historial_describe_un_camino_legal(self, seeded: Session) -> None:
         """Every seeded appointment must have a history the state machine would
@@ -198,7 +198,7 @@ class TestConsistenciaDelDataset:
             historial = sorted(cita.historial, key=lambda h: h.momento)
             assert historial, f"cita {cita.id} sin historial"
             assert historial[0].estado_anterior is None
-            assert historial[0].estado_nuevo is EstadoCita.AGENDADA
+            assert historial[0].estado_nuevo is AppointmentState.SCHEDULED
             for previous, next_up in itertools.pairwise(historial):
                 assert next_up.estado_anterior is previous.estado_nuevo
                 assert is_valid_transition(previous.estado_nuevo, next_up.estado_nuevo)
@@ -215,14 +215,14 @@ class TestConsistenciaDelDataset:
     ) -> None:
         for cargo in seeded.scalars(select(Charge)):
             if cargo.cita is not None:
-                assert cargo.cita.estado in {EstadoCita.ATENDIDA, EstadoCita.NO_ASISTIO}
+                assert cargo.cita.estado in {AppointmentState.ATTENDED, AppointmentState.NO_SHOW}
 
     def test_ningun_cargo_es_negativo(self, seeded: Session) -> None:
         assert all(c.monto >= 0 for c in seeded.scalars(select(Charge)))
 
     def test_un_paciente_soat_activo_no_acumula_cargos_de_atencion(self, seeded: Session) -> None:
         for cargo in seeded.scalars(select(Charge)):
-            if cargo.cita is not None and cargo.cita.estado is EstadoCita.ATENDIDA:
+            if cargo.cita is not None and cargo.cita.estado is AppointmentState.ATTENDED:
                 paciente = cargo.paciente
                 assert not (paciente.regimen is Regimen.SOAT and paciente.afiliacion_activa), (
                     f"SOAT activo con cargo de atención: paciente {paciente.id}"
@@ -234,19 +234,21 @@ class TestRealismoDelDataset:
 
     def test_quedan_cupos_libres_para_agendar(self, seeded: Session) -> None:
         free_slots = seeded.scalar(
-            select(func.count())
-            .select_from(AgendaSlot)
-            .where(AgendaSlot.estado == EstadoSlot.LIBRE)
+            select(func.count()).select_from(AgendaSlot).where(AgendaSlot.estado == SlotState.FREE)
         )
         assert free_slots is not None and free_slots > 50
 
     def test_hay_citas_en_varios_estados(self, seeded: Session) -> None:
         estados = {c.estado for c in seeded.scalars(select(Appointment))}
-        assert {EstadoCita.AGENDADA, EstadoCita.CONFIRMADA, EstadoCita.ATENDIDA} <= estados
+        assert {
+            AppointmentState.SCHEDULED,
+            AppointmentState.CONFIRMED,
+            AppointmentState.ATTENDED,
+        } <= estados
 
     def test_hay_no_shows_que_es_el_dolor_que_ataca_el_proyecto(self, seeded: Session) -> None:
         no_shows = [
-            c for c in seeded.scalars(select(Appointment)) if c.estado is EstadoCita.NO_ASISTIO
+            c for c in seeded.scalars(select(Appointment)) if c.estado is AppointmentState.NO_SHOW
         ]
         assert no_shows
 
@@ -256,7 +258,7 @@ class TestRealismoDelDataset:
             for p in seeded.scalars(select(Patient))
             if not p.afiliacion_activa and p.regimen is not Regimen.PARTICULAR
         ]
-        assert inactivos, "sin afiliaciones inactivas, validar_afiliacion no tiene qué atrapar"
+        assert inactivos, "sin afiliaciones inactivas, validate_afiliacion no tiene qué atrapar"
 
     def test_hay_pacientes_sin_consentimiento_clinico(self, seeded: Session) -> None:
         """The clinical tool must have real cases where it is correctly refused."""
@@ -266,7 +268,7 @@ class TestRealismoDelDataset:
         assert sin_consentimiento
 
     def test_hay_cargos_pendientes_para_cobrar(self, seeded: Session) -> None:
-        outstanding = [c for c in seeded.scalars(select(Charge)) if c.estado == "pendiente"]
+        outstanding = [c for c in seeded.scalars(select(Charge)) if c.estado == "pending"]
         assert outstanding
 
     def test_hay_cartera_realmente_vencida(self, seeded: Session) -> None:
@@ -277,7 +279,7 @@ class TestRealismoDelDataset:
         overdue = [
             c
             for c in seeded.scalars(select(Charge))
-            if c.estado == EstadoCargo.PENDIENTE and c.vencimiento < FECHA_BASE
+            if c.estado == ChargeState.PENDING and c.vencimiento < FECHA_BASE
         ]
         assert overdue, "el dataset no tiene ni un cargo vencido"
         assert len({c.paciente_id for c in overdue}) >= 3
@@ -287,7 +289,7 @@ class TestRealismoDelDataset:
         dias = {
             (FECHA_BASE - c.vencimiento).days
             for c in seeded.scalars(select(Charge))
-            if c.estado == EstadoCargo.PENDIENTE and c.vencimiento < FECHA_BASE
+            if c.estado == ChargeState.PENDING and c.vencimiento < FECHA_BASE
         }
         assert max(dias) > 60, f"la mora más antigua es de {max(dias)} días"
 
@@ -299,7 +301,7 @@ class TestRealismoDelDataset:
 
         por_paciente: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
         for c in seeded.scalars(select(Charge)):
-            if c.estado == EstadoCargo.PENDIENTE and c.vencimiento < FECHA_BASE:
+            if c.estado == ChargeState.PENDING and c.vencimiento < FECHA_BASE:
                 por_paciente[c.paciente_id] += c.monto
         assert any(total >= DEFAULT_POLICY.umbral_alerta_mora for total in por_paciente.values())
 

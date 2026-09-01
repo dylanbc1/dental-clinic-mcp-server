@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from backend.api import app
 from backend.database import get_session
 from backend.domain.services import book_appointment, join_waiting_list
-from backend.enums import Especialidad
+from backend.enums import Specialty
 from tests.conftest import Scenario
 
 pytestmark = pytest.mark.integration
@@ -68,8 +68,8 @@ class TestClinica:
         assert body["nombre"] == "Clínica Escenario"
         assert body["zona_horaria"] == "America/Bogota"
         assert {p["especialidad"] for p in body["profesionales"]} == {
-            "odontologia_general",
-            "ortodoncia",
+            "general_dentistry",
+            "orthodontics",
         }
 
 
@@ -78,7 +78,7 @@ class TestPoliticas:
         body = client.get("/politicas/cartera").json()
         assert body["cobra_no_show"] is True
         assert body["plazo_pago_dias"] == 30
-        assert "odontologia_general" in body["tarifas_particular"]
+        assert "general_dentistry" in body["tarifas_particular"]
 
     def test_deja_explicita_la_regla_de_no_bloqueo(self, client: TestClient) -> None:
         assert "never a block" in client.get("/politicas/cartera").json()["nota"]
@@ -156,8 +156,8 @@ class TestDisponibilidad:
         assert slot["inicio_local"].startswith(str(scenario.fecha_futura))
 
     def test_filtra_por_especialidad(self, client: TestClient, scenario: Scenario) -> None:
-        body = client.get("/disponibilidad", params={"especialidad": "ortodoncia"}).json()
-        assert all(s["especialidad"] == "ortodoncia" for s in body)
+        body = client.get("/disponibilidad", params={"especialidad": "orthodontics"}).json()
+        assert all(s["especialidad"] == "orthodontics" for s in body)
 
     def test_especialidad_invalida_es_422(self, client: TestClient, scenario: Scenario) -> None:
         assert (
@@ -171,7 +171,7 @@ class TestDisponibilidad:
 class TestCitas:
     def test_detalle_incluye_historial(self, client: TestClient, cita_id: int) -> None:
         body = client.get(f"/citas/{cita_id}").json()
-        assert body["estado"] == "agendada"
+        assert body["estado"] == "scheduled"
         assert len(body["historial"]) == 1
 
     def test_cita_inexistente_es_404(self, client: TestClient, scenario: Scenario) -> None:
@@ -197,7 +197,7 @@ class TestCitas:
     ) -> None:
         body = client.get(f"/agenda/{scenario.fecha_futura}").json()
         assert body["total"] == 1
-        assert body["por_estado"] == {"agendada": 1}
+        assert body["por_estado"] == {"scheduled": 1}
 
 
 # --------------------------------------------------------------------------- #
@@ -214,7 +214,7 @@ class TestAgendar:
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["cita"]["estado"] == "agendada"
+        assert body["cita"]["estado"] == "scheduled"
         assert body["cita"]["creada_por"] == ACTOR
         assert body["afiliacion"]["activa"] is True
 
@@ -278,8 +278,8 @@ class TestAgendar:
 class TestTransiciones:
     def test_confirmar(self, client: TestClient, cita_id: int) -> None:
         body = client.post(f"/citas/{cita_id}/confirmar", headers=HEADERS).json()
-        assert body["estado_anterior"] == "agendada"
-        assert body["estado_nuevo"] == "confirmada"
+        assert body["estado_anterior"] == "scheduled"
+        assert body["estado_nuevo"] == "confirmed"
         assert body["libero_cupo"] is False
 
     def test_confirmar_dos_veces_es_409_con_las_alternativas(
@@ -290,7 +290,7 @@ class TestTransiciones:
         assert response.status_code == 409
         body = response.json()
         assert body["codigo"] == "TRANSICION_INVALIDA"
-        assert "en_espera" in body["sugerencia"]
+        assert "waiting" in body["sugerencia"]
 
     def test_cancelar_exige_motivo(self, client: TestClient, cita_id: int) -> None:
         response = client.post(f"/citas/{cita_id}/cancelar", json={})
@@ -315,7 +315,7 @@ class TestTransiciones:
         join_waiting_list(
             api_session,
             paciente_id=scenario.carla_id,
-            especialidad=Especialidad.ODONTOLOGIA_GENERAL,
+            especialidad=Specialty.GENERAL_DENTISTRY,
         )
         api_session.commit()
         body = client.post(
@@ -327,7 +327,7 @@ class TestTransiciones:
 
     def test_asistencia_solo_acepta_sus_estados(self, client: TestClient, cita_id: int) -> None:
         response = client.post(
-            f"/citas/{cita_id}/asistencia", json={"estado": "cancelada"}, headers=HEADERS
+            f"/citas/{cita_id}/asistencia", json={"estado": "cancelled"}, headers=HEADERS
         )
         assert response.status_code == 422
 
@@ -335,9 +335,9 @@ class TestTransiciones:
         self, client: TestClient, cita_id: int
     ) -> None:
         client.post(f"/citas/{cita_id}/confirmar", headers=HEADERS)
-        client.post(f"/citas/{cita_id}/asistencia", json={"estado": "en_espera"}, headers=HEADERS)
+        client.post(f"/citas/{cita_id}/asistencia", json={"estado": "waiting"}, headers=HEADERS)
         body = client.post(
-            f"/citas/{cita_id}/asistencia", json={"estado": "atendida"}, headers=HEADERS
+            f"/citas/{cita_id}/asistencia", json={"estado": "attended"}, headers=HEADERS
         ).json()
         assert body["genero_cargo"] is True
         assert body["cargo"]["concepto"] == "cuota_moderadora"
@@ -353,28 +353,28 @@ class TestTransiciones:
         ).json()
         assert body["cita"]["id"] != cita_id
         assert body["cita"]["cita_origen_id"] == cita_id
-        assert body["cita"]["estado"] == "agendada"
+        assert body["cita"]["estado"] == "scheduled"
 
 
 class TestListaEsperaApi:
     def test_inscribe_y_lista_en_orden(self, client: TestClient, scenario: Scenario) -> None:
         client.post(
             "/lista-espera",
-            json={"paciente_id": scenario.ana_id, "especialidad": "ortodoncia"},
+            json={"paciente_id": scenario.ana_id, "especialidad": "orthodontics"},
         )
         client.post(
             "/lista-espera",
             json={
                 "paciente_id": scenario.carla_id,
-                "especialidad": "ortodoncia",
-                "prioridad": "urgencia",
+                "especialidad": "orthodontics",
+                "prioridad": "urgent",
             },
         )
-        body = client.get("/lista-espera", params={"especialidad": "ortodoncia"}).json()
+        body = client.get("/lista-espera", params={"especialidad": "orthodontics"}).json()
         assert [e["paciente_id"] for e in body] == [scenario.carla_id, scenario.ana_id]
 
     def test_inscripcion_duplicada_es_409(self, client: TestClient, scenario: Scenario) -> None:
-        body = {"paciente_id": scenario.ana_id, "especialidad": "ortodoncia"}
+        body = {"paciente_id": scenario.ana_id, "especialidad": "orthodontics"}
         client.post("/lista-espera", json=body)
         response = client.post("/lista-espera", json=body)
         assert response.status_code == 409
@@ -385,7 +385,7 @@ class TestListaEsperaApi:
     ) -> None:
         client.post(
             "/lista-espera",
-            json={"paciente_id": scenario.ana_id, "especialidad": "ortodoncia"},
+            json={"paciente_id": scenario.ana_id, "especialidad": "orthodontics"},
         )
         body = client.post(
             "/lista-espera/ofrecer",
@@ -493,7 +493,7 @@ class TestFlujoCompleto:
         self, client: TestClient, scenario: Scenario
     ) -> None:
         """The end-to-end path a receptionist actually walks."""
-        slot = client.get("/disponibilidad", params={"especialidad": "ortodoncia"}).json()[0]
+        slot = client.get("/disponibilidad", params={"especialidad": "orthodontics"}).json()[0]
 
         creada = client.post(
             "/citas",
@@ -501,12 +501,12 @@ class TestFlujoCompleto:
             headers=HEADERS,
         ).json()["cita"]
 
-        confirmada = client.post(f"/citas/{creada['id']}/confirmar", headers=HEADERS).json()
-        assert confirmada["estado_nuevo"] == "confirmada"
+        confirmed = client.post(f"/citas/{creada['id']}/confirmar", headers=HEADERS).json()
+        assert confirmed["estado_nuevo"] == "confirmed"
 
         client.post(
             "/lista-espera",
-            json={"paciente_id": scenario.carla_id, "especialidad": "ortodoncia"},
+            json={"paciente_id": scenario.carla_id, "especialidad": "orthodontics"},
         )
 
         cancelada = client.post(
@@ -524,9 +524,9 @@ class TestFlujoCompleto:
 
         detalle = client.get(f"/citas/{creada['id']}").json()
         assert [h["estado_nuevo"] for h in detalle["historial"]] == [
-            "agendada",
-            "confirmada",
-            "cancelada",
+            "scheduled",
+            "confirmed",
+            "cancelled",
         ]
         assert all(h["usuario"] in {"mcp-server", ACTOR} for h in detalle["historial"])
 
@@ -581,10 +581,10 @@ class TestTransicionesValidas:
     def test_una_cita_agendada_lista_sus_salidas(self, client: TestClient, cita_id: int) -> None:
         body = client.get(f"/citas/{cita_id}").json()
         assert set(body["transiciones_validas"]) == {
-            "confirmada",
-            "cancelada",
-            "reprogramada",
-            "no_asistio",
+            "confirmed",
+            "cancelled",
+            "rescheduled",
+            "no_show",
         }
 
     def test_una_cita_cancelada_no_tiene_salidas(self, client: TestClient, cita_id: int) -> None:
@@ -598,10 +598,10 @@ class TestTransicionesValidas:
     def test_las_salidas_siguen_a_la_transicion(self, client: TestClient, cita_id: int) -> None:
         client.post(f"/citas/{cita_id}/confirmar", headers=HEADERS)
         assert set(client.get(f"/citas/{cita_id}").json()["transiciones_validas"]) == {
-            "en_espera",
-            "cancelada",
-            "reprogramada",
-            "no_asistio",
+            "waiting",
+            "cancelled",
+            "rescheduled",
+            "no_show",
         }
 
 
@@ -665,7 +665,7 @@ class TestValidarReservaCompleta:
     ) -> None:
         response = client.get(
             f"/disponibilidad/{scenario.slots_general[0]}",
-            params={"especialidad_esperada": "ortodoncia"},
+            params={"especialidad_esperada": "orthodontics"},
         )
         assert response.status_code == 400
         assert response.json()["codigo"] == "ESPECIALIDAD_NO_COINCIDE"

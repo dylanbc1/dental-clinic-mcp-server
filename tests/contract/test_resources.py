@@ -46,8 +46,8 @@ class TestRecursos:
         assert info["nombre"] == "Clínica Escenario"
         assert info["zona_horaria"] == "America/Bogota"
         assert {p["especialidad"] for p in info["profesionales"]} == {
-            "odontologia_general",
-            "ortodoncia",
+            "general_dentistry",
+            "orthodontics",
         }
 
     async def test_politicas_trae_las_tarifas_para_no_inventarlas(
@@ -55,7 +55,7 @@ class TestRecursos:
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             politicas = await leer(server_, "politicas://cartera")
-        assert politicas["tarifas_particular"]["endodoncia"] == "350000"
+        assert politicas["tarifas_particular"]["endodontics"] == "350000"
         assert politicas["monto_no_show"] == "40000"
         assert "never a block" in politicas["nota"]
 
@@ -88,7 +88,7 @@ class TestRecursos:
             agenda = await leer(server_, "agenda://hoy")
         assert agenda["fecha"] == now_at_clinic().date().isoformat()
         assert agenda["total"] == 1
-        assert agenda["por_estado"] == {"agendada": 1}
+        assert agenda["por_estado"] == {"scheduled": 1}
 
     async def test_hoy_es_hoy_en_la_clinica_no_en_el_servidor(
         self, server_: MCPServer[Any], scenario: Scenario

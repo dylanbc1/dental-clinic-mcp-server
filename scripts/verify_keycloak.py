@@ -62,7 +62,7 @@ def main() -> int:
     client = MCPTestClient(MCP_KEYCLOAK, kc)
     tools = client._rpc("tools/list", {})["tools"]
     print(f"  tools visible: {len(tools)}")
-    slot = client.call_tool("consultar_disponibilidad", {"limite": 1})[0]
+    slot = client.call_tool("check_availability", {"limite": 1})[0]
     print(f"  a real read: free slot {slot['inicio_local']}")
 
     step("3 · The two issuers are not interchangeable by accident")

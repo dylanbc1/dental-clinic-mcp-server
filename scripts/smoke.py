@@ -154,7 +154,7 @@ def main() -> int:
     print(f"  tools: {len(tools)} · {', '.join(t['name'] for t in tools[:4])}…")
 
     step("5 · Reading")
-    paciente = client.call_tool("buscar_paciente", {"nombre": "a", "limite": 1})[0]
+    paciente = client.call_tool("search_patients", {"nombre": "a", "limite": 1})[0]
     print(f"  patient: {paciente['nombre']} · régimen {paciente['regimen']}")
 
     # Pick a slot at an hour the patient is not already booked for. A patient
@@ -162,9 +162,9 @@ def main() -> int:
     # picks properly instead of discovering it in an error.
     ocupadas = {
         c["inicio_local"]
-        for c in client.call_tool("listar_citas_paciente", {"paciente_id": paciente["id"]})
+        for c in client.call_tool("list_patient_appointments", {"paciente_id": paciente["id"]})
     }
-    free_slots = client.call_tool("consultar_disponibilidad", {"limite": 25})
+    free_slots = client.call_tool("check_availability", {"limite": 25})
     slot = next((s for s in free_slots if s["inicio_local"] not in ocupadas), None)
     if slot is None:
         raise SystemExit("no free slot at an hour the patient has available")
@@ -172,20 +172,20 @@ def main() -> int:
 
     step("6 · Write, round 1: the server asks and does NOT execute")
     arguments = {"paciente_id": paciente["id"], "slot_id": slot["slot_id"]}
-    question = client.ask("agendar_cita", arguments)
+    question = client.ask("book_appointment", arguments)
     for line in client.question_text(question).splitlines():
         print(f"    {line}")
     print(f"  requestState: {len(question['requestState'])} bytes, sealed")
 
     step("7 · Round 2: the person approves, and now it executes")
-    hecho = client.respond("agendar_cita", arguments, question, si=True)
+    hecho = client.respond("book_appointment", arguments, question, si=True)
     cita = hecho["cita"]
     print(f"  appointment {cita['id']} · state {cita['estado']} · {cita['inicio_local']}")
 
     step("8 · The sealed state cannot be reused or tampered with")
     tampered = {**question, "requestState": question["requestState"][:-4] + "AAAA"}
     try:
-        client.respond("agendar_cita", arguments, tampered, si=True)
+        client.respond("book_appointment", arguments, tampered, si=True)
     except SystemExit:
         print("  tampered state: refused ✓")
     else:
@@ -193,7 +193,7 @@ def main() -> int:
 
     step("9 · A token without 'clinical' cannot touch clinical data")
     try:
-        client.ask("registrar_motivo_consulta", {"cita_id": cita["id"], "motivo": "dolor"})
+        client.ask("record_visit_reason", {"cita_id": cita["id"], "motivo": "dolor"})
     except SystemExit as esperado:
         print(f"  {str(esperado).splitlines()[1][:88]}")
     else:

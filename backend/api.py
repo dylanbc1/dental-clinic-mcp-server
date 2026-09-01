@@ -36,7 +36,7 @@ from backend.domain.errors import DomainError, ErrorCode
 from backend.domain.services import PAYMENT_TERM
 from backend.domain.time import now_utc, to_clinic_time
 from backend.domain.waiting_list import in_queue_order
-from backend.enums import Especialidad
+from backend.enums import ChargeState, Specialty
 from backend.models import Charge, Professional
 from backend.schemas import (
     AfiliacionResponse,
@@ -279,7 +279,7 @@ def cartera(session: SesionDep, paciente_id: int) -> CarteraResponse:
     cargos = list(
         session.scalars(
             select(Charge)
-            .where(Charge.paciente_id == paciente_id, Charge.estado == "pendiente")
+            .where(Charge.paciente_id == paciente_id, Charge.estado == ChargeState.PENDING)
             .order_by(Charge.vencimiento)
         )
     )
@@ -313,7 +313,7 @@ def patient_appointments_route(
 )
 def slot_availability_route(
     session: SesionDep,
-    especialidad: Especialidad | None = None,
+    especialidad: Specialty | None = None,
     fecha: date | None = None,
     profesional_id: int | None = None,
     limite: Annotated[int, Query(ge=1, le=50)] = 20,
@@ -338,7 +338,7 @@ def bookable_slot(
     session: SesionDep,
     slot_id: int,
     paciente_id: int | None = None,
-    especialidad_esperada: Especialidad | None = None,
+    especialidad_esperada: Specialty | None = None,
     excluir_cita_id: int | None = None,
 ) -> FreeSlot:
     """This slot, if it can still be booked.
@@ -395,7 +395,7 @@ def agenda_for_date(session: SesionDep, fecha: date) -> DayAgenda:
 
 @app.get("/lista-espera", tags=["lectura"], response_model=list[WaitingEntrySummary])
 def waiting_list_route(
-    session: SesionDep, especialidad: Especialidad | None = None
+    session: SesionDep, especialidad: Specialty | None = None
 ) -> list[WaitingEntrySummary]:
     filas = services.waiting_list_entries(session, especialidad)
     order = {

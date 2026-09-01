@@ -17,7 +17,7 @@ class TestBuscarPaciente:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool("buscar_paciente", {"documento": "11111111"})
+            result = await server_.call_tool("search_patients", {"documento": "11111111"})
         encontrados = payload(result)
         assert [p["id"] for p in encontrados] == [scenario.ana_id]
 
@@ -25,14 +25,14 @@ class TestBuscarPaciente:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool("buscar_paciente", {"nombre": "bruno"})
+            result = await server_.call_tool("search_patients", {"nombre": "bruno"})
         assert payload(result)[0]["regimen"] == "subsidiado"
 
     async def test_sin_criterio_devuelve_un_error_accionable(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(server_, "buscar_paciente", {})
+            mensaje = await error_from(server_, "search_patients", {})
         assert "PACIENTE_NO_ENCONTRADO" in mensaje
         assert "Suggestion:" in mensaje
 
@@ -43,7 +43,7 @@ class TestBuscarPaciente:
         reaches the domain."""
         with as_caller(SUBJECT, ["read"]):
             mensaje = await error_from(
-                server_, "buscar_paciente", {"documento": "11111111", "limite": 500}
+                server_, "search_patients", {"documento": "11111111", "limite": 500}
             )
         assert "limite" in mensaje
 
@@ -53,7 +53,7 @@ class TestDisponibilidad:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool("consultar_disponibilidad", {})
+            result = await server_.call_tool("check_availability", {})
         cupos = payload(result)
         assert cupos
         assert cupos[0]["inicio_local"].startswith(str(scenario.fecha_futura))
@@ -62,17 +62,15 @@ class TestDisponibilidad:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool(
-                "consultar_disponibilidad", {"especialidad": "ortodoncia"}
-            )
-        assert all(c["especialidad"] == "ortodoncia" for c in payload(result))
+            result = await server_.call_tool("check_availability", {"especialidad": "orthodontics"})
+        assert all(c["especialidad"] == "orthodontics" for c in payload(result))
 
     async def test_una_especialidad_inventada_da_error_estructurado(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             mensaje = await error_from(
-                server_, "consultar_disponibilidad", {"especialidad": "astrologia_dental"}
+                server_, "check_availability", {"especialidad": "astrologia_dental"}
             )
         assert "ENTRADA_INVALIDA" in mensaje
         assert "especialidad" in mensaje
@@ -81,16 +79,14 @@ class TestDisponibilidad:
 class TestCarteraYAfiliacion:
     async def test_cartera_al_dia(self, server_: MCPServer[Any], scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool("consultar_cartera", {"paciente_id": scenario.ana_id})
+            result = await server_.call_tool("check_cartera", {"paciente_id": scenario.ana_id})
         assert payload(result)["estado"] == "al_dia"
 
     async def test_cartera_en_mora_reporta_el_detalle(
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            result = await server_.call_tool(
-                "consultar_cartera", {"paciente_id": scenario.deudor_id}
-            )
+            result = await server_.call_tool("check_cartera", {"paciente_id": scenario.deudor_id})
         body = payload(result)
         assert body["estado"] == "en_mora"
         assert body["supera_umbral_alerta"] is True
@@ -100,7 +96,7 @@ class TestCarteraYAfiliacion:
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool(
-                "validar_afiliacion", {"paciente_id": scenario.bruno_id}
+                "validate_afiliacion", {"paciente_id": scenario.bruno_id}
             )
         body = payload(result)
         assert body["regimen_efectivo"] == "particular"
@@ -110,7 +106,7 @@ class TestCarteraYAfiliacion:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(server_, "consultar_cartera", {"paciente_id": 999999})
+            mensaje = await error_from(server_, "check_cartera", {"paciente_id": 999999})
         assert "PACIENTE_NO_ENCONTRADO" in mensaje
 
 
@@ -119,7 +115,7 @@ class TestCitas:
         self, server_: MCPServer[Any], scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(server_, "consultar_cita", {"cita_id": 999999})
+            mensaje = await error_from(server_, "get_appointment", {"cita_id": 999999})
         assert "CITA_NO_ENCONTRADA" in mensaje
 
     async def test_listar_citas_de_un_paciente_sin_citas(
@@ -127,7 +123,7 @@ class TestCitas:
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             result = await server_.call_tool(
-                "listar_citas_paciente", {"paciente_id": scenario.ana_id}
+                "list_patient_appointments", {"paciente_id": scenario.ana_id}
             )
         assert payload(result) == []
 
@@ -137,10 +133,10 @@ class TestAuditoriaDeLectura:
         self, server_: MCPServer[Any], ctx: Any, scenario: Scenario
     ) -> None:
         with as_caller("auditor@clinica.test", ["read"]):
-            await server_.call_tool("buscar_paciente", {"documento": "11111111"})
+            await server_.call_tool("search_patients", {"documento": "11111111"})
         evento = ctx.auditor.events[-1]
         assert evento["event"] == "tool.invocation"
-        assert evento["tool"] == "buscar_paciente"
+        assert evento["tool"] == "search_patients"
         assert evento["subject"] == "auditor@clinica.test"
         assert evento["result"] == "ok"
 
@@ -150,7 +146,7 @@ class TestAuditoriaDeLectura:
         """A log that only records successes cannot tell you an agent spent an
         hour failing."""
         with as_caller(SUBJECT, ["read"]):
-            await error_from(server_, "consultar_cita", {"cita_id": 999999})
+            await error_from(server_, "get_appointment", {"cita_id": 999999})
         evento = ctx.auditor.events[-1]
         assert evento["result"] == "error"
         assert evento["error_code"] == "CITA_NO_ENCONTRADA"
@@ -161,7 +157,7 @@ class TestAuditoriaDeLectura:
         """An audit log is not an excuse to duplicate identifiers somewhere less
         protected."""
         with as_caller(SUBJECT, ["read"]):
-            await server_.call_tool("buscar_paciente", {"documento": "11111111"})
+            await server_.call_tool("search_patients", {"documento": "11111111"})
         evento = ctx.auditor.events[-1]
         assert evento["arguments"]["documento"] == "«redacted»"
         assert "11111111" not in str(evento)

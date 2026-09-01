@@ -24,38 +24,38 @@ pytestmark = [pytest.mark.integration, pytest.mark.security]
 
 #: Tool → the single scope it requires.
 SCOPE_REQUERIDO: dict[str, Scope] = {
-    "buscar_paciente": Scope.READ,
-    "consultar_disponibilidad": Scope.READ,
-    "consultar_cita": Scope.READ,
-    "listar_citas_paciente": Scope.READ,
-    "consultar_cartera": Scope.READ,
-    "validar_afiliacion": Scope.READ,
-    "agendar_cita": Scope.WRITE,
-    "confirmar_cita": Scope.WRITE,
-    "cancelar_cita": Scope.WRITE,
-    "reprogramar_cita": Scope.WRITE,
-    "registrar_asistencia": Scope.WRITE,
-    "ofrecer_cupo_lista_espera": Scope.WRITE,
-    "registrar_motivo_consulta": Scope.CLINICAL,
+    "search_patients": Scope.READ,
+    "check_availability": Scope.READ,
+    "get_appointment": Scope.READ,
+    "list_patient_appointments": Scope.READ,
+    "check_cartera": Scope.READ,
+    "validate_afiliacion": Scope.READ,
+    "book_appointment": Scope.WRITE,
+    "confirm_appointment": Scope.WRITE,
+    "cancel_appointment": Scope.WRITE,
+    "reschedule_appointment": Scope.WRITE,
+    "record_attendance": Scope.WRITE,
+    "offer_slot_to_waiting_list": Scope.WRITE,
+    "record_visit_reason": Scope.CLINICAL,
 }
 
 #: Minimal valid-shaped arguments per tool. The values point at rows that do not
 #: exist, which is deliberate: the scope check must happen before any lookup, so
 #: a denial cannot depend on the data, and cannot leak whether it exists.
 ARGUMENTOS: dict[str, dict[str, Any]] = {
-    "buscar_paciente": {"documento": "11111111"},
-    "consultar_disponibilidad": {},
-    "consultar_cita": {"cita_id": 424242},
-    "listar_citas_paciente": {"paciente_id": 424242},
-    "consultar_cartera": {"paciente_id": 424242},
-    "validar_afiliacion": {"paciente_id": 424242},
-    "agendar_cita": {"paciente_id": 424242, "slot_id": 424242},
-    "confirmar_cita": {"cita_id": 424242},
-    "cancelar_cita": {"cita_id": 424242, "motivo": "motivo de prueba"},
-    "reprogramar_cita": {"cita_id": 424242, "nuevo_slot_id": 424243},
-    "registrar_asistencia": {"cita_id": 424242, "estado": "atendida"},
-    "ofrecer_cupo_lista_espera": {"slot_id": 424242},
-    "registrar_motivo_consulta": {"cita_id": 424242, "motivo": "dolor de muela"},
+    "search_patients": {"documento": "11111111"},
+    "check_availability": {},
+    "get_appointment": {"cita_id": 424242},
+    "list_patient_appointments": {"paciente_id": 424242},
+    "check_cartera": {"paciente_id": 424242},
+    "validate_afiliacion": {"paciente_id": 424242},
+    "book_appointment": {"paciente_id": 424242, "slot_id": 424242},
+    "confirm_appointment": {"cita_id": 424242},
+    "cancel_appointment": {"cita_id": 424242, "motivo": "motivo de prueba"},
+    "reschedule_appointment": {"cita_id": 424242, "nuevo_slot_id": 424243},
+    "record_attendance": {"cita_id": 424242, "estado": "attended"},
+    "offer_slot_to_waiting_list": {"slot_id": 424242},
+    "record_visit_reason": {"cita_id": 424242, "motivo": "dolor de muela"},
 }
 
 MATRIZ = list(itertools.product(sorted(SCOPE_REQUERIDO), list(Scope)))
@@ -109,7 +109,7 @@ class TestLosScopesNoAnidan:
         self, mcp: MCPTestClient, scenario: Scenario
     ) -> None:
         with as_caller(SUBJECT, ["write"]):
-            mensaje = await error_from(mcp, "buscar_paciente", {"documento": "11111111"})
+            mensaje = await error_from(mcp, "search_patients", {"documento": "11111111"})
         assert "SCOPE_INSUFICIENTE" in mensaje
 
     async def test_clinical_no_da_acceso_de_escritura(
@@ -117,14 +117,16 @@ class TestLosScopesNoAnidan:
     ) -> None:
         """Authority to record a symptom is not authority to cancel a visit."""
         with as_caller(SUBJECT, ["clinical"]):
-            mensaje = await error_from(mcp, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"})
+            mensaje = await error_from(
+                mcp, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+            )
         assert "SCOPE_INSUFICIENTE" in mensaje
 
     async def test_write_no_da_acceso_clinico(self, mcp: MCPTestClient, scenario: Scenario) -> None:
         """The SaaStr shape: a valid token with more reach than it needed."""
         with as_caller(SUBJECT, ["read", "write"]):
             mensaje = await error_from(
-                mcp, "registrar_motivo_consulta", {"cita_id": 1, "motivo": "dolor"}
+                mcp, "record_visit_reason", {"cita_id": 1, "motivo": "dolor"}
             )
         assert "SCOPE_INSUFICIENTE" in mensaje
         assert "clinical" in mensaje
@@ -133,7 +135,9 @@ class TestLosScopesNoAnidan:
 class TestMensajeDeDenegacion:
     async def test_dice_que_falta_y_que_hacer(self, mcp: MCPTestClient, scenario: Scenario) -> None:
         with as_caller(SUBJECT, ["read"]):
-            mensaje = await error_from(mcp, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"})
+            mensaje = await error_from(
+                mcp, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
+            )
         assert "SCOPE_INSUFICIENTE" in mensaje
         assert "'write'" in mensaje
         assert "Action required" in mensaje
@@ -148,7 +152,7 @@ class TestMensajeDeDenegacion:
         with as_caller(SUBJECT, ["read"]):
             mensaje = await error_from(
                 mcp,
-                "registrar_motivo_consulta",
+                "record_visit_reason",
                 {"cita_id": 1, "motivo": "dolor severo en molar"},
             )
         assert "dolor severo" not in mensaje
@@ -194,11 +198,11 @@ class TestElScopeSeRevisaEnAmbasRondas:
         args = {"cita_id": cita.id, "motivo": "dolor"}
 
         with as_caller(SUBJECT, ["read", "write", "clinical"]):
-            question = await mcp.ask("registrar_motivo_consulta", args)
+            question = await mcp.ask("record_visit_reason", args)
 
         # Same subject and a perfectly valid approval, but `clinical` is gone.
         with as_caller(SUBJECT, ["read", "write"]), pytest.raises(ToolCallError) as exc:
-            await mcp.respond("registrar_motivo_consulta", args, question)
+            await mcp.respond("record_visit_reason", args, question)
         assert "SCOPE_INSUFICIENTE" in exc.value.text_of
         assert "clinical" in exc.value.text_of
 
@@ -214,10 +218,10 @@ class TestElScopeSeRevisaEnAmbasRondas:
         backend_session.commit()
 
         with as_caller(SUBJECT, ["read", "write"]):
-            question = await mcp.ask("confirmar_cita", {"cita_id": cita.id})
+            question = await mcp.ask("confirm_appointment", {"cita_id": cita.id})
 
         with as_caller(SUBJECT, ["read"]), pytest.raises(ToolCallError) as exc:
-            await mcp.respond("confirmar_cita", {"cita_id": cita.id}, question)
+            await mcp.respond("confirm_appointment", {"cita_id": cita.id}, question)
         assert "SCOPE_INSUFICIENTE" in exc.value.text_of
 
 
@@ -234,7 +238,7 @@ class TestElOrdenDeLosChequeos:
     ) -> None:
         with as_caller(SUBJECT, ["read"]):
             mensaje = await error_from(
-                mcp_without_elicitation, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+                mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
             )
         assert "SCOPE_INSUFICIENTE" in mensaje
         assert "CLIENTE_SIN_CONFIRMACION" not in mensaje
@@ -243,7 +247,7 @@ class TestElOrdenDeLosChequeos:
         self, mcp_without_elicitation: MCPTestClient, scenario: Scenario
     ) -> None:
         mensaje = await error_from(
-            mcp_without_elicitation, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+            mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
         )
         assert "NO_AUTENTICADO" in mensaje
         assert "CLIENTE_SIN_CONFIRMACION" not in mensaje
@@ -254,7 +258,7 @@ class TestElOrdenDeLosChequeos:
         """Checking the capability first would have skipped the audit entirely."""
         with as_caller(SUBJECT, ["read"]):
             await error_from(
-                mcp_without_elicitation, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+                mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
             )
         evento = ctx.auditor.events[-1]
         assert evento["result"] == "error"
@@ -265,6 +269,6 @@ class TestElOrdenDeLosChequeos:
     ) -> None:
         with as_caller(SUBJECT, ["read", "write"]):
             mensaje = await error_from(
-                mcp_without_elicitation, "cancelar_cita", {"cita_id": 1, "motivo": "prueba"}
+                mcp_without_elicitation, "cancel_appointment", {"cita_id": 1, "motivo": "prueba"}
             )
         assert "CLIENTE_SIN_CONFIRMACION" in mensaje

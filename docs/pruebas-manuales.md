@@ -53,7 +53,7 @@ select count(*) as cupos_libres from agenda_slot where estado='libre';"
 ```
 
 **Esperas:** los cuatro regímenes representados, algunos con `afiliacion_activa =
-f` (si no hubiera ninguno, `validar_afiliacion` no tendría nada que atrapar),
+f` (si no hubiera ninguno, `validate_afiliacion` no tendría nada que atrapar),
 citas en los seis estados, y más de mil cupos libres para agendar.
 
 ### A3 · El seed es determinista
@@ -132,7 +132,7 @@ TOKEN_READ=$(uv run python scripts/get_token.py --scope "read")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_READ" \
-  --method tools/call --tool-name cancelar_cita \
+  --method tools/call --tool-name cancel_appointment \
   --tool-arg cita_id=1 --tool-arg motivo="prueba manual"
 ```
 
@@ -147,7 +147,7 @@ TOKEN_RW=$(uv run python scripts/get_token.py --scope "read write")
 
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name registrar_motivo_consulta \
+  --method tools/call --tool-name record_visit_reason \
   --tool-arg cita_id=1 --tool-arg motivo="dolor de muela"
 ```
 
@@ -171,8 +171,8 @@ curl -s -X POST localhost:8080/mcp \
   -H "Authorization: Bearer $TOKEN_RW" -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'MCP-Protocol-Version: 2026-07-28' \
-  -H 'mcp-method: tools/call' -H 'mcp-name: agendar_cita' \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"agendar_cita\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
+  -H 'mcp-method: tools/call' -H 'mcp-name: book_appointment' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"book_appointment\",\"arguments\":{\"paciente_id\":PACIENTE_ID,\"slot_id\":SLOT_ID},$META}}"
 ```
 
 **Esperas:** `"resultType": "input_required"`, un `inputRequests` con la pregunta
@@ -194,7 +194,7 @@ Reenvía **la misma llamada** añadiendo la respuesta de la persona y el estado.
 `CLAVE` es la única clave del objeto `inputRequests` que te devolvieron:
 
 ```bash
-  ...,\"params\":{\"name\":\"agendar_cita\",\"arguments\":{ ...los mismos... },
+  ...,\"params\":{\"name\":\"book_appointment\",\"arguments\":{ ...los mismos... },
      \"inputResponses\":{\"CLAVE\":{\"action\":\"accept\",\"content\":{\"confirmado\":true}}},
      \"requestState\":\"v1....\",$META}
 ```
@@ -204,7 +204,7 @@ Reenvía **la misma llamada** añadiendo la respuesta de la persona y el estado.
 | Qué haces | Qué debe pasar |
 |---|---|
 | Cambias un carácter del `requestState` | Rechazado |
-| Usas el estado de `confirmar_cita` para ejecutar `cancelar_cita` | Rechazado: está atado a la petición |
+| Usas el estado de `confirm_appointment` para ejecutar `cancel_appointment` | Rechazado: está atado a la petición |
 | Cambias `paciente_id` en la segunda ronda | Rechazado: los argumentos son parte de lo aprobado |
 | Pides el estado con un sujeto y lo canjeas con otro | Rechazado: está atado al principal |
 | Respondes `"confirmado": false` | `OPERACION_NO_APROBADA`, sin tocar nada |
@@ -221,7 +221,7 @@ Intenta agendar en el cupo que acabas de ocupar:
 ```bash
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN_RW" \
-  --method tools/call --tool-name agendar_cita \
+  --method tools/call --tool-name book_appointment \
   --tool-arg paciente_id=2 --tool-arg slot_id=EL_MISMO_SLOT
 ```
 
@@ -321,17 +321,17 @@ docker compose exec -T postgres psql -U clinica -d clinica -t -c \
   "select id from paciente where afiliacion_activa=false and regimen<>'particular' limit 1;"
 ```
 
-Llama `validar_afiliacion` con ese id. **Esperas:** `regimen_efectivo:
+Llama `validate_afiliacion` con ese id. **Esperas:** `regimen_efectivo:
 "particular"`, `bloquea_agendamiento: false`, y una sugerencia sobre reactivar
 ante la EPS.
 
 ### C3 · La máquina de estados no admite atajos
 
-Sobre una cita en estado `agendada`, propón y confirma `registrar_asistencia` con
-`estado=atendida` (saltándose `confirmada` y `en_espera`).
+Sobre una cita en estado `scheduled`, propón y confirma `record_attendance` con
+`estado=attended` (saltándose `confirmed` y `waiting`).
 
 **Esperas:** `TRANSICION_INVALIDA` **antes de preguntarte nada**, listando las transiciones que
-sí serían válidas. Consulta la cita primero con `consultar_cita`: el campo
+sí serían válidas. Consulta la cita primero con `get_appointment`: el campo
 `transiciones_validas` te dice exactamente qué puede pasar después, que es la
 misma información que el modelo usa para elegir la siguiente herramienta.
 

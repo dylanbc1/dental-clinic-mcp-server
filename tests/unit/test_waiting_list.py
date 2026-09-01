@@ -22,11 +22,11 @@ from backend.domain.waiting_list import (
     next_in_queue,
     position_in_queue,
 )
-from backend.enums import Especialidad, EstadoListaEspera, PrioridadListaEspera
+from backend.enums import Specialty, WaitingListPriority, WaitingListState
 
 BASE = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
-GENERAL = Especialidad.ODONTOLOGIA_GENERAL
-ORTO = Especialidad.ORTODONCIA
+GENERAL = Specialty.GENERAL_DENTISTRY
+ORTO = Specialty.ORTHODONTICS
 
 
 def entry(
@@ -34,9 +34,9 @@ def entry(
     paciente_id: int,
     *,
     minutos: int = 0,
-    especialidad: Especialidad = GENERAL,
-    prioridad: PrioridadListaEspera = PrioridadListaEspera.ANTIGUEDAD,
-    estado: EstadoListaEspera = EstadoListaEspera.ACTIVA,
+    especialidad: Specialty = GENERAL,
+    prioridad: WaitingListPriority = WaitingListPriority.SENIORITY,
+    estado: WaitingListState = WaitingListState.ACTIVE,
 ) -> WaitingListEntry:
     return WaitingListEntry(
         entrada_id=entrada_id,
@@ -56,14 +56,14 @@ class TestOrden:
     def test_la_urgencia_pasa_por_encima_de_la_antiguedad(self) -> None:
         entries = [
             entry(1, 10, minutos=0),  # enrolled first, but routine
-            entry(2, 20, minutos=500, prioridad=PrioridadListaEspera.URGENCIA),
+            entry(2, 20, minutos=500, prioridad=WaitingListPriority.URGENT),
         ]
         assert [e.paciente_id for e in in_queue_order(entries)] == [20, 10]
 
     def test_entre_urgencias_manda_la_antiguedad(self) -> None:
         entries = [
-            entry(1, 10, minutos=100, prioridad=PrioridadListaEspera.URGENCIA),
-            entry(2, 20, minutos=50, prioridad=PrioridadListaEspera.URGENCIA),
+            entry(1, 10, minutos=100, prioridad=WaitingListPriority.URGENT),
+            entry(2, 20, minutos=50, prioridad=WaitingListPriority.URGENT),
         ]
         assert [e.paciente_id for e in in_queue_order(entries)] == [20, 10]
 
@@ -75,9 +75,9 @@ class TestOrden:
 
     def test_solo_participan_las_entradas_activas(self) -> None:
         entries = [
-            entry(1, 10, estado=EstadoListaEspera.RETIRADA),
-            entry(2, 20, minutos=10, estado=EstadoListaEspera.OFRECIDA),
-            entry(3, 30, minutos=20, estado=EstadoListaEspera.ACEPTADA),
+            entry(1, 10, estado=WaitingListState.WITHDRAWN),
+            entry(2, 20, minutos=10, estado=WaitingListState.OFFERED),
+            entry(3, 30, minutos=20, estado=WaitingListState.ACCEPTED),
             entry(4, 40, minutos=30),
         ]
         assert [e.paciente_id for e in in_queue_order(entries)] == [40]
@@ -117,7 +117,7 @@ class TestSiguienteEnLista:
     def test_devuelve_el_primero_de_la_cola(self) -> None:
         entries = [
             entry(1, 10, minutos=60),
-            entry(2, 20, minutos=10, prioridad=PrioridadListaEspera.URGENCIA),
+            entry(2, 20, minutos=10, prioridad=WaitingListPriority.URGENT),
         ]
         assert next_in_queue(entries, GENERAL).paciente_id == 20
 
@@ -126,7 +126,7 @@ class TestSiguienteEnLista:
             next_in_queue([], GENERAL)
         assert exc.value.codigo is ErrorCode.LISTA_ESPERA_VACIA
         assert exc.value.sugerencia is not None
-        assert "consultar_disponibilidad" in exc.value.sugerencia
+        assert "check_availability" in exc.value.sugerencia
         assert exc.value.detalles["especialidad"] == str(GENERAL)
 
     def test_todos_excluidos_equivale_a_lista_vacia(self) -> None:
@@ -147,7 +147,7 @@ class TestPosicion:
     def test_la_posicion_respeta_la_urgencia(self) -> None:
         entries = [
             entry(1, 10),
-            entry(2, 20, minutos=99, prioridad=PrioridadListaEspera.URGENCIA),
+            entry(2, 20, minutos=99, prioridad=WaitingListPriority.URGENT),
         ]
         assert position_in_queue(entries, 20, GENERAL) == 1
         assert position_in_queue(entries, 10, GENERAL) == 2
@@ -160,9 +160,9 @@ class TestPropiedades:
             entrada_id=st.integers(min_value=1, max_value=500),
             paciente_id=st.integers(min_value=1, max_value=500),
             minutos=st.integers(min_value=0, max_value=10_000),
-            especialidad=st.sampled_from(list(Especialidad)),
-            prioridad=st.sampled_from(list(PrioridadListaEspera)),
-            estado=st.sampled_from(list(EstadoListaEspera)),
+            especialidad=st.sampled_from(list(Specialty)),
+            prioridad=st.sampled_from(list(WaitingListPriority)),
+            estado=st.sampled_from(list(WaitingListState)),
         ),
         max_size=25,
         unique_by=lambda e: e.entrada_id,
@@ -181,7 +181,7 @@ class TestPropiedades:
         cola = in_queue_order(entries)
         visto_rutina = False
         for e in cola:
-            if e.prioridad is PrioridadListaEspera.ANTIGUEDAD:
+            if e.prioridad is WaitingListPriority.SENIORITY:
                 visto_rutina = True
             elif visto_rutina:
                 pytest.fail("una urgencia quedó detrás de una entrada por antigüedad")
@@ -190,5 +190,5 @@ class TestPropiedades:
     def test_ordenar_conserva_exactamente_las_activas(
         self, entries: list[WaitingListEntry]
     ) -> None:
-        active = {e.entrada_id for e in entries if e.estado is EstadoListaEspera.ACTIVA}
+        active = {e.entrada_id for e in entries if e.estado is WaitingListState.ACTIVE}
         assert {e.entrada_id for e in in_queue_order(entries)} == active

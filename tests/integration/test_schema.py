@@ -16,13 +16,13 @@ from sqlalchemy.orm import Session
 
 from backend.domain.time import UTC
 from backend.enums import (
-    Especialidad,
-    EstadoCargo,
-    EstadoCita,
-    EstadoListaEspera,
-    PrioridadListaEspera,
+    AppointmentState,
+    ChargeState,
+    DocumentType,
     Regimen,
-    TipoDocumento,
+    Specialty,
+    WaitingListPriority,
+    WaitingListState,
 )
 from backend.models import (
     AgendaSlot,
@@ -77,14 +77,14 @@ class TestFormaDelEsquema:
         tipos = (
             session.execute(text("select typname from pg_type where typtype = 'e'")).scalars().all()
         )
-        assert "estado_cita_enum" in tipos
+        assert "appointment_state_enum" in tipos
         assert "regimen_enum" in tipos
 
 
 class TestUnicidad:
     def _paciente(self, documento: str = "1020304050") -> Patient:
         return Patient(
-            tipo_documento=TipoDocumento.CC,
+            tipo_documento=DocumentType.CC,
             documento=documento,
             nombre="Ana Gómez",
             telefono="+57 3001234567",
@@ -103,7 +103,7 @@ class TestUnicidad:
         """A minor's TI and an adult's CC can legitimately share digits."""
         cc = self._paciente()
         ti = self._paciente()
-        ti.tipo_documento = TipoDocumento.TI
+        ti.tipo_documento = DocumentType.TI
         empty_tables.add_all([cc, ti])
         empty_tables.flush()  # must not raise
 
@@ -117,7 +117,7 @@ class TestUnicidad:
                     clinica_id=clinica.id,
                     nombre="Dr. X",
                     registro="RM-DUP",
-                    especialidad=Especialidad.ORTODONCIA,
+                    especialidad=Specialty.ORTHODONTICS,
                 )
             )
         with pytest.raises(IntegrityError):
@@ -133,7 +133,7 @@ class TestChecks:
             clinica_id=clinica.id,
             nombre="Dr. Y",
             registro="RM-CHK",
-            especialidad=Especialidad.ENDODONCIA,
+            especialidad=Specialty.ENDODONTICS,
         )
         empty_tables.add(profesional)
         empty_tables.flush()
@@ -152,7 +152,7 @@ class TestChecks:
 
     def test_un_cargo_no_puede_ser_negativo(self, empty_tables: Session) -> None:
         paciente = Patient(
-            tipo_documento=TipoDocumento.CC,
+            tipo_documento=DocumentType.CC,
             documento="777",
             nombre="N",
             telefono="+57 3000000000",
@@ -166,7 +166,7 @@ class TestChecks:
                 paciente_id=paciente.id,
                 concepto="particular",
                 monto=Decimal("-1"),
-                estado=EstadoCargo.PENDIENTE,
+                estado=ChargeState.PENDING,
                 vencimiento=date(2026, 9, 30),
             )
         )
@@ -176,7 +176,7 @@ class TestChecks:
     def test_el_nivel_de_cuota_moderadora_esta_acotado(self, empty_tables: Session) -> None:
         empty_tables.add(
             Patient(
-                tipo_documento=TipoDocumento.CC,
+                tipo_documento=DocumentType.CC,
                 documento="888",
                 nombre="N",
                 telefono="+57 3000000000",
@@ -202,7 +202,7 @@ class TestChecks:
 class TestListaEsperaUnicidadParcial:
     def _paciente(self, session: Session, documento: str) -> Patient:
         paciente = Patient(
-            tipo_documento=TipoDocumento.CC,
+            tipo_documento=DocumentType.CC,
             documento=documento,
             nombre="N",
             telefono="+57 3000000000",
@@ -221,9 +221,9 @@ class TestListaEsperaUnicidadParcial:
             empty_tables.add(
                 WaitingList(
                     paciente_id=paciente.id,
-                    especialidad=Especialidad.ORTODONCIA,
-                    prioridad=PrioridadListaEspera.ANTIGUEDAD,
-                    estado=EstadoListaEspera.ACTIVA,
+                    especialidad=Specialty.ORTHODONTICS,
+                    prioridad=WaitingListPriority.SENIORITY,
+                    estado=WaitingListState.ACTIVE,
                 )
             )
         with pytest.raises(IntegrityError):
@@ -238,16 +238,16 @@ class TestListaEsperaUnicidadParcial:
         empty_tables.add(
             WaitingList(
                 paciente_id=paciente.id,
-                especialidad=Especialidad.ORTODONCIA,
-                estado=EstadoListaEspera.RETIRADA,
+                especialidad=Specialty.ORTHODONTICS,
+                estado=WaitingListState.WITHDRAWN,
             )
         )
         empty_tables.flush()
         empty_tables.add(
             WaitingList(
                 paciente_id=paciente.id,
-                especialidad=Especialidad.ORTODONCIA,
-                estado=EstadoListaEspera.ACTIVA,
+                especialidad=Specialty.ORTHODONTICS,
+                estado=WaitingListState.ACTIVE,
             )
         )
         empty_tables.flush()  # must not raise
@@ -258,8 +258,8 @@ class TestListaEsperaUnicidadParcial:
         paciente = self._paciente(empty_tables, "557")
         empty_tables.add_all(
             [
-                WaitingList(paciente_id=paciente.id, especialidad=Especialidad.ORTODONCIA),
-                WaitingList(paciente_id=paciente.id, especialidad=Especialidad.ENDODONCIA),
+                WaitingList(paciente_id=paciente.id, especialidad=Specialty.ORTHODONTICS),
+                WaitingList(paciente_id=paciente.id, especialidad=Specialty.ENDODONTICS),
             ]
         )
         empty_tables.flush()
@@ -271,7 +271,7 @@ class TestAuditoria:
         registro = AppointmentHistory(
             cita_id=1,
             estado_anterior=None,
-            estado_nuevo=EstadoCita.AGENDADA,
+            estado_nuevo=AppointmentState.SCHEDULED,
             usuario="tester",
         )
         assert registro.estado_anterior is None

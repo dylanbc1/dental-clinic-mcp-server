@@ -16,22 +16,22 @@ from mcp.server.mcpserver import MCPServer
 pytestmark = pytest.mark.integration
 
 TOOLS_LECTURA = {
-    "buscar_paciente",
-    "consultar_disponibilidad",
-    "consultar_cita",
-    "listar_citas_paciente",
-    "consultar_cartera",
-    "validar_afiliacion",
+    "search_patients",
+    "check_availability",
+    "get_appointment",
+    "list_patient_appointments",
+    "check_cartera",
+    "validate_afiliacion",
 }
 TOOLS_ESCRITURA = {
-    "agendar_cita",
-    "confirmar_cita",
-    "cancelar_cita",
-    "reprogramar_cita",
-    "registrar_asistencia",
-    "ofrecer_cupo_lista_espera",
+    "book_appointment",
+    "confirm_appointment",
+    "cancel_appointment",
+    "reschedule_appointment",
+    "record_attendance",
+    "offer_slot_to_waiting_list",
 }
-TOOLS_CLINICAS = {"registrar_motivo_consulta"}
+TOOLS_CLINICAS = {"record_visit_reason"}
 #: Tools that pause for a human's answer over MRTR.
 TOOLS_CON_CONFIRMACION = TOOLS_ESCRITURA | TOOLS_CLINICAS
 TODAS = TOOLS_LECTURA | TOOLS_ESCRITURA | TOOLS_CLINICAS
@@ -94,7 +94,7 @@ class TestCatalogo:
 
     async def test_la_tool_clinica_advierte_de_la_regulacion(self, server_: MCPServer[Any]) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        descripcion = por_nombre["registrar_motivo_consulta"].description or ""
+        descripcion = por_nombre["record_visit_reason"].description or ""
         assert "2654" in descripcion
         assert "consent" in descripcion.lower()
         assert "never interpret" in descripcion.lower()
@@ -111,21 +111,21 @@ class TestCatalogo:
     ) -> None:
         """The rule most likely to be got wrong is stated where the model reads it."""
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        cartera = (por_nombre["consultar_cartera"].description or "").lower()
+        cartera = (por_nombre["check_cartera"].description or "").lower()
         assert "does not prevent" in cartera.lower()
 
     async def test_los_parametros_obligatorios_estan_marcados(
         self, server_: MCPServer[Any]
     ) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        assert "motivo" in por_nombre["cancelar_cita"].input_schema["required"]
-        assert "cita_id" in por_nombre["cancelar_cita"].input_schema["required"]
-        assert "confirmacion" not in por_nombre["cancelar_cita"].input_schema["required"]
+        assert "motivo" in por_nombre["cancel_appointment"].input_schema["required"]
+        assert "cita_id" in por_nombre["cancel_appointment"].input_schema["required"]
+        assert "confirmacion" not in por_nombre["cancel_appointment"].input_schema["required"]
 
     async def test_ningun_parametro_opcional_es_obligatorio(self, server_: MCPServer[Any]) -> None:
         por_nombre = {t.name: t for t in await server_.list_tools()}
-        assert "documento" not in por_nombre["buscar_paciente"].input_schema.get("required", [])
-        assert "nombre" not in por_nombre["buscar_paciente"].input_schema.get("required", [])
+        assert "documento" not in por_nombre["search_patients"].input_schema.get("required", [])
+        assert "nombre" not in por_nombre["search_patients"].input_schema.get("required", [])
 
     async def test_las_instrucciones_del_servidor_explican_el_gate(
         self, server_: MCPServer[Any]

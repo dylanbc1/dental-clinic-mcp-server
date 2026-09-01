@@ -25,6 +25,7 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
 from pydantic import Field
 
+from backend.domain.labels import specialty_label, state_label
 from mcp_server.auth import Identity, Scope
 from mcp_server.confirmation import (
     Confirmation,
@@ -36,7 +37,7 @@ from mcp_server.errors import StructuredToolError
 
 SCOPE = Scope.WRITE
 
-ESTADOS_ASISTENCIA = ("en_espera", "atendida", "no_asistio")
+ATTENDANCE_STATES = ("waiting", "attended", "no_show")
 
 
 def require_approval(confirmacion: Confirmation, action: str) -> None:
@@ -117,7 +118,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
         return result
 
-    # --- agendar_cita ---------------------------------------------------- #
+    # --- book_appointment ---------------------------------------------------- #
 
     async def _ask_book(
         contexto: Context,
@@ -132,9 +133,9 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "especialidad_esperada": especialidad_esperada,
             "idempotency_key": idempotency_key,
         }
-        identity = ctx.authorize_audited("agendar_cita", SCOPE, arguments)
+        identity = ctx.authorize_audited("book_appointment", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
-        async with ctx.audit_failure("agendar_cita", SCOPE, arguments, identity):
+        async with ctx.audit_failure("book_appointment", SCOPE, arguments, identity):
             # Built from live data, so the person approves what will actually
             # happen. The slot is checked first: proposing to book a taken slot
             # asks someone to approve an operation that cannot succeed.
@@ -158,15 +159,15 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 f"({cartera['dias_mora_maximo']} días). No impide agendar."
             )
         return ask(
-            "agendar_cita",
+            "book_appointment",
             identity,
             arguments,
             resumen=(
                 f"Agendar el {slot['inicio_local']} con {slot['profesional']} "
-                f"({slot['especialidad']}) para el paciente {paciente_id}."
+                f"({specialty_label(slot['especialidad'])}) para el paciente {paciente_id}."
             ),
             effects=[
-                "Se creará una cita en estado 'agendada'.",
+                "Se creará la cita, pendiente de confirmar.",
                 f"El cupo del {slot['inicio_local']} quedará ocupado.",
                 f"El cobro aplicable será: {afiliacion['concepto_cargo']}.",
             ],
@@ -174,13 +175,13 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="agendar_cita",
+        name="book_appointment",
         title="Agendar una cita",
         description=(
             "Books an appointment in a free slot. It does NOT book straight away: it "
             "first asks a person for confirmation, describing what will happen. Until "
             "that person approves, do not tell the patient the appointment is booked. "
-            "Use the slot_id from consultar_disponibilidad. If the patient has an "
+            "Use the slot_id from check_availability. If the patient has an "
             "overdue cartera the confirmation warns about it, but the appointment CAN "
             "still be booked."
         ),
@@ -204,7 +205,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             ),
         ] = None,
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "agendar_cita")
+        require_approval(confirmacion, "book_appointment")
         arguments = {
             "paciente_id": paciente_id,
             "slot_id": slot_id,
@@ -212,31 +213,31 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "idempotency_key": idempotency_key,
         }
         return executed(
-            "agendar_cita",
+            "book_appointment",
             arguments,
             await ctx.client.post("/citas", actor=ctx.identity().subject, body=arguments),
         )
 
-    # --- confirmar_cita -------------------------------------------------- #
+    # --- confirm_appointment -------------------------------------------------- #
 
     async def _ask_confirm(contexto: Context, cita_id: int) -> Elicit[Confirmation]:
         arguments = {"cita_id": cita_id}
-        identity = ctx.authorize_audited("confirmar_cita", SCOPE, arguments)
+        identity = ctx.authorize_audited("confirm_appointment", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
-        async with ctx.audit_failure("confirmar_cita", SCOPE, arguments, identity):
-            cita = await require_valid_transition(ctx, cita_id, "confirmada")
+        async with ctx.audit_failure("confirm_appointment", SCOPE, arguments, identity):
+            cita = await require_valid_transition(ctx, cita_id, "confirmed")
         return ask(
-            "confirmar_cita",
+            "confirm_appointment",
             identity,
             arguments,
             resumen=(
                 f"Confirmar la cita {cita_id} de {cita['paciente']} del {cita['inicio_local']}."
             ),
-            effects=[f"La cita pasará de '{cita['estado']}' a 'confirmada'."],
+            effects=["La cita quedará confirmada."],
         )
 
     @server_.tool(
-        name="confirmar_cita",
+        name="confirm_appointment",
         title="Confirmar asistencia",
         description=(
             "Marks an appointment as confirmed by the patient, ideally 48 hours ahead. "
@@ -248,23 +249,23 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         cita_id: Annotated[int, Field(gt=0)],
         confirmacion: Annotated[Confirmation, Resolve(_ask_confirm)],
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "confirmar_cita")
+        require_approval(confirmacion, "confirm_appointment")
         return executed(
-            "confirmar_cita",
+            "confirm_appointment",
             {"cita_id": cita_id},
             await ctx.client.post(f"/citas/{cita_id}/confirmar", actor=ctx.identity().subject),
         )
 
-    # --- cancelar_cita --------------------------------------------------- #
+    # --- cancel_appointment --------------------------------------------------- #
 
     async def _ask_cancel(contexto: Context, cita_id: int, motivo: str) -> Elicit[Confirmation]:
         arguments = {"cita_id": cita_id, "motivo": motivo}
-        identity = ctx.authorize_audited("cancelar_cita", SCOPE, arguments)
+        identity = ctx.authorize_audited("cancel_appointment", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
-        async with ctx.audit_failure("cancelar_cita", SCOPE, arguments, identity):
-            cita = await require_valid_transition(ctx, cita_id, "cancelada")
+        async with ctx.audit_failure("cancel_appointment", SCOPE, arguments, identity):
+            cita = await require_valid_transition(ctx, cita_id, "cancelled")
         return ask(
-            "cancelar_cita",
+            "cancel_appointment",
             identity,
             arguments,
             resumen=(
@@ -272,7 +273,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 f"del {cita['inicio_local']}. Motivo: {motivo}"
             ),
             effects=[
-                f"La cita pasará de '{cita['estado']}' a 'cancelada'.",
+                "La cita quedará cancelada.",
                 "El cupo quedará libre en la agenda.",
                 "El motivo quedará registrado en el historial de la cita.",
                 "Si hay lista de espera para esa especialidad, se informará al siguiente.",
@@ -280,7 +281,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="cancelar_cita",
+        name="cancel_appointment",
         title="Cancelar una cita",
         description=(
             "Cancels an appointment. The motivo is MANDATORY: without it the clinic "
@@ -301,9 +302,9 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         ],
         confirmacion: Annotated[Confirmation, Resolve(_ask_cancel)],
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "cancelar_cita")
+        require_approval(confirmacion, "cancel_appointment")
         return executed(
-            "cancelar_cita",
+            "cancel_appointment",
             {"cita_id": cita_id, "motivo": motivo},
             await ctx.client.post(
                 f"/citas/{cita_id}/cancelar",
@@ -312,16 +313,16 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             ),
         )
 
-    # --- reprogramar_cita ------------------------------------------------ #
+    # --- reschedule_appointment ------------------------------------------------ #
 
     async def _ask_reschedule(
         contexto: Context, cita_id: int, nuevo_slot_id: int, motivo: str | None = None
     ) -> Elicit[Confirmation]:
         arguments = {"cita_id": cita_id, "nuevo_slot_id": nuevo_slot_id, "motivo": motivo}
-        identity = ctx.authorize_audited("reprogramar_cita", SCOPE, arguments)
+        identity = ctx.authorize_audited("reschedule_appointment", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
-        async with ctx.audit_failure("reprogramar_cita", SCOPE, arguments, identity):
-            cita = await require_valid_transition(ctx, cita_id, "reprogramada")
+        async with ctx.audit_failure("reschedule_appointment", SCOPE, arguments, identity):
+            cita = await require_valid_transition(ctx, cita_id, "rescheduled")
             slot = await ctx.client.get_object(
                 f"/disponibilidad/{nuevo_slot_id}",
                 paciente_id=cita["paciente_id"],
@@ -329,7 +330,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 excluir_cita_id=cita_id,
             )
         return ask(
-            "reprogramar_cita",
+            "reschedule_appointment",
             identity,
             arguments,
             resumen=(
@@ -344,13 +345,13 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="reprogramar_cita",
+        name="reschedule_appointment",
         title="Reprogramar una cita",
         description=(
             "Moves an appointment to a different slot. It has two effects at once, "
             "freeing the current slot and taking the new one, which is why it asks a "
             "person for confirmation. The original appointment ends in state "
-            "'reprogramada' and a new one is created, linked back to it."
+            "'rescheduled' and a new one is created, linked back to it."
         ),
     )
     async def reschedule_appointment(
@@ -359,9 +360,9 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         confirmacion: Annotated[Confirmation, Resolve(_ask_reschedule)],
         motivo: Annotated[str | None, Field(max_length=500)] = None,
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "reprogramar_cita")
+        require_approval(confirmacion, "reschedule_appointment")
         return executed(
-            "reprogramar_cita",
+            "reschedule_appointment",
             {"cita_id": cita_id, "nuevo_slot_id": nuevo_slot_id},
             await ctx.client.post(
                 f"/citas/{cita_id}/reprogramar",
@@ -370,57 +371,59 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             ),
         )
 
-    # --- registrar_asistencia -------------------------------------------- #
+    # --- record_attendance -------------------------------------------- #
 
     async def _ask_attendance(contexto: Context, cita_id: int, estado: str) -> Elicit[Confirmation]:
         arguments = {"cita_id": cita_id, "estado": estado}
-        identity = ctx.authorize_audited("registrar_asistencia", SCOPE, arguments)
+        identity = ctx.authorize_audited("record_attendance", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
-        async with ctx.audit_failure("registrar_asistencia", SCOPE, arguments, identity):
-            if estado not in ESTADOS_ASISTENCIA:
+        async with ctx.audit_failure("record_attendance", SCOPE, arguments, identity):
+            if estado not in ATTENDANCE_STATES:
                 raise StructuredToolError(
                     "ENTRADA_INVALIDA",
                     f"'{estado}' is not an attendance state.",
-                    sugerencia=f"Use one of: {', '.join(ESTADOS_ASISTENCIA)}.",
-                    detalles={"estados_validos": list(ESTADOS_ASISTENCIA)},
+                    sugerencia=f"Use one of: {', '.join(ATTENDANCE_STATES)}.",
+                    detalles={"estados_validos": list(ATTENDANCE_STATES)},
                 )
             cita = await require_valid_transition(ctx, cita_id, estado)
 
-        effects = [f"La cita pasará de '{cita['estado']}' a '{estado}'."]
-        if estado == "atendida":
+        effects = [f"La cita pasará de '{state_label(cita['estado'])}' a '{state_label(estado)}'."]
+        if estado == "attended":
             effects.append("Se generará el cargo que corresponda al régimen del paciente.")
-        if estado == "no_asistio":
+        if estado == "no_show":
             effects.append(
                 "El cupo quedará libre y, si la cita estaba confirmada, se generará una "
                 "penalización por inasistencia."
             )
         return ask(
-            "registrar_asistencia",
+            "record_attendance",
             identity,
             arguments,
-            resumen=f"Registrar '{estado}' en la cita {cita_id} de {cita['paciente']}.",
+            resumen=(
+                f"Registrar '{state_label(estado)}' en la cita {cita_id} de {cita['paciente']}."
+            ),
             effects=effects,
         )
 
     @server_.tool(
-        name="registrar_asistencia",
+        name="record_attendance",
         title="Registrar asistencia",
         description=(
-            "Records what happened with the appointment: 'en_espera' (the patient "
-            "arrived and is in the waiting room), 'atendida' (it took place) or "
-            "'no_asistio' (they did not turn up). Asks a person for confirmation, "
-            "because 'atendida' and 'no_asistio' create charges in the cartera. The "
-            "valid order is agendada → confirmada → en_espera → atendida."
+            "Records what happened with the appointment: 'waiting' (the patient "
+            "arrived and is in the waiting room), 'attended' (it took place) or "
+            "'no_show' (they did not turn up). Asks a person for confirmation, "
+            "because 'attended' and 'no_show' create charges in the cartera. The "
+            "valid order is scheduled -> confirmed -> waiting -> attended."
         ),
     )
     async def record_attendance(
         cita_id: Annotated[int, Field(gt=0)],
-        estado: Annotated[str, Field(description="en_espera | atendida | no_asistio")],
+        estado: Annotated[str, Field(description="waiting | attended | no_show")],
         confirmacion: Annotated[Confirmation, Resolve(_ask_attendance)],
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "registrar_asistencia")
+        require_approval(confirmacion, "record_attendance")
         return executed(
-            "registrar_asistencia",
+            "record_attendance",
             {"cita_id": cita_id, "estado": estado},
             await ctx.client.post(
                 f"/citas/{cita_id}/asistencia",
@@ -429,26 +432,26 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             ),
         )
 
-    # --- ofrecer_cupo_lista_espera --------------------------------------- #
+    # --- offer_slot_to_waiting_list --------------------------------------- #
 
     async def _ask_offer(contexto: Context, slot_id: int) -> Elicit[Confirmation]:
         arguments = {"slot_id": slot_id}
-        identity = ctx.authorize_audited("ofrecer_cupo_lista_espera", SCOPE, arguments)
+        identity = ctx.authorize_audited("offer_slot_to_waiting_list", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
         return ask(
-            "ofrecer_cupo_lista_espera",
+            "offer_slot_to_waiting_list",
             identity,
             arguments,
             resumen=f"Ofrecer el cupo {slot_id} al siguiente paciente en lista de espera.",
             effects=[
-                "Se marcará la entrada de la lista como 'ofrecida'.",
+                "La entrada de la lista quedará marcada como ofrecida.",
                 "Se devolverá el nombre y el teléfono del paciente a contactar.",
                 "NO se agenda ninguna cita: agendar es una decisión aparte.",
             ],
         )
 
     @server_.tool(
-        name="ofrecer_cupo_lista_espera",
+        name="offer_slot_to_waiting_list",
         title="Ofrecer un cupo liberado",
         description=(
             "Offers a free slot to the next patient on the waiting list for that "
@@ -462,9 +465,9 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         slot_id: Annotated[int, Field(gt=0)],
         confirmacion: Annotated[Confirmation, Resolve(_ask_offer)],
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "ofrecer_cupo_lista_espera")
+        require_approval(confirmacion, "offer_slot_to_waiting_list")
         return executed(
-            "ofrecer_cupo_lista_espera",
+            "offer_slot_to_waiting_list",
             {"slot_id": slot_id},
             await ctx.client.post(
                 "/lista-espera/ofrecer",

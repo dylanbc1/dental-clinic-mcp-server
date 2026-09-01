@@ -34,14 +34,14 @@ from backend.domain.cartera import (
 )
 from backend.domain.time import local, now_at_clinic, slots_for_day, to_clinic_time
 from backend.enums import (
-    Especialidad,
-    EstadoCargo,
-    EstadoCita,
-    EstadoListaEspera,
-    EstadoSlot,
-    PrioridadListaEspera,
+    AppointmentState,
+    ChargeState,
+    DocumentType,
     Regimen,
-    TipoDocumento,
+    SlotState,
+    Specialty,
+    WaitingListPriority,
+    WaitingListState,
 )
 from backend.models import (
     AgendaSlot,
@@ -68,13 +68,13 @@ REGIMEN_MIX: list[tuple[Regimen, int]] = [
     (Regimen.SOAT, 4),
 ]
 
-PROFESSIONALS: list[tuple[str, Especialidad]] = [
-    ("Dra. Marcela Ospina Rivera", Especialidad.ODONTOLOGIA_GENERAL),
-    ("Dr. Andrés Felipe Cadena", Especialidad.ODONTOLOGIA_GENERAL),
-    ("Dra. Laura Betancur Gómez", Especialidad.ORTODONCIA),
-    ("Dr. Julián Restrepo Vélez", Especialidad.ENDODONCIA),
-    ("Dra. Paula Andrea Quintero", Especialidad.PERIODONCIA),
-    ("Dr. Santiago Mejía Arango", Especialidad.ODONTOPEDIATRIA),
+PROFESSIONALS: list[tuple[str, Specialty]] = [
+    ("Dra. Marcela Ospina Rivera", Specialty.GENERAL_DENTISTRY),
+    ("Dr. Andrés Felipe Cadena", Specialty.GENERAL_DENTISTRY),
+    ("Dra. Laura Betancur Gómez", Specialty.ORTHODONTICS),
+    ("Dr. Julián Restrepo Vélez", Specialty.ENDODONTICS),
+    ("Dra. Paula Andrea Quintero", Specialty.PERIODONTICS),
+    ("Dr. Santiago Mejía Arango", Specialty.PEDIATRIC_DENTISTRY),
 ]
 
 
@@ -168,12 +168,12 @@ def _create_patients(
 
         regimen = _weighted_choice(rng, REGIMEN_MIX)
         # ~12% of affiliated patients have lapsed. This is what makes
-        # validar_afiliacion worth calling instead of assuming.
+        # validate_afiliacion worth calling instead of assuming.
         activa = regimen is Regimen.PARTICULAR or rng.random() > 0.12
 
         nacimiento = fake.date_of_birth(minimum_age=3, maximum_age=88)
         edad = params.fecha_base.year - nacimiento.year
-        tipo_doc = TipoDocumento.TI if edad < 18 else TipoDocumento.CC
+        tipo_doc = DocumentType.TI if edad < 18 else DocumentType.CC
 
         patients.append(
             Patient(
@@ -215,7 +215,7 @@ def _create_agenda(
                         fecha=to_clinic_time(comienzo).date(),
                         inicio=comienzo,
                         fin=fin,
-                        estado=EstadoSlot.LIBRE,
+                        estado=SlotState.FREE,
                     )
                 )
     session.add_all(slots)
@@ -223,41 +223,53 @@ def _create_agenda(
     return slots
 
 
-def _state_for_slot(rng: random.Random, es_pasado: bool, horas_restantes: float) -> EstadoCita:
+def _state_for_slot(
+    rng: random.Random, es_pasado: bool, horas_restantes: float
+) -> AppointmentState:
     """Pick a plausible appointment state given where the slot sits in time."""
     if es_pasado:
         # ~22% no-show rate: close to the quantified problem this project targets.
         return rng.choices(
-            [EstadoCita.ATENDIDA, EstadoCita.NO_ASISTIO, EstadoCita.CANCELADA],
+            [AppointmentState.ATTENDED, AppointmentState.NO_SHOW, AppointmentState.CANCELLED],
             weights=[68, 22, 10],
         )[0]
     if horas_restantes <= 3:
-        return rng.choices([EstadoCita.EN_ESPERA, EstadoCita.CONFIRMADA], weights=[40, 60])[0]
+        return rng.choices(
+            [AppointmentState.WAITING, AppointmentState.CONFIRMED], weights=[40, 60]
+        )[0]
     if horas_restantes <= 48:
-        return rng.choices([EstadoCita.CONFIRMADA, EstadoCita.AGENDADA], weights=[70, 30])[0]
-    return rng.choices([EstadoCita.AGENDADA, EstadoCita.CONFIRMADA], weights=[75, 25])[0]
+        return rng.choices(
+            [AppointmentState.CONFIRMED, AppointmentState.SCHEDULED], weights=[70, 30]
+        )[0]
+    return rng.choices([AppointmentState.SCHEDULED, AppointmentState.CONFIRMED], weights=[75, 25])[
+        0
+    ]
 
 
-def _history_path(estado_final: EstadoCita) -> list[EstadoCita]:
-    """A legal path from `agendada` to the target state, so every seeded
+def _history_path(estado_final: AppointmentState) -> list[AppointmentState]:
+    """A legal path from `scheduled` to the target state, so every seeded
     appointment has a history that the state machine would actually accept."""
-    rutas: dict[EstadoCita, list[EstadoCita]] = {
-        EstadoCita.AGENDADA: [EstadoCita.AGENDADA],
-        EstadoCita.CONFIRMADA: [EstadoCita.AGENDADA, EstadoCita.CONFIRMADA],
-        EstadoCita.EN_ESPERA: [EstadoCita.AGENDADA, EstadoCita.CONFIRMADA, EstadoCita.EN_ESPERA],
-        EstadoCita.ATENDIDA: [
-            EstadoCita.AGENDADA,
-            EstadoCita.CONFIRMADA,
-            EstadoCita.EN_ESPERA,
-            EstadoCita.ATENDIDA,
+    rutas: dict[AppointmentState, list[AppointmentState]] = {
+        AppointmentState.SCHEDULED: [AppointmentState.SCHEDULED],
+        AppointmentState.CONFIRMED: [AppointmentState.SCHEDULED, AppointmentState.CONFIRMED],
+        AppointmentState.WAITING: [
+            AppointmentState.SCHEDULED,
+            AppointmentState.CONFIRMED,
+            AppointmentState.WAITING,
         ],
-        EstadoCita.CANCELADA: [EstadoCita.AGENDADA, EstadoCita.CANCELADA],
-        EstadoCita.NO_ASISTIO: [
-            EstadoCita.AGENDADA,
-            EstadoCita.CONFIRMADA,
-            EstadoCita.NO_ASISTIO,
+        AppointmentState.ATTENDED: [
+            AppointmentState.SCHEDULED,
+            AppointmentState.CONFIRMED,
+            AppointmentState.WAITING,
+            AppointmentState.ATTENDED,
         ],
-        EstadoCita.REPROGRAMADA: [EstadoCita.AGENDADA, EstadoCita.REPROGRAMADA],
+        AppointmentState.CANCELLED: [AppointmentState.SCHEDULED, AppointmentState.CANCELLED],
+        AppointmentState.NO_SHOW: [
+            AppointmentState.SCHEDULED,
+            AppointmentState.CONFIRMED,
+            AppointmentState.NO_SHOW,
+        ],
+        AppointmentState.RESCHEDULED: [AppointmentState.SCHEDULED, AppointmentState.RESCHEDULED],
     }
     return rutas[estado_final]
 
@@ -283,7 +295,7 @@ def _create_appointments(
 
     for slot_lista in por_profesional.values():
         # ~45% occupancy leaves a realistic agenda: full enough to be
-        # interesting, free enough that consultar_disponibilidad returns rows.
+        # interesting, free enough that check_availability returns rows.
         elegidos = rng.sample(slot_lista, k=int(len(slot_lista) * 0.45))
         for slot in elegidos:
             paciente = rng.choice(patients)
@@ -292,8 +304,8 @@ def _create_appointments(
             horas = (inicio_local - reference).total_seconds() / 3600
             estado = _state_for_slot(rng, es_pasado, horas)
 
-            libera = estado in {EstadoCita.CANCELADA, EstadoCita.REPROGRAMADA}
-            slot.estado = EstadoSlot.LIBRE if libera else EstadoSlot.OCUPADO
+            libera = estado in {AppointmentState.CANCELLED, AppointmentState.RESCHEDULED}
+            slot.estado = SlotState.FREE if libera else SlotState.BUSY
 
             cita = Appointment(
                 paciente_id=paciente.id,
@@ -302,7 +314,7 @@ def _create_appointments(
                 estado=estado,
                 creada_por=SEED_USER,
                 motivo_cancelacion=(
-                    fake.sentence(nb_words=6) if estado is EstadoCita.CANCELADA else None
+                    fake.sentence(nb_words=6) if estado is AppointmentState.CANCELLED else None
                 ),
             )
             session.add(cita)
@@ -310,7 +322,7 @@ def _create_appointments(
 
             ruta = _history_path(estado)
             momento = slot.inicio - timedelta(days=len(ruta) + 1)
-            previous: EstadoCita | None = None
+            previous: AppointmentState | None = None
             for step in ruta:
                 session.add(
                     AppointmentHistory(
@@ -318,7 +330,9 @@ def _create_appointments(
                         estado_anterior=previous,
                         estado_nuevo=step,
                         usuario=SEED_USER,
-                        motivo=cita.motivo_cancelacion if step is EstadoCita.CANCELADA else None,
+                        motivo=cita.motivo_cancelacion
+                        if step is AppointmentState.CANCELLED
+                        else None,
                         momento=momento,
                     )
                 )
@@ -331,13 +345,13 @@ def _create_appointments(
                 nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
             )
             calculated = None
-            if estado is EstadoCita.ATENDIDA:
+            if estado is AppointmentState.ATTENDED:
                 calculated = charge_for_visit(
                     afiliacion,
                     str(slot.profesional.especialidad),
                     nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
                 )
-            elif estado is EstadoCita.NO_ASISTIO:
+            elif estado is AppointmentState.NO_SHOW:
                 calculated = charge_for_no_show(estaba_confirmada=True)
 
             if calculated is not None:
@@ -351,7 +365,7 @@ def _create_appointments(
                     concepto=calculated.concepto,
                     monto=Decimal(calculated.monto),
                     descripcion=calculated.descripcion,
-                    estado=EstadoCargo.PAGADO if pagado else EstadoCargo.PENDIENTE,
+                    estado=ChargeState.PAID if pagado else ChargeState.PENDING,
                     vencimiento=vencimiento,
                     pagado_en=slot.inicio + timedelta(days=2) if pagado else None,
                 )
@@ -404,7 +418,7 @@ def _create_historic_cartera(
             dias_vencido = rng.randint(desde, hasta)
             calculated = charge_for_visit(
                 afiliacion,
-                rng.choice([str(e) for e in Especialidad]),
+                rng.choice([str(e) for e in Specialty]),
                 nivel_cuota_moderadora=paciente.nivel_cuota_moderadora,
             )
             if calculated is None:  # SOAT covers the service, nothing to collect
@@ -419,7 +433,7 @@ def _create_historic_cartera(
                     concepto=calculated.concepto,
                     monto=Decimal(calculated.monto),
                     descripcion=f"{calculated.descripcion} (saldo anterior)",
-                    estado=EstadoCargo.PAGADO if pagado else EstadoCargo.PENDIENTE,
+                    estado=ChargeState.PAID if pagado else ChargeState.PENDING,
                     vencimiento=params.fecha_base - timedelta(days=dias_vencido),
                     pagado_en=None,
                 )
@@ -432,9 +446,9 @@ def _create_historic_cartera(
 def _create_waiting_list(
     session: Session, fake: Faker, rng: random.Random, patients: list[Patient]
 ) -> list[WaitingList]:
-    especialidades = list(Especialidad)
+    especialidades = list(Specialty)
     entries: list[WaitingList] = []
-    ocupados: set[tuple[int, Especialidad]] = set()
+    ocupados: set[tuple[int, Specialty]] = set()
 
     for paciente in rng.sample(patients, k=max(6, len(patients) // 6)):
         especialidad = rng.choice(especialidades)
@@ -446,10 +460,10 @@ def _create_waiting_list(
                 paciente_id=paciente.id,
                 especialidad=especialidad,
                 prioridad=rng.choices(
-                    [PrioridadListaEspera.ANTIGUEDAD, PrioridadListaEspera.URGENCIA],
+                    [WaitingListPriority.SENIORITY, WaitingListPriority.URGENT],
                     weights=[80, 20],
                 )[0],
-                estado=EstadoListaEspera.ACTIVA,
+                estado=WaitingListState.ACTIVE,
                 notas=fake.sentence(nb_words=8),
             )
         )

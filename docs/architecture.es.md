@@ -53,7 +53,7 @@ de tocar una sola fila.
 2. **Capa 1** valida el access token de OAuth 2.1. Ausente o inválido ⇒ `401`
    con cabecera `WWW-Authenticate` apuntando al metadata del recurso protegido.
 3. **Capa 2** compara los scopes del token con el que declara la tool. Un token
-   `read` invocando `agendar_cita` se rechaza aquí.
+   `read` invocando `book_appointment` se rechaza aquí.
 4. **Capa 3**, para toda tool `write` o `clinical`, devuelve `input_required` en
    lugar de actuar: la pregunta que una persona debe responder, más un
    `requestState` sellado. El cliente obtiene la respuesta y reintenta la misma
@@ -82,34 +82,54 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> agendada
-    agendada --> confirmada
-    agendada --> cancelada : exige motivo
-    agendada --> reprogramada
-    agendada --> no_asistio
-    confirmada --> en_espera
-    confirmada --> cancelada : exige motivo
-    confirmada --> reprogramada
-    confirmada --> no_asistio
-    en_espera --> atendida
-    en_espera --> cancelada : exige motivo
-    atendida --> [*]
-    cancelada --> [*]
-    reprogramada --> [*]
-    no_asistio --> [*]
+    [*] --> scheduled
+    scheduled --> confirmed
+    scheduled --> cancelled : exige motivo
+    scheduled --> rescheduled
+    scheduled --> no_show
+    confirmed --> waiting
+    confirmed --> cancelled : exige motivo
+    confirmed --> rescheduled
+    confirmed --> no_show
+    waiting --> attended
+    waiting --> cancelled : exige motivo
+    attended --> [*]
+    cancelled --> [*]
+    rescheduled --> [*]
+    no_show --> [*]
 ```
 
 Tres reglas viajan sobre este diagrama, todas implementadas en
 `backend/domain/states.py` y probadas exhaustivamente:
 
-- `cancelada` **exige motivo**. Cancelar sin razón destruye la capacidad de la
+- `cancelled` **exige motivo**. Cancelar sin razón destruye la capacidad de la
   clínica de auditar su propia tasa de inasistencia.
-- `cancelada`, `reprogramada` y `no_asistio` **liberan el cupo**; solo
-  `cancelada` dispara la lista de espera, porque una reprogramación mueve al
+- `cancelled`, `rescheduled` y `no_show` **liberan el cupo**; solo
+  `cancelled` dispara la lista de espera, porque una reprogramación mueve al
   mismo paciente y un no-show ocurre cuando el cupo ya transcurrió.
-- `atendida` y `no_asistio` **generan un cargo** en cartera.
+- `attended` y `no_show` **generan un cargo** en cartera.
 
 ## Decisiones que vale la pena discutir
+
+### Valores en inglés, español para quien lee
+
+Todo valor interno va en inglés: los valores del state machine, los códigos de
+error, los nombres de las tools. Todo lo que lee un empleado de la clínica va
+en español. Nunca se mezclan en una misma cadena.
+
+La excepción son los valores con carga jurídica que el inglés no recoge, y esos
+se quedan en español incluso en el cable: los estados de `cartera` (`al_dia`,
+`en_mora`), los regímenes de afiliación (`contributivo`, `subsidiado`), los
+conceptos de cargo (`copago`, `cuota_moderadora`) y los tipos de documento
+colombianos. "Estar en mora" es una condición definida, no un sinónimo de
+tardío.
+
+`backend/domain/labels.py` es el único lugar donde un valor se vuelve palabras.
+Quien lo llama pide la etiqueta cuando el valor le dice algo al lector, y
+describe el efecto cuando no: a recepción le sirve más "el cupo quedará libre"
+que "la cita pasará a 'cancelled'". Un test de contrato llama a todas las tools
+de escritura y falla si algún valor interno aparece en la pregunta que aprueba
+una persona, que fue como se coló la especialidad una vez y no sobrevivió.
 
 ### Guardar en UTC, presentar en America/Bogota
 
@@ -127,7 +147,7 @@ la segunda reserva falle con un conflicto limpio. El bloqueo optimista sobre
 
 ```sql
 CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('agendada','confirmada','en_espera','atendida');
+  WHERE estado IN ('scheduled','confirmed','waiting','attended');
 ```
 
 ### Claves de idempotencia al agendar

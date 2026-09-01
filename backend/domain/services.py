@@ -55,13 +55,13 @@ from backend.domain.time import now_utc, to_clinic_time
 from backend.domain.waiting_list import WaitingListEntry, next_in_queue
 from backend.enums import (
     STATES_HOLDING_SLOT,
-    ConceptoCargo,
-    Especialidad,
-    EstadoCargo,
-    EstadoCita,
-    EstadoListaEspera,
-    EstadoSlot,
-    PrioridadListaEspera,
+    AppointmentState,
+    ChargeConcept,
+    ChargeState,
+    SlotState,
+    Specialty,
+    WaitingListPriority,
+    WaitingListState,
 )
 from backend.models import (
     AgendaSlot,
@@ -91,7 +91,7 @@ class AvailableSlot:
     slot_id: int
     profesional_id: int
     profesional: str
-    especialidad: Especialidad
+    especialidad: Specialty
     inicio: datetime
     fin: datetime
 
@@ -138,7 +138,7 @@ def get_patient(session: Session, paciente_id: int) -> Patient:
     if paciente is None:
         raise PatientNotFound(
             f"There is no patient with id {paciente_id}.",
-            sugerencia="Look them up first with buscar_paciente, by documento or by name.",
+            sugerencia="Look them up first with search_patients, by documento or by name.",
             detalles={"paciente_id": paciente_id},
         )
     return paciente
@@ -158,7 +158,7 @@ def get_appointment(session: Session, cita_id: int) -> Appointment:
     if cita is None:
         raise AppointmentNotFound(
             f"There is no appointment with id {cita_id}.",
-            sugerencia="List the patient's appointments with listar_citas_paciente.",
+            sugerencia="List the patient's appointments with list_patient_appointments.",
             detalles={"cita_id": cita_id},
         )
     return cita
@@ -206,7 +206,7 @@ def search_patients(
     else:
         raise PatientNotFound(
             "You must give a documento or a name to search by.",
-            sugerencia="Call buscar_paciente with 'documento' or with 'nombre'.",
+            sugerencia="Call search_patients with 'documento' or with 'nombre'.",
         )
     return list(session.scalars(query.order_by(Patient.nombre).limit(limite)))
 
@@ -214,7 +214,7 @@ def search_patients(
 def list_available_slots(
     session: Session,
     *,
-    especialidad: Especialidad | None = None,
+    especialidad: Specialty | None = None,
     fecha: date | None = None,
     profesional_id: int | None = None,
     limite: int = 20,
@@ -226,7 +226,7 @@ def list_available_slots(
         select(AgendaSlot, Professional)
         .join(Professional, AgendaSlot.profesional_id == Professional.id)
         .where(
-            AgendaSlot.estado == EstadoSlot.LIBRE,
+            AgendaSlot.estado == SlotState.FREE,
             AgendaSlot.inicio > reference,
             Professional.activo.is_(True),
         )
@@ -287,7 +287,7 @@ def validate_patient_afiliacion(session: Session, paciente_id: int) -> Afiliacio
 def _pending_charges(session: Session, paciente_id: int) -> list[PendingCharge]:
     filas = session.scalars(
         select(Charge).where(
-            Charge.paciente_id == paciente_id, Charge.estado == EstadoCargo.PENDIENTE
+            Charge.paciente_id == paciente_id, Charge.estado == ChargeState.PENDING
         )
     )
     return [
@@ -336,9 +336,9 @@ def agenda_for_day(session: Session, fecha: date) -> list[Appointment]:
 
 
 def waiting_list_entries(
-    session: Session, especialidad: Especialidad | None = None
+    session: Session, especialidad: Specialty | None = None
 ) -> list[WaitingList]:
-    query = select(WaitingList).where(WaitingList.estado == EstadoListaEspera.ACTIVA)
+    query = select(WaitingList).where(WaitingList.estado == WaitingListState.ACTIVE)
     if especialidad is not None:
         query = query.where(WaitingList.especialidad == especialidad)
     return list(session.scalars(query.options(selectinload(WaitingList.paciente))))
@@ -353,8 +353,8 @@ def _audit(
     session: Session,
     cita: Appointment,
     *,
-    estado_anterior: EstadoCita | None,
-    estado_nuevo: EstadoCita,
+    estado_anterior: AppointmentState | None,
+    estado_nuevo: AppointmentState,
     usuario: str,
     motivo: str | None = None,
 ) -> AppointmentHistory:
@@ -382,16 +382,16 @@ def bookable_slot(session: Session, slot_id: int, *, now: datetime | None = None
     if slot is None:
         raise SlotNotFound(
             f"There is no slot with id {slot_id}.",
-            sugerencia="Check current slots with consultar_disponibilidad.",
+            sugerencia="Check current slots with check_availability.",
             detalles={"slot_id": slot_id},
         )
     if slot.inicio <= now:
         raise SlotInThePast(
             f"The slot at {to_clinic_time(slot.inicio):%Y-%m-%d %H:%M} is in the past.",
-            sugerencia="Ask for future availability with consultar_disponibilidad.",
+            sugerencia="Ask for future availability with check_availability.",
             detalles={"slot_id": slot_id, "inicio": slot.inicio.isoformat()},
         )
-    if slot.estado is not EstadoSlot.LIBRE:
+    if slot.estado is not SlotState.FREE:
         alternativas = list_available_slots(
             session,
             especialidad=slot.profesional.especialidad,
@@ -420,14 +420,14 @@ def validate_booking(
     slot_id: int,
     *,
     paciente_id: int | None = None,
-    especialidad_esperada: Especialidad | None = None,
+    especialidad_esperada: Specialty | None = None,
     excluir_cita_id: int | None = None,
     now: datetime | None = None,
 ) -> AgendaSlot:
     """Everything that must hold for a booking to succeed, in one place.
 
     Called twice: once by the tool layer before proposing, so a human is never
-    asked to approve an operation that cannot work, and once by `agendar_cita`
+    asked to approve an operation that cannot work, and once by `book_appointment`
     at the moment of effect, because the state can change in between. Sharing
     the function is what guarantees both refuse for the same reasons.
     """
@@ -481,7 +481,7 @@ def book_appointment(
     usuario: str,
     idempotency_key: str | None = None,
     now: datetime | None = None,
-    especialidad_esperada: Especialidad | None = None,
+    especialidad_esperada: Specialty | None = None,
 ) -> BookingResult:
     """Book a free slot for a patient.
 
@@ -523,11 +523,11 @@ def book_appointment(
         paciente_id=paciente_id,
         profesional_id=slot.profesional_id,
         slot_id=slot.id,
-        estado=EstadoCita.AGENDADA,
+        estado=AppointmentState.SCHEDULED,
         creada_por=usuario,
         idempotency_key=idempotency_key,
     )
-    slot.estado = EstadoSlot.OCUPADO
+    slot.estado = SlotState.BUSY
     session.add(cita)
 
     try:
@@ -546,7 +546,7 @@ def book_appointment(
         session,
         cita,
         estado_anterior=None,
-        estado_nuevo=EstadoCita.AGENDADA,
+        estado_nuevo=AppointmentState.SCHEDULED,
         usuario=usuario,
     )
     session.flush()
@@ -557,7 +557,7 @@ def _create_charge(
     session: Session,
     cita: Appointment,
     *,
-    concepto: ConceptoCargo,
+    concepto: ChargeConcept,
     monto: Decimal,
     descripcion: str,
     hoy: date,
@@ -568,7 +568,7 @@ def _create_charge(
         concepto=concepto,
         monto=monto,
         descripcion=descripcion,
-        estado=EstadoCargo.PENDIENTE,
+        estado=ChargeState.PENDING,
         vencimiento=hoy + PAYMENT_TERM,
     )
     session.add(cargo)
@@ -578,7 +578,7 @@ def _create_charge(
 def change_state(
     session: Session,
     cita_id: int,
-    nuevo_estado: EstadoCita,
+    nuevo_estado: AppointmentState,
     *,
     usuario: str,
     motivo: str | None = None,
@@ -595,11 +595,11 @@ def change_state(
     effects = validate_transition(previous, nuevo_estado, motivo=motivo)
 
     cita.estado = nuevo_estado
-    if nuevo_estado is EstadoCita.CANCELADA:
+    if nuevo_estado is AppointmentState.CANCELLED:
         cita.motivo_cancelacion = motivo
 
     if effects.libera_slot:
-        cita.slot.estado = EstadoSlot.LIBRE
+        cita.slot.estado = SlotState.FREE
 
     _audit(
         session,
@@ -614,7 +614,7 @@ def change_state(
     if effects.genera_cargo:
         fecha_cargo = hoy or to_clinic_time(cita.slot.inicio).date()
         calculated = None
-        if nuevo_estado is EstadoCita.ATENDIDA:
+        if nuevo_estado is AppointmentState.ATTENDED:
             afiliacion = validate_afiliacion(
                 cita.paciente.regimen,
                 cita.paciente.afiliacion_activa,
@@ -627,7 +627,7 @@ def change_state(
             )
         else:  # EstadoCita.NO_ASISTIO
             calculated = charge_for_no_show(
-                estaba_confirmada=previous is EstadoCita.CONFIRMADA, policy=policy
+                estaba_confirmada=previous is AppointmentState.CONFIRMED, policy=policy
             )
         if calculated is not None:
             cargo = _create_charge(
@@ -650,7 +650,7 @@ def change_state(
 
 
 def _next_candidate(
-    session: Session, especialidad: Especialidad, *, excluir: int | None = None
+    session: Session, especialidad: Specialty, *, excluir: int | None = None
 ) -> WaitingList | None:
     """Peek at the head of the waiting list. Returns ``None`` when empty.
 
@@ -685,17 +685,19 @@ def to_queue_entry(fila: WaitingList) -> WaitingListEntry:
 
 
 def confirm_appointment(session: Session, cita_id: int, *, usuario: str) -> TransitionResult:
-    return change_state(session, cita_id, EstadoCita.CONFIRMADA, usuario=usuario)
+    return change_state(session, cita_id, AppointmentState.CONFIRMED, usuario=usuario)
 
 
 def cancel_appointment(
     session: Session, cita_id: int, *, motivo: str, usuario: str
 ) -> TransitionResult:
-    return change_state(session, cita_id, EstadoCita.CANCELADA, usuario=usuario, motivo=motivo)
+    return change_state(
+        session, cita_id, AppointmentState.CANCELLED, usuario=usuario, motivo=motivo
+    )
 
 
 def record_attendance(
-    session: Session, cita_id: int, estado: EstadoCita, *, usuario: str
+    session: Session, cita_id: int, estado: AppointmentState, *, usuario: str
 ) -> TransitionResult:
     return change_state(session, cita_id, estado, usuario=usuario)
 
@@ -728,7 +730,7 @@ def reschedule_appointment(
     result = change_state(
         session,
         cita_id,
-        EstadoCita.REPROGRAMADA,
+        AppointmentState.RESCHEDULED,
         usuario=usuario,
         motivo=motivo or "Reschedule requested",
     )
@@ -737,11 +739,11 @@ def reschedule_appointment(
         paciente_id=original.paciente_id,
         profesional_id=nuevo_slot.profesional_id,
         slot_id=nuevo_slot.id,
-        estado=EstadoCita.AGENDADA,
+        estado=AppointmentState.SCHEDULED,
         creada_por=usuario,
         cita_origen_id=original.id,
     )
-    nuevo_slot.estado = EstadoSlot.OCUPADO
+    nuevo_slot.estado = SlotState.BUSY
     session.add(nueva)
     session.flush()
 
@@ -749,7 +751,7 @@ def reschedule_appointment(
         session,
         nueva,
         estado_anterior=None,
-        estado_nuevo=EstadoCita.AGENDADA,
+        estado_nuevo=AppointmentState.SCHEDULED,
         usuario=usuario,
         motivo=f"Rescheduled from appointment {original.id}",
     )
@@ -779,7 +781,7 @@ def offer_slot_to_waiting_list(
         chosen.entrada_id
     ) + 1
 
-    fila.estado = EstadoListaEspera.OFRECIDA
+    fila.estado = WaitingListState.OFFERED
     fila.ofrecida_en = reference
     fila.slot_ofrecido_id = slot.id
     session.flush()
@@ -796,8 +798,8 @@ def join_waiting_list(
     session: Session,
     *,
     paciente_id: int,
-    especialidad: Especialidad,
-    prioridad: PrioridadListaEspera = PrioridadListaEspera.ANTIGUEDAD,
+    especialidad: Specialty,
+    prioridad: WaitingListPriority = WaitingListPriority.SENIORITY,
     notas: str | None = None,
 ) -> WaitingList:
     get_patient(session, paciente_id)
@@ -805,7 +807,7 @@ def join_waiting_list(
         select(WaitingList).where(
             WaitingList.paciente_id == paciente_id,
             WaitingList.especialidad == especialidad,
-            WaitingList.estado == EstadoListaEspera.ACTIVA,
+            WaitingList.estado == WaitingListState.ACTIVE,
         )
     )
     if existing is not None:
@@ -818,7 +820,7 @@ def join_waiting_list(
         paciente_id=paciente_id,
         especialidad=especialidad,
         prioridad=prioridad,
-        estado=EstadoListaEspera.ACTIVA,
+        estado=WaitingListState.ACTIVE,
         notas=notas,
     )
     session.add(entry)

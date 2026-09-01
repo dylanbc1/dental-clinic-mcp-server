@@ -51,7 +51,7 @@ from backend.api import app as backend_app
 from backend.config import Settings
 from backend.database import get_session
 from backend.domain.time import UTC, now_at_clinic, slots_for_day, to_clinic_time
-from backend.enums import ConceptoCargo, Especialidad, EstadoCargo, Regimen, TipoDocumento
+from backend.enums import ChargeConcept, ChargeState, DocumentType, Regimen, Specialty
 from backend.models import AgendaSlot, Base, Charge, Clinic, Patient, Professional
 from mcp_server.audit import Auditor
 from mcp_server.client import BackendClient
@@ -214,14 +214,14 @@ def minimal_data(sessions: Callable[[], Session]) -> dict[str, int]:
         clinica_id=clinica.id,
         nombre="Dra. Prueba",
         registro="RM-TEST-1",
-        especialidad=Especialidad.ODONTOLOGIA_GENERAL,
+        especialidad=Specialty.GENERAL_DENTISTRY,
     )
     session_.add(profesional)
     session_.flush()
 
     patients = [
         Patient(
-            tipo_documento=TipoDocumento.CC,
+            tipo_documento=DocumentType.CC,
             documento=f"100000{i}",
             nombre=f"Paciente {i}",
             telefono="+57 3001112233",
@@ -293,13 +293,13 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
         clinica_id=clinica.id,
         nombre="Dra. General",
         registro="RM-ESC-1",
-        especialidad=Especialidad.ODONTOLOGIA_GENERAL,
+        especialidad=Specialty.GENERAL_DENTISTRY,
     )
     orto = Professional(
         clinica_id=clinica.id,
         nombre="Dr. Ortodoncia",
         registro="RM-ESC-2",
-        especialidad=Especialidad.ORTODONCIA,
+        especialidad=Specialty.ORTHODONTICS,
     )
     session_.add_all([general, orto])
     session_.flush()
@@ -313,7 +313,7 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
         consentimiento: bool = True,
     ) -> Patient:
         return Patient(
-            tipo_documento=TipoDocumento.CC,
+            tipo_documento=DocumentType.CC,
             documento=documento,
             nombre=nombre,
             telefono="+57 3001112233",
@@ -335,10 +335,10 @@ def scenario(sessions: Callable[[], Session]) -> Scenario:
     session_.add(
         Charge(
             paciente_id=deudor.id,
-            concepto=ConceptoCargo.PARTICULAR,
+            concepto=ChargeConcept.PARTICULAR,
             monto=Decimal("180000"),
             descripcion="Tarifa particular vencida",
-            estado=EstadoCargo.PENDIENTE,
+            estado=ChargeState.PENDING,
             vencimiento=now_at_clinic().date() - timedelta(days=75),
         )
     )
@@ -575,7 +575,7 @@ class MCPTestClient:
         question = await self.ask(nombre, arguments)
         return await self.respond(nombre, arguments, question)
 
-    def mensaje_de(self, question: dict[str, Any]) -> str:
+    def question_text(self, question: dict[str, Any]) -> str:
         key = next(iter(question["inputRequests"]))
         return str(question["inputRequests"][key]["params"]["message"])
 

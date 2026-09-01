@@ -43,7 +43,7 @@ servidor autenticarse por su cuenta.
 TOKEN=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN" \
-  --method tools/call --tool-name cancelar_cita \
+  --method tools/call --tool-name cancel_appointment \
   --tool-arg cita_id=1 --tool-arg motivo="prueba de scope"
 ```
 
@@ -52,15 +52,15 @@ que no reintente con el mismo token.
 
 ### 3 · Un token `write` no toca dato clínico (capa 2)
 
-La misma llamada contra `registrar_motivo_consulta` con `--scope "read write"`.
+La misma llamada contra `record_visit_reason` con `--scope "read write"`.
 También se rechaza: los scopes no anidan.
 
 ### 4 · Una tool de escritura no cambia nada por sí sola (capa 3)
 
 ```bash
 make consola
-› consultar_disponibilidad {"limite": 3}
-› agendar_cita {"paciente_id": 20, "slot_id": SLOT_ID}
+› check_availability {"limite": 3}
+› book_appointment {"paciente_id": 20, "slot_id": SLOT_ID}
 ```
 
 La consola imprime la pregunta que devolvió el servidor en vez de un resultado:
@@ -81,7 +81,7 @@ ella, que es justamente por lo que un modelo no puede aprobar en tu nombre.
 
 ### 6 · Los errores te dicen qué hacer (capa 4)
 
-Llama `agendar_cita` sobre el cupo que acabas de tomar. El error nombra los tres
+Llama `book_appointment` sobre el cupo que acabas de tomar. El error nombra los tres
 cupos libres más cercanos, con horas y profesionales. Esa es la diferencia entre
 un agente que se recupera en su propio turno y uno que entra en bucle.
 
@@ -98,7 +98,7 @@ que la llamada ocurrió, no el dato del paciente.
 
 ### 8 · El acceso clínico exige consentimiento, no solo permiso
 
-Con `--scope "read write clinical"`, propón `registrar_motivo_consulta` sobre una
+Con `--scope "read write clinical"`, propón `record_visit_reason` sobre una
 cita de un paciente sin consentimiento registrado, y confírmala. Se rechaza:
 todas las puertas abiertas salvo la autorización del propio paciente, que es la
 que debe seguir deteniéndolo.

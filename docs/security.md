@@ -28,7 +28,7 @@ consultation* is: it is clinical data, and it brings Resolución 2654/2019
 
 That boundary is not decoration. It is the reason the tool catalogue splits into
 `read` / `write` / `clinical` rather than `read` / `write`, and the reason
-`registrar_motivo_consulta` requires recorded consent *in addition to* scope and
+`record_visit_reason` requires recorded consent *in addition to* scope and
 approval. A regulator's question is not "was the caller authorised?" but "did
 the patient consent, and who touched the data?", so the system answers both.
 
@@ -159,7 +159,7 @@ Every write and clinical tool pauses for a person. The 2026-07-28 spec expresses
 that without a persistent connection, through Multi Round-Trip Requests:
 
 ```
-client ──tools/call cancelar_cita {cita_id: 412, motivo: "…"}──▶
+client ──tools/call cancel_appointment {cita_id: 412, motivo: "…"}──▶
        ◀── input_required
            inputRequests: "Cancelar la cita 412 de Ana Gómez del 3 sep 09:00.
                            Esto va a pasar: … ¿Confirmas?"
@@ -167,7 +167,7 @@ client ──tools/call cancelar_cita {cita_id: 412, motivo: "…"}──▶
 
            a person reads it and answers
 
-client ──tools/call cancelar_cita {same args, inputResponses, requestState}──▶
+client ──tools/call cancel_appointment {same args, inputResponses, requestState}──▶
        ◀── complete
 ```
 
@@ -278,7 +278,7 @@ application check is one a second process walks straight past:
 
 ```sql
 CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('agendada','confirmada','en_espera','atendida');
+  WHERE estado IN ('scheduled','confirmed','waiting','attended');
 ```
 
 - **Double-booking is impossible.** Two agents both read "slot free" before

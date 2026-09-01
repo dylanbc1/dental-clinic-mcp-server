@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from backend.enums import EstadoCita, EstadoSlot
+from backend.enums import AppointmentState, SlotState
 from backend.models import AgendaSlot, Appointment
 
 pytestmark = pytest.mark.integration
@@ -25,12 +25,12 @@ def _cita(payload: dict[str, int], paciente: str, **extra: object) -> Appointmen
         "paciente_id": payload[paciente],
         "profesional_id": payload["profesional_id"],
         "slot_id": payload["slot_id"],
-        "estado": EstadoCita.AGENDADA,
+        "estado": AppointmentState.SCHEDULED,
         "creada_por": f"agente-{paciente}",
     }
     campos.update(extra)
     # A cancelled appointment needs its reason, exactly as the domain demands.
-    if campos["estado"] is EstadoCita.CANCELADA:
+    if campos["estado"] is AppointmentState.CANCELLED:
         campos.setdefault("motivo_cancelacion", "motivo de prueba")
     return Appointment(**campos)  # type: ignore[arg-type]
 
@@ -65,7 +65,7 @@ class TestDobleReserva:
         session_.add(primera)
         session_.commit()
 
-        primera.estado = EstadoCita.CANCELADA
+        primera.estado = AppointmentState.CANCELLED
         primera.motivo_cancelacion = "El paciente viajó"
         session_.commit()
 
@@ -76,7 +76,7 @@ class TestDobleReserva:
             session_.query(Appointment)
             .filter(
                 Appointment.slot_id == minimal_data["slot_id"],
-                Appointment.estado != EstadoCita.CANCELADA,
+                Appointment.estado != AppointmentState.CANCELLED,
             )
             .all()
         )
@@ -84,13 +84,18 @@ class TestDobleReserva:
 
     @pytest.mark.parametrize(
         "estado",
-        [EstadoCita.AGENDADA, EstadoCita.CONFIRMADA, EstadoCita.EN_ESPERA, EstadoCita.ATENDIDA],
+        [
+            AppointmentState.SCHEDULED,
+            AppointmentState.CONFIRMED,
+            AppointmentState.WAITING,
+            AppointmentState.ATTENDED,
+        ],
     )
     def test_todo_estado_que_ocupa_bloquea_una_segunda_cita(
         self,
         sessions: Callable[[], Session],
         minimal_data: dict[str, int],
-        estado: EstadoCita,
+        estado: AppointmentState,
     ) -> None:
         session_ = sessions()
         session_.add(_cita(minimal_data, "paciente_a", estado=estado))
@@ -103,13 +108,14 @@ class TestDobleReserva:
         otra.rollback()
 
     @pytest.mark.parametrize(
-        "estado", [EstadoCita.CANCELADA, EstadoCita.REPROGRAMADA, EstadoCita.NO_ASISTIO]
+        "estado",
+        [AppointmentState.CANCELLED, AppointmentState.RESCHEDULED, AppointmentState.NO_SHOW],
     )
     def test_ningun_estado_liberador_bloquea_una_segunda_cita(
         self,
         sessions: Callable[[], Session],
         minimal_data: dict[str, int],
-        estado: EstadoCita,
+        estado: AppointmentState,
     ) -> None:
         session_ = sessions()
         session_.add(_cita(minimal_data, "paciente_a", estado=estado))
@@ -143,7 +149,7 @@ class TestIdempotencia:
         primera = _cita(minimal_data, "paciente_a", idempotency_key="req-1")
         session_.add(primera)
         session_.commit()
-        primera.estado = EstadoCita.CANCELADA
+        primera.estado = AppointmentState.CANCELLED
         primera.motivo_cancelacion = "cambio de plan"
         session_.commit()
 
@@ -159,7 +165,7 @@ class TestIdempotencia:
         primera = _cita(minimal_data, "paciente_a")
         session_.add(primera)
         session_.commit()
-        primera.estado = EstadoCita.CANCELADA
+        primera.estado = AppointmentState.CANCELLED
         primera.motivo_cancelacion = "x"
         session_.commit()
 
@@ -177,10 +183,10 @@ class TestBloqueoOptimista:
         assert slot_a is not None and slot_b is not None
         assert slot_a.version_id == slot_b.version_id  # both read the same version
 
-        slot_a.estado = EstadoSlot.OCUPADO
+        slot_a.estado = SlotState.BUSY
         agente_a.commit()
 
-        slot_b.estado = EstadoSlot.BLOQUEADO
+        slot_b.estado = SlotState.BLOCKED
         with pytest.raises(StaleDataError):
             agente_b.commit()
         agente_b.rollback()
@@ -193,11 +199,11 @@ class TestBloqueoOptimista:
         assert slot is not None
         inicial = slot.version_id
 
-        slot.estado = EstadoSlot.OCUPADO
+        slot.estado = SlotState.BUSY
         session_.commit()
         assert slot.version_id == inicial + 1
 
-        slot.estado = EstadoSlot.LIBRE
+        slot.estado = SlotState.FREE
         session_.commit()
         assert slot.version_id == inicial + 2
 

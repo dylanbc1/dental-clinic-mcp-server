@@ -96,23 +96,23 @@ a smaller, precisely described catalogue is the design, not a limitation.
 
 | Scope | Tools |
 |---|---|
-| `read` | `buscar_paciente` · `consultar_disponibilidad` · `consultar_cita` · `listar_citas_paciente` · `consultar_cartera` · `validar_afiliacion` |
-| `write` | `agendar_cita` · `confirmar_cita` · `cancelar_cita` · `reprogramar_cita` · `registrar_asistencia` · `ofrecer_cupo_lista_espera` |
-| `clinical` | `registrar_motivo_consulta` |
+| `read` | `search_patients` · `check_availability` · `get_appointment` · `list_patient_appointments` · `check_cartera` · `validate_afiliacion` |
+| `write` | `book_appointment` · `confirm_appointment` · `cancel_appointment` · `reschedule_appointment` · `record_attendance` · `offer_slot_to_waiting_list` |
+| `clinical` | `record_visit_reason` |
 
 Resources: `clinica://info`, `politicas://cartera`, `agenda://hoy`.
 Prompt: `recepcionista_odontologia`.
 
 **Every write and clinical tool pauses for a person**, over Multi Round-Trip
-Requests. Calling `cancelar_cita` changes nothing; it comes back asking:
+Requests. Calling `cancel_appointment` changes nothing; it comes back asking:
 
 ```jsonc
-// round 1  →  tools/call cancelar_cita {cita_id: 412, motivo: "…"}
+// round 1  →  tools/call cancel_appointment {cita_id: 412, motivo: "…"}
 {
   "resultType": "input_required",
   "inputRequests": {
     "…": { "method": "elicitation/create", "params": {
-      "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00.\n\nEsto va a pasar:\n  · La cita pasará de 'confirmada' a 'cancelada'.\n  · El cupo quedará libre en la agenda.\n  · Si hay lista de espera, se informará al siguiente.\n\n¿Confirmas la operación?",
+      "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00. Motivo: …\n\nEsto va a pasar:\n  · La cita quedará cancelada.\n  · El cupo quedará libre en la agenda.\n  · El motivo quedará registrado en el historial de la cita.\n  · Si hay lista de espera para esa especialidad, se informará al siguiente.\n\n¿Confirmas la operación?",
       "requestedSchema": { "properties": { "confirmado": { "type": "boolean" } } }
     }}
   },
@@ -189,7 +189,7 @@ tools work there, write tools return `CLIENTE_SIN_CONFIRMACION` explaining why.
 
 `make token` prints an access token obtained through the real PKCE flow, for
 curl or for pasting into any client. Try issuing a `read`-only token and calling
-`cancelar_cita`, the refusal explains exactly what to do next.
+`cancel_appointment`, the refusal explains exactly what to do next.
 
 ### Swap the authorization server for Keycloak
 

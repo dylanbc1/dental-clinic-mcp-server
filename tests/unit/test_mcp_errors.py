@@ -92,7 +92,7 @@ class TestErroresPrefabricados:
         assert "oauth-protected-resource" in (error.sugerencia or "")
 
     def test_el_de_scope_nombra_lo_que_falta_y_lo_que_hay(self) -> None:
-        error = scope_error("cancelar_cita", "write", ["read"])
+        error = scope_error("cancel_appointment", "write", ["read"])
         assert error.detalles["scope_requerido"] == "write"
         assert error.detalles["scopes_del_token"] == ["read"]
         assert "do not call this tool again" in (error.sugerencia or "").lower()

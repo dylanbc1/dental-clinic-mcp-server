@@ -96,24 +96,24 @@ catálogo pequeño y descrito con precisión es el diseño, no una limitación.
 
 | Scope | Herramientas |
 |---|---|
-| `read` | `buscar_paciente` · `consultar_disponibilidad` · `consultar_cita` · `listar_citas_paciente` · `consultar_cartera` · `validar_afiliacion` |
-| `write` | `agendar_cita` · `confirmar_cita` · `cancelar_cita` · `reprogramar_cita` · `registrar_asistencia` · `ofrecer_cupo_lista_espera` |
-| `clinical` | `registrar_motivo_consulta` |
+| `read` | `search_patients` · `check_availability` · `get_appointment` · `list_patient_appointments` · `check_cartera` · `validate_afiliacion` |
+| `write` | `book_appointment` · `confirm_appointment` · `cancel_appointment` · `reschedule_appointment` · `record_attendance` · `offer_slot_to_waiting_list` |
+| `clinical` | `record_visit_reason` |
 
 Resources: `clinica://info`, `politicas://cartera`, `agenda://hoy`.
 Prompt: `recepcionista_odontologia`.
 
 **Toda herramienta de escritura y la clínica se detienen a preguntarle a una
-persona**, con Multi Round-Trip Requests. Llamar `cancelar_cita` no cambia nada:
+persona**, con Multi Round-Trip Requests. Llamar `cancel_appointment` no cambia nada:
 vuelve preguntando.
 
 ```jsonc
-// ronda 1  →  tools/call cancelar_cita {cita_id: 412, motivo: "…"}
+// ronda 1  →  tools/call cancel_appointment {cita_id: 412, motivo: "…"}
 {
   "resultType": "input_required",
   "inputRequests": {
     "…": { "method": "elicitation/create", "params": {
-      "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00.\n\nEsto va a pasar:\n  · La cita pasará de 'confirmada' a 'cancelada'.\n  · El cupo quedará libre en la agenda.\n  · Si hay lista de espera, se informará al siguiente.\n\n¿Confirmas la operación?",
+      "message": "Cancelar la cita 412 de Ana Gómez del 2026-09-03 09:00. Motivo: …\n\nEsto va a pasar:\n  · La cita quedará cancelada.\n  · El cupo quedará libre en la agenda.\n  · El motivo quedará registrado en el historial de la cita.\n  · Si hay lista de espera para esa especialidad, se informará al siguiente.\n\n¿Confirmas la operación?",
       "requestedSchema": { "properties": { "confirmado": { "type": "boolean" } } }
     }}
   },
@@ -191,7 +191,7 @@ explicando por qué.
 
 `make token` imprime un access token obtenido con el flujo PKCE real, para curl
 o para pegarlo en cualquier cliente. Prueba a emitir un token solo-`read` y
-llamar `cancelar_cita`: el rechazo explica exactamente qué hacer después.
+llamar `cancel_appointment`: el rechazo explica exactamente qué hacer después.
 
 ### Cambiar el Authorization Server por Keycloak
 

@@ -62,7 +62,7 @@ class TestEnvolturaDeErrores:
         async def no_encontrado() -> None:
             raise PatientNotFound(
                 "No existe el paciente 42",
-                sugerencia="Busca por documento con buscar_paciente.",
+                sugerencia="Busca por documento con search_patients.",
             )
 
         @prueba.get("/conflicto")

@@ -13,16 +13,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from backend.enums import ConceptoCargo, Regimen
+from backend.enums import ChargeConcept, Regimen
 
 #: Reference tariffs in COP for a standard consultation. Mock 2026 values,
 #: illustrative rather than a published fee schedule.
 PRIVATE_TARIFF: dict[str, Decimal] = {
-    "odontologia_general": Decimal("120000"),
-    "ortodoncia": Decimal("180000"),
-    "endodoncia": Decimal("350000"),
-    "periodoncia": Decimal("200000"),
-    "odontopediatria": Decimal("140000"),
+    "general_dentistry": Decimal("120000"),
+    "orthodontics": Decimal("180000"),
+    "endodontics": Decimal("350000"),
+    "periodontics": Decimal("200000"),
+    "pediatric_dentistry": Decimal("140000"),
 }
 DEFAULT_PRIVATE_TARIFF = Decimal("120000")
 
@@ -38,7 +38,7 @@ SUBSIDIADO_COPAGO_RATE = Decimal("0.10")
 
 @dataclass(frozen=True, slots=True)
 class AfiliacionResult:
-    """The verdict returned by :func:`validar_afiliacion`."""
+    """The verdict returned by :func:`validate_afiliacion`."""
 
     regimen: Regimen
     activa: bool
@@ -47,7 +47,7 @@ class AfiliacionResult:
     regimen_efectivo: Regimen
     cubierto: bool
     requiere_copago: bool
-    concepto_cargo: ConceptoCargo
+    concepto_cargo: ChargeConcept
     mensaje: str
     sugerencia: str | None = None
 
@@ -75,7 +75,7 @@ def validate_afiliacion(
             regimen_efectivo=Regimen.PARTICULAR,
             cubierto=False,
             requiere_copago=False,
-            concepto_cargo=ConceptoCargo.PARTICULAR,
+            concepto_cargo=ChargeConcept.PARTICULAR,
             mensaje="Private patient: pays the full tariff, no copago and no cuota moderadora.",
         )
 
@@ -86,7 +86,7 @@ def validate_afiliacion(
             regimen_efectivo=Regimen.PARTICULAR,
             cubierto=False,
             requiere_copago=False,
-            concepto_cargo=ConceptoCargo.PARTICULAR,
+            concepto_cargo=ChargeConcept.PARTICULAR,
             mensaje=(
                 f"Affiliation to the {regimen} régimen is inactive. "
                 "The visit is billed at the private tariff."
@@ -104,7 +104,7 @@ def validate_afiliacion(
             regimen_efectivo=Regimen.SOAT,
             cubierto=True,
             requiere_copago=False,
-            concepto_cargo=ConceptoCargo.PARTICULAR,
+            concepto_cargo=ChargeConcept.PARTICULAR,
             mensaje="SOAT cover is active: care arising from the accident carries no charge.",
         )
 
@@ -118,7 +118,7 @@ def validate_afiliacion(
             regimen_efectivo=Regimen.CONTRIBUTIVO,
             cubierto=True,
             requiere_copago=True,
-            concepto_cargo=ConceptoCargo.CUOTA_MODERADORA,
+            concepto_cargo=ChargeConcept.CUOTA_MODERADORA,
             mensaje=(
                 f"Contributivo afiliación active. A cuota moderadora of ${fee:,.0f} COP applies."
             ),
@@ -131,7 +131,7 @@ def validate_afiliacion(
         regimen_efectivo=Regimen.SUBSIDIADO,
         cubierto=True,
         requiere_copago=True,
-        concepto_cargo=ConceptoCargo.COPAGO,
+        concepto_cargo=ChargeConcept.COPAGO,
         mensaje=(
             "Subsidiado afiliación active. A copago of "
             f"{SUBSIDIADO_COPAGO_RATE:.0%} of the tariff applies."

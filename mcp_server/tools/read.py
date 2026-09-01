@@ -58,7 +58,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         return result
 
     @server_.tool(
-        name="buscar_paciente",
+        name="search_patients",
         title="Buscar paciente",
         description=(
             "Finds a patient by documento (exact match) or by name (partial, "
@@ -68,7 +68,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "number again."
         ),
     )
-    async def search_patients_route(
+    async def search_patients(
         documento: Annotated[
             str | None, Field(description="Número de documento, sin puntos ni guiones.")
         ] = None,
@@ -78,7 +78,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         limite: Annotated[int, Field(ge=1, le=25)] = 10,
     ) -> list[dict[str, Any]]:
         return await _call(
-            "buscar_paciente",
+            "search_patients",
             {"documento": documento, "nombre": nombre, "limite": limite},
             lambda: ctx.client.get_list(
                 "/pacientes", documento=documento, nombre=nombre, limite=limite
@@ -86,7 +86,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="consultar_disponibilidad",
+        name="check_availability",
         title="Consultar cupos disponibles",
         description=(
             "Lists the FREE, future slots in the agenda. Filter by specialty, date "
@@ -96,12 +96,13 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "ones."
         ),
     )
-    async def list_available_slots(
+    async def check_availability(
         especialidad: Annotated[
             str | None,
             Field(
                 description=(
-                    "odontologia_general | ortodoncia | endodoncia | periodoncia | odontopediatria"
+                    "general_dentistry | orthodontics | endodontics | "
+                    "periodontics | pediatric_dentistry"
                 )
             ),
         ] = None,
@@ -110,7 +111,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         limite: Annotated[int, Field(ge=1, le=25)] = 10,
     ) -> list[dict[str, Any]]:
         return await _call(
-            "consultar_disponibilidad",
+            "check_availability",
             {
                 "especialidad": especialidad,
                 "fecha": fecha,
@@ -127,7 +128,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="consultar_cita",
+        name="get_appointment",
         title="Consultar una cita",
         description=(
             "Full detail of one appointment: current state, patient, professional, "
@@ -136,15 +137,15 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "become next. Use it to check the state before attempting a change."
         ),
     )
-    async def appointment_by_id(cita_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
+    async def get_appointment(cita_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
         return await _call(
-            "consultar_cita",
+            "get_appointment",
             {"cita_id": cita_id},
             lambda: ctx.client.get_object(f"/citas/{cita_id}"),
         )
 
     @server_.tool(
-        name="listar_citas_paciente",
+        name="list_patient_appointments",
         title="Listar las citas de un paciente",
         description=(
             "A patient's appointment history, most recent first. Optionally filtered by "
@@ -159,7 +160,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         limite: Annotated[int, Field(ge=1, le=50)] = 20,
     ) -> list[dict[str, Any]]:
         return await _call(
-            "listar_citas_paciente",
+            "list_patient_appointments",
             {"paciente_id": paciente_id, "desde": desde, "hasta": hasta, "limite": limite},
             lambda: ctx.client.get_list(
                 f"/pacientes/{paciente_id}/citas", desde=desde, hasta=hasta, limite=limite
@@ -167,7 +168,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="consultar_cartera",
+        name="check_cartera",
         title="Consultar la cartera del paciente",
         description=(
             "The patient's outstanding cartera: what is overdue, how many days late, "
@@ -176,15 +177,15 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
             "appointment."
         ),
     )
-    async def get_cartera(paciente_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
+    async def check_cartera(paciente_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
         return await _call(
-            "consultar_cartera",
+            "check_cartera",
             {"paciente_id": paciente_id},
             lambda: ctx.client.get_object(f"/pacientes/{paciente_id}/cartera"),
         )
 
     @server_.tool(
-        name="validar_afiliacion",
+        name="validate_afiliacion",
         title="Validar la afiliación del paciente",
         description=(
             "The patient's régimen de afiliación (contributivo, subsidiado, particular "
@@ -196,7 +197,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
     )
     async def validate_afiliacion(paciente_id: Annotated[int, Field(gt=0)]) -> dict[str, Any]:
         return await _call(
-            "validar_afiliacion",
+            "validate_afiliacion",
             {"paciente_id": paciente_id},
             lambda: ctx.client.get_object(f"/pacientes/{paciente_id}/afiliacion"),
         )

@@ -38,15 +38,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from backend.enums import (
-    ConceptoCargo,
-    Especialidad,
-    EstadoCargo,
-    EstadoCita,
-    EstadoListaEspera,
-    EstadoSlot,
-    PrioridadListaEspera,
+    AppointmentState,
+    ChargeConcept,
+    ChargeState,
+    DocumentType,
     Regimen,
-    TipoDocumento,
+    SlotState,
+    Specialty,
+    WaitingListPriority,
+    WaitingListState,
 )
 
 
@@ -113,8 +113,8 @@ class Professional(Base, TimestampMixin):
     nombre: Mapped[str] = mapped_column(String(160), nullable=False)
     #: Colombian professional registration number (registro profesional).
     registro: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
-    especialidad: Mapped[Especialidad] = mapped_column(
-        _enum(Especialidad, "especialidad_enum"), nullable=False, index=True
+    especialidad: Mapped[Specialty] = mapped_column(
+        _enum(Specialty, "specialty_enum"), nullable=False, index=True
     )
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -138,9 +138,9 @@ class Patient(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    tipo_documento: Mapped[TipoDocumento] = mapped_column(
-        _enum(TipoDocumento, "tipo_documento_enum"),
-        default=TipoDocumento.CC,
+    tipo_documento: Mapped[DocumentType] = mapped_column(
+        _enum(DocumentType, "tipo_documento_enum"),
+        default=DocumentType.CC,
         nullable=False,
     )
     documento: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
@@ -158,7 +158,7 @@ class Patient(Base, TimestampMixin):
     nivel_cuota_moderadora: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     #: Informed consent for clinical data (Res. 2654/2019). Gates the
-    #: `registrar_motivo_consulta` tool, the only one that touches it.
+    #: `record_visit_reason` tool, the only one that touches it.
     consentimiento_datos_clinicos: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
@@ -190,8 +190,8 @@ class AgendaSlot(Base, TimestampMixin):
     fecha: Mapped[date] = mapped_column(Date, nullable=False)
     inicio: Mapped[datetime] = mapped_column(TS, nullable=False)
     fin: Mapped[datetime] = mapped_column(TS, nullable=False)
-    estado: Mapped[EstadoSlot] = mapped_column(
-        _enum(EstadoSlot, "estado_slot_enum"), default=EstadoSlot.LIBRE, nullable=False
+    estado: Mapped[SlotState] = mapped_column(
+        _enum(SlotState, "slot_state_enum"), default=SlotState.FREE, nullable=False
     )
     #: Optimistic-locking counter, bumped and checked on every UPDATE so two
     #: concurrent bookings cannot both believe they won.
@@ -211,7 +211,7 @@ class Appointment(Base, TimestampMixin):
             "uq_cita_slot_activa",
             "slot_id",
             unique=True,
-            postgresql_where=text("estado in ('agendada','confirmada','en_espera','atendida')"),
+            postgresql_where=text("estado in ('scheduled','confirmed','waiting','attended')"),
         ),
         # An agent that resends the same booking gets the same appointment back
         # instead of a duplicate.
@@ -229,9 +229,9 @@ class Appointment(Base, TimestampMixin):
     slot_id: Mapped[int] = mapped_column(
         ForeignKey("agenda_slot.id", ondelete="RESTRICT"), nullable=False
     )
-    estado: Mapped[EstadoCita] = mapped_column(
-        _enum(EstadoCita, "estado_cita_enum"),
-        default=EstadoCita.AGENDADA,
+    estado: Mapped[AppointmentState] = mapped_column(
+        _enum(AppointmentState, "appointment_state_enum"),
+        default=AppointmentState.SCHEDULED,
         nullable=False,
         index=True,
     )
@@ -270,11 +270,11 @@ class AppointmentHistory(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     cita_id: Mapped[int] = mapped_column(ForeignKey("cita.id", ondelete="CASCADE"), nullable=False)
-    estado_anterior: Mapped[EstadoCita | None] = mapped_column(
-        _enum(EstadoCita, "estado_cita_enum")
+    estado_anterior: Mapped[AppointmentState | None] = mapped_column(
+        _enum(AppointmentState, "appointment_state_enum")
     )
-    estado_nuevo: Mapped[EstadoCita] = mapped_column(
-        _enum(EstadoCita, "estado_cita_enum"), nullable=False
+    estado_nuevo: Mapped[AppointmentState] = mapped_column(
+        _enum(AppointmentState, "appointment_state_enum"), nullable=False
     )
     usuario: Mapped[str] = mapped_column(String(120), nullable=False)
     motivo: Mapped[str | None] = mapped_column(Text)
@@ -300,13 +300,13 @@ class Charge(Base, TimestampMixin):
         ForeignKey("paciente.id", ondelete="RESTRICT"), nullable=False
     )
     cita_id: Mapped[int | None] = mapped_column(ForeignKey("cita.id", ondelete="SET NULL"))
-    concepto: Mapped[ConceptoCargo] = mapped_column(
-        _enum(ConceptoCargo, "concepto_cargo_enum"), nullable=False
+    concepto: Mapped[ChargeConcept] = mapped_column(
+        _enum(ChargeConcept, "concepto_cargo_enum"), nullable=False
     )
     monto: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     descripcion: Mapped[str | None] = mapped_column(String(200))
-    estado: Mapped[EstadoCargo] = mapped_column(
-        _enum(EstadoCargo, "estado_cargo_enum"), default=EstadoCargo.PENDIENTE, nullable=False
+    estado: Mapped[ChargeState] = mapped_column(
+        _enum(ChargeState, "charge_state_enum"), default=ChargeState.PENDING, nullable=False
     )
     vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
     pagado_en: Mapped[datetime | None] = mapped_column(TS)
@@ -330,7 +330,7 @@ class WaitingList(Base, TimestampMixin):
             "paciente_id",
             "especialidad",
             unique=True,
-            postgresql_where=text("estado = 'activa'"),
+            postgresql_where=text("estado = 'active'"),
         ),
         Index("ix_lista_espera_cola", "especialidad", "estado", "prioridad", "creada_en"),
     )
@@ -339,17 +339,17 @@ class WaitingList(Base, TimestampMixin):
     paciente_id: Mapped[int] = mapped_column(
         ForeignKey("paciente.id", ondelete="CASCADE"), nullable=False
     )
-    especialidad: Mapped[Especialidad] = mapped_column(
-        _enum(Especialidad, "especialidad_enum"), nullable=False
+    especialidad: Mapped[Specialty] = mapped_column(
+        _enum(Specialty, "specialty_enum"), nullable=False
     )
-    prioridad: Mapped[PrioridadListaEspera] = mapped_column(
-        _enum(PrioridadListaEspera, "prioridad_lista_enum"),
-        default=PrioridadListaEspera.ANTIGUEDAD,
+    prioridad: Mapped[WaitingListPriority] = mapped_column(
+        _enum(WaitingListPriority, "waiting_list_priority_enum"),
+        default=WaitingListPriority.SENIORITY,
         nullable=False,
     )
-    estado: Mapped[EstadoListaEspera] = mapped_column(
-        _enum(EstadoListaEspera, "estado_lista_enum"),
-        default=EstadoListaEspera.ACTIVA,
+    estado: Mapped[WaitingListState] = mapped_column(
+        _enum(WaitingListState, "waiting_list_state_enum"),
+        default=WaitingListState.ACTIVE,
         nullable=False,
     )
     notas: Mapped[str | None] = mapped_column(String(300))

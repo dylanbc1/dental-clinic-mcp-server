@@ -19,7 +19,7 @@ from backend.domain.afiliacion import (
     base_tariff,
     validate_afiliacion,
 )
-from backend.enums import ConceptoCargo, Especialidad, Regimen
+from backend.enums import ChargeConcept, Regimen, Specialty
 
 
 class TestRegimenContributivo:
@@ -28,7 +28,7 @@ class TestRegimenContributivo:
         assert r.activa
         assert r.cubierto
         assert r.requiere_copago
-        assert r.concepto_cargo is ConceptoCargo.CUOTA_MODERADORA
+        assert r.concepto_cargo is ChargeConcept.CUOTA_MODERADORA
         assert r.regimen_efectivo is Regimen.CONTRIBUTIVO
 
     @pytest.mark.parametrize("nivel", [1, 2, 3])
@@ -49,7 +49,7 @@ class TestRegimenContributivo:
 class TestRegimenSubsidiado:
     def test_activo_aplica_copago(self) -> None:
         r = validate_afiliacion(Regimen.SUBSIDIADO, afiliacion_activa=True)
-        assert r.concepto_cargo is ConceptoCargo.COPAGO
+        assert r.concepto_cargo is ChargeConcept.COPAGO
         assert r.requiere_copago
         assert r.cubierto
 
@@ -59,7 +59,7 @@ class TestParticular:
         r = validate_afiliacion(Regimen.PARTICULAR, afiliacion_activa=True)
         assert not r.requiere_copago
         assert not r.cubierto
-        assert r.concepto_cargo is ConceptoCargo.PARTICULAR
+        assert r.concepto_cargo is ChargeConcept.PARTICULAR
 
     def test_el_flag_de_afiliacion_es_irrelevante_para_un_particular(self) -> None:
         """A private patient has nothing to be affiliated to."""
@@ -83,7 +83,7 @@ class TestAfiliacionInactiva:
         r = validate_afiliacion(regimen, afiliacion_activa=False)
         assert not r.activa
         assert r.regimen_efectivo is Regimen.PARTICULAR
-        assert r.concepto_cargo is ConceptoCargo.PARTICULAR
+        assert r.concepto_cargo is ChargeConcept.PARTICULAR
         assert not r.cubierto
         assert not r.requiere_copago
 
@@ -114,8 +114,8 @@ class TestNoBloqueaAgendamiento:
 
 
 class TestTarifas:
-    @pytest.mark.parametrize("especialidad", list(Especialidad))
-    def test_toda_especialidad_tiene_tarifa(self, especialidad: Especialidad) -> None:
+    @pytest.mark.parametrize("especialidad", list(Specialty))
+    def test_toda_especialidad_tiene_tarifa(self, especialidad: Specialty) -> None:
         assert str(especialidad) in PRIVATE_TARIFF
         assert base_tariff(str(especialidad)) > Decimal("0")
 
@@ -123,7 +123,7 @@ class TestTarifas:
         assert base_tariff("cirugia_espacial") == DEFAULT_PRIVATE_TARIFF
 
     def test_endodoncia_es_la_mas_costosa(self) -> None:
-        assert base_tariff("endodoncia") == max(PRIVATE_TARIFF.values())
+        assert base_tariff("endodontics") == max(PRIVATE_TARIFF.values())
 
 
 class TestInvariantes:
@@ -138,7 +138,7 @@ class TestInvariantes:
         r = validate_afiliacion(regimen, activa, nivel_cuota_moderadora=nivel)
         assert r.mensaje
         assert r.regimen is regimen
-        assert isinstance(r.concepto_cargo, ConceptoCargo)
+        assert isinstance(r.concepto_cargo, ChargeConcept)
         # Coverage and copayment cannot contradict each other: only a covered
         # service can ask the patient for a copayment.
         if r.requiere_copago:

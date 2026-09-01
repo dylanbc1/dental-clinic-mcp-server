@@ -25,23 +25,23 @@ from backend.domain.states import (
     reachable_states,
     validate_transition,
 )
-from backend.enums import FINAL_STATES, EstadoCita
+from backend.enums import FINAL_STATES, AppointmentState
 
-TODOS = list(EstadoCita)
+TODOS = list(AppointmentState)
 
 #: The transitions the sector standard (§2.1) declares legal, written out by
 #: hand so the test does not simply mirror the implementation's table.
-LEGALES: set[tuple[EstadoCita, EstadoCita]] = {
-    (EstadoCita.AGENDADA, EstadoCita.CONFIRMADA),
-    (EstadoCita.AGENDADA, EstadoCita.CANCELADA),
-    (EstadoCita.AGENDADA, EstadoCita.REPROGRAMADA),
-    (EstadoCita.AGENDADA, EstadoCita.NO_ASISTIO),
-    (EstadoCita.CONFIRMADA, EstadoCita.EN_ESPERA),
-    (EstadoCita.CONFIRMADA, EstadoCita.CANCELADA),
-    (EstadoCita.CONFIRMADA, EstadoCita.REPROGRAMADA),
-    (EstadoCita.CONFIRMADA, EstadoCita.NO_ASISTIO),
-    (EstadoCita.EN_ESPERA, EstadoCita.ATENDIDA),
-    (EstadoCita.EN_ESPERA, EstadoCita.CANCELADA),
+LEGALES: set[tuple[AppointmentState, AppointmentState]] = {
+    (AppointmentState.SCHEDULED, AppointmentState.CONFIRMED),
+    (AppointmentState.SCHEDULED, AppointmentState.CANCELLED),
+    (AppointmentState.SCHEDULED, AppointmentState.RESCHEDULED),
+    (AppointmentState.SCHEDULED, AppointmentState.NO_SHOW),
+    (AppointmentState.CONFIRMED, AppointmentState.WAITING),
+    (AppointmentState.CONFIRMED, AppointmentState.CANCELLED),
+    (AppointmentState.CONFIRMED, AppointmentState.RESCHEDULED),
+    (AppointmentState.CONFIRMED, AppointmentState.NO_SHOW),
+    (AppointmentState.WAITING, AppointmentState.ATTENDED),
+    (AppointmentState.WAITING, AppointmentState.CANCELLED),
 }
 
 ILEGALES = {par for par in itertools.product(TODOS, TODOS) if par not in LEGALES}
@@ -75,8 +75,8 @@ class TestTablaDeTransiciones:
 
     def test_todo_estado_es_alcanzable_desde_agendada(self) -> None:
         """No unreachable state: a state nothing can reach is dead code."""
-        alcanzables = {EstadoCita.AGENDADA}
-        frontera = [EstadoCita.AGENDADA]
+        alcanzables = {AppointmentState.SCHEDULED}
+        frontera = [AppointmentState.SCHEDULED]
         while frontera:
             current = frontera.pop()
             for next_up in TRANSITIONS[current]:
@@ -90,7 +90,9 @@ class TestTablaDeTransiciones:
 
 
 @pytest.mark.parametrize(("origen", "target"), sorted(LEGALES))
-def test_toda_transicion_legal_se_acepta(origen: EstadoCita, target: EstadoCita) -> None:
+def test_toda_transicion_legal_se_acepta(
+    origen: AppointmentState, target: AppointmentState
+) -> None:
     assert is_valid_transition(origen, target)
     effects = validate_transition(origen, target, motivo="motivo de prueba")
     assert effects.estado_anterior is origen
@@ -99,7 +101,9 @@ def test_toda_transicion_legal_se_acepta(origen: EstadoCita, target: EstadoCita)
 
 
 @pytest.mark.parametrize(("origen", "target"), sorted(ILEGALES))
-def test_toda_transicion_ilegal_se_rechaza(origen: EstadoCita, target: EstadoCita) -> None:
+def test_toda_transicion_ilegal_se_rechaza(
+    origen: AppointmentState, target: AppointmentState
+) -> None:
     assert not is_valid_transition(origen, target)
     with pytest.raises(InvalidTransition):
         validate_transition(origen, target, motivo="motivo de prueba")
@@ -115,26 +119,26 @@ def test_la_particion_legal_ilegal_cubre_el_espacio_completo() -> None:
 class TestErroresAccionables:
     def test_transicion_ilegal_lista_las_validas(self) -> None:
         with pytest.raises(InvalidTransition) as exc:
-            validate_transition(EstadoCita.AGENDADA, EstadoCita.ATENDIDA)
+            validate_transition(AppointmentState.SCHEDULED, AppointmentState.ATTENDED)
         error = exc.value
         assert error.codigo is ErrorCode.TRANSICION_INVALIDA
         assert error.sugerencia is not None
         # The suggestion must name every acceptable alternative, otherwise the
         # model has to guess, which is what layer 4 exists to prevent.
-        for valida in TRANSITIONS[EstadoCita.AGENDADA]:
+        for valida in TRANSITIONS[AppointmentState.SCHEDULED]:
             assert str(valida) in error.sugerencia
-        assert error.detalles["estado_actual"] == "agendada"
-        assert error.detalles["estado_solicitado"] == "atendida"
+        assert error.detalles["estado_actual"] == "scheduled"
+        assert error.detalles["estado_solicitado"] == "attended"
 
     def test_estado_final_devuelve_su_propio_codigo(self) -> None:
         with pytest.raises(InvalidTransition) as exc:
-            validate_transition(EstadoCita.ATENDIDA, EstadoCita.CANCELADA)
+            validate_transition(AppointmentState.ATTENDED, AppointmentState.CANCELLED)
         assert exc.value.codigo is ErrorCode.CITA_EN_ESTADO_FINAL
-        assert "agendar_cita" in (exc.value.sugerencia or "")
+        assert "book_appointment" in (exc.value.sugerencia or "")
 
     def test_el_error_serializa_a_la_forma_de_cable(self) -> None:
         with pytest.raises(InvalidTransition) as exc:
-            validate_transition(EstadoCita.EN_ESPERA, EstadoCita.CONFIRMADA)
+            validate_transition(AppointmentState.WAITING, AppointmentState.CONFIRMED)
         payload = exc.value.to_dict()
         assert payload["error"] is True
         assert payload["codigo"] == "TRANSICION_INVALIDA"
@@ -145,30 +149,32 @@ class TestErroresAccionables:
 
 class TestMotivoObligatorio:
     @pytest.mark.parametrize(
-        "origen", [EstadoCita.AGENDADA, EstadoCita.CONFIRMADA, EstadoCita.EN_ESPERA]
+        "origen", [AppointmentState.SCHEDULED, AppointmentState.CONFIRMED, AppointmentState.WAITING]
     )
-    def test_cancelar_sin_motivo_falla(self, origen: EstadoCita) -> None:
+    def test_cancelar_sin_motivo_falla(self, origen: AppointmentState) -> None:
         with pytest.raises(ReasonRequired) as exc:
-            validate_transition(origen, EstadoCita.CANCELADA)
+            validate_transition(origen, AppointmentState.CANCELLED)
         assert exc.value.codigo is ErrorCode.MOTIVO_REQUERIDO
         assert "motivo" in (exc.value.sugerencia or "")
 
     @pytest.mark.parametrize("motivo", ["", "   ", "\t\n"])
     def test_motivo_en_blanco_no_cuenta_como_motivo(self, motivo: str) -> None:
         with pytest.raises(ReasonRequired):
-            validate_transition(EstadoCita.AGENDADA, EstadoCita.CANCELADA, motivo=motivo)
+            validate_transition(
+                AppointmentState.SCHEDULED, AppointmentState.CANCELLED, motivo=motivo
+            )
 
     def test_cancelar_con_motivo_pasa(self) -> None:
         effects = validate_transition(
-            EstadoCita.CONFIRMADA, EstadoCita.CANCELADA, motivo="El paciente viajó"
+            AppointmentState.CONFIRMED, AppointmentState.CANCELLED, motivo="El paciente viajó"
         )
         assert effects.libera_slot
 
     def test_solo_cancelada_exige_motivo(self) -> None:
-        assert {EstadoCita.CANCELADA} == TRANSITIONS_REQUIRING_REASON
+        assert {AppointmentState.CANCELLED} == TRANSITIONS_REQUIRING_REASON
         # Every other legal transition must go through without one.
         for origen, target in LEGALES:
-            if target is EstadoCita.CANCELADA:
+            if target is AppointmentState.CANCELLED:
                 continue
             validate_transition(origen, target)
 
@@ -179,7 +185,7 @@ class TestMotivoObligatorio:
 class TestEfectos:
     @pytest.mark.parametrize(("origen", "target"), sorted(LEGALES))
     def test_los_efectos_son_consistentes_con_las_tablas(
-        self, origen: EstadoCita, target: EstadoCita
+        self, origen: AppointmentState, target: AppointmentState
     ) -> None:
         effects = validate_transition(origen, target, motivo="x")
         assert effects.libera_slot is (target in TRANSITIONS_FREEING_SLOT)
@@ -189,22 +195,22 @@ class TestEfectos:
         # A reschedule moves the same patient and a no-show happens once the
         # slot has already elapsed: neither leaves a slot someone can take.
         assert validate_transition(
-            EstadoCita.AGENDADA, EstadoCita.CANCELADA, motivo="x"
+            AppointmentState.SCHEDULED, AppointmentState.CANCELLED, motivo="x"
         ).dispara_lista_espera
         assert not validate_transition(
-            EstadoCita.AGENDADA, EstadoCita.REPROGRAMADA
+            AppointmentState.SCHEDULED, AppointmentState.RESCHEDULED
         ).dispara_lista_espera
         assert not validate_transition(
-            EstadoCita.CONFIRMADA, EstadoCita.NO_ASISTIO
+            AppointmentState.CONFIRMED, AppointmentState.NO_SHOW
         ).dispara_lista_espera
 
     def test_atender_genera_cargo_y_no_libera_cupo(self) -> None:
-        effects = validate_transition(EstadoCita.EN_ESPERA, EstadoCita.ATENDIDA)
+        effects = validate_transition(AppointmentState.WAITING, AppointmentState.ATTENDED)
         assert effects.genera_cargo
         assert not effects.libera_slot
 
     def test_los_efectos_son_inmutables(self) -> None:
-        effects = validate_transition(EstadoCita.AGENDADA, EstadoCita.CONFIRMADA)
+        effects = validate_transition(AppointmentState.SCHEDULED, AppointmentState.CONFIRMED)
         with pytest.raises((AttributeError, TypeError)):
             effects.libera_slot = True  # type: ignore[misc]
 
@@ -217,7 +223,7 @@ estados = st.sampled_from(TODOS)
 class TestPropiedades:
     @given(origen=estados, target=estados)
     def test_validar_y_predicado_nunca_se_contradicen(
-        self, origen: EstadoCita, target: EstadoCita
+        self, origen: AppointmentState, target: AppointmentState
     ) -> None:
         """The pure predicate and the raising validator must agree, always."""
         if is_valid_transition(origen, target):
@@ -228,7 +234,7 @@ class TestPropiedades:
 
     @given(origen=estados, target=estados)
     def test_ninguna_entrada_produce_una_excepcion_inesperada(
-        self, origen: EstadoCita, target: EstadoCita
+        self, origen: AppointmentState, target: AppointmentState
     ) -> None:
         """Whatever happens, it is a typed domain error, never a bare crash."""
         try:
@@ -242,7 +248,7 @@ class TestPropiedades:
             assert error.to_dict()["mensaje"]
 
     @given(origen=estados)
-    def test_desde_un_estado_final_nada_es_posible(self, origen: EstadoCita) -> None:
+    def test_desde_un_estado_final_nada_es_posible(self, origen: AppointmentState) -> None:
         if is_final(origen):
             for target in TODOS:
                 assert not is_valid_transition(origen, target)

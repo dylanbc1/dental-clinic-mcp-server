@@ -28,7 +28,7 @@ consentimiento informado y el registro RNBD ante la SIC.
 
 Esa frontera no es adorno. Es la razón por la que el catálogo se parte en
 `read` / `write` / `clinical` en vez de `read` / `write`, y por la que
-`registrar_motivo_consulta` exige consentimiento registrado *además* del scope y
+`record_visit_reason` exige consentimiento registrado *además* del scope y
 la aprobación. La pregunta de un ente regulador no es «¿estaba autorizado el
 llamador?» sino «¿consintió el paciente y quién tocó el dato?», así que el
 sistema responde las dos.
@@ -161,7 +161,7 @@ spec 2026-07-28 lo expresa sin conexión persistente, con Multi Round-Trip
 Requests:
 
 ```
-cliente ──tools/call cancelar_cita {cita_id: 412, motivo: "…"}──▶
+cliente ──tools/call cancel_appointment {cita_id: 412, motivo: "…"}──▶
         ◀── input_required
             inputRequests: "Cancelar la cita 412 de Ana Gómez del 3 sep 09:00.
                             Esto va a pasar: … ¿Confirmas?"
@@ -169,7 +169,7 @@ cliente ──tools/call cancelar_cita {cita_id: 412, motivo: "…"}──▶
 
             una persona lo lee y responde
 
-cliente ──tools/call cancelar_cita {mismos args, inputResponses, requestState}──▶
+cliente ──tools/call cancel_appointment {mismos args, inputResponses, requestState}──▶
         ◀── complete
 ```
 
@@ -286,7 +286,7 @@ validación en aplicación es una por la que un segundo proceso pasa de largo:
 
 ```sql
 CREATE UNIQUE INDEX uq_cita_slot_activa ON cita (slot_id)
-  WHERE estado IN ('agendada','confirmada','en_espera','atendida');
+  WHERE estado IN ('scheduled','confirmed','waiting','attended');
 ```
 
 - **La doble reserva es imposible.** Dos agentes leen «cupo libre» antes de que

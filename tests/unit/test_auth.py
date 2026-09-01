@@ -49,9 +49,9 @@ class TestExigirScope:
     def test_corta_al_que_no(self) -> None:
         identity = Identity(subject="a", scopes=frozenset({"read"}))
         with pytest.raises(StructuredToolError) as exc:
-            require_scope(identity, Scope.CLINICAL, tool_name="registrar_motivo_consulta")
+            require_scope(identity, Scope.CLINICAL, tool_name="record_visit_reason")
         assert exc.value.codigo == "SCOPE_INSUFICIENTE"
-        assert exc.value.detalles["herramienta"] == "registrar_motivo_consulta"
+        assert exc.value.detalles["herramienta"] == "record_visit_reason"
 
 
 class TestScopesDeClaims:

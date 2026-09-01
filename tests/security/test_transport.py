@@ -408,7 +408,7 @@ class TestTransporteSinEstado:
             headers=MCP_HEADERS,
         )
         assert response.status_code == 200
-        assert "buscar_paciente" in response.text
+        assert "search_patients" in response.text
 
     def test_no_exige_arrastrar_una_sesion_entre_llamadas(
         self, client_without_auth: TestClient

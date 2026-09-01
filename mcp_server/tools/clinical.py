@@ -38,16 +38,16 @@ SCOPE = Scope.CLINICAL
 def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
     async def _ask_reason(contexto: Context, cita_id: int, motivo: str) -> Elicit[Confirmation]:
         arguments = {"cita_id": cita_id, "motivo": motivo}
-        identity = ctx.authorize_audited("registrar_motivo_consulta", SCOPE, arguments)
+        identity = ctx.authorize_audited("record_visit_reason", SCOPE, arguments)
         require_client_that_can_confirm(contexto)
-        async with ctx.audit_failure("registrar_motivo_consulta", SCOPE, arguments, identity):
+        async with ctx.audit_failure("record_visit_reason", SCOPE, arguments, identity):
             cita = await ctx.client.get_object(f"/citas/{cita_id}")
 
         ctx.auditor.clinical_access(
             subject=identity.subject, cita_id=cita_id, result="input_required"
         )
         ctx.auditor.tool_call(
-            "registrar_motivo_consulta",
+            "record_visit_reason",
             subject=identity.subject,
             scope=str(SCOPE),
             arguments=arguments,
@@ -72,7 +72,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         )
 
     @server_.tool(
-        name="registrar_motivo_consulta",
+        name="record_visit_reason",
         title="Registrar el motivo de consulta (dato clínico)",
         description=(
             "Records the reason for consultation, or a relevant history note, on an "
@@ -99,7 +99,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
         ],
         confirmacion: Annotated[Confirmation, Resolve(_ask_reason)],
     ) -> dict[str, Any]:
-        require_approval(confirmacion, "registrar_motivo_consulta")
+        require_approval(confirmacion, "record_visit_reason")
         identity = ctx.identity()
         arguments = {"cita_id": cita_id, "motivo": motivo}
         try:
@@ -114,7 +114,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
                 subject=identity.subject, cita_id=cita_id, result=f"rechazado:{codigo}"
             )
             ctx.auditor.tool_call(
-                "registrar_motivo_consulta",
+                "record_visit_reason",
                 subject=identity.subject,
                 scope=str(SCOPE),
                 arguments=arguments,
@@ -126,7 +126,7 @@ def register(server_: MCPServer[Any], ctx: ToolContext) -> None:
 
         ctx.auditor.clinical_access(subject=identity.subject, cita_id=cita_id, result="registrado")
         ctx.auditor.tool_call(
-            "registrar_motivo_consulta",
+            "record_visit_reason",
             subject=identity.subject,
             scope=str(SCOPE),
             arguments=arguments,

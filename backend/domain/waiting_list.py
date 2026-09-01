@@ -14,13 +14,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from backend.domain.errors import WaitingListEmpty
-from backend.enums import Especialidad, EstadoListaEspera, PrioridadListaEspera
+from backend.enums import Specialty, WaitingListPriority, WaitingListState
 
 #: Lower is served first. Explicit rather than enum order, so adding a priority
 #: later cannot silently reshuffle the queue.
-PRIORITY_WEIGHT: dict[PrioridadListaEspera, int] = {
-    PrioridadListaEspera.URGENCIA: 0,
-    PrioridadListaEspera.ANTIGUEDAD: 1,
+PRIORITY_WEIGHT: dict[WaitingListPriority, int] = {
+    WaitingListPriority.URGENT: 0,
+    WaitingListPriority.SENIORITY: 1,
 }
 
 
@@ -28,10 +28,10 @@ PRIORITY_WEIGHT: dict[PrioridadListaEspera, int] = {
 class WaitingListEntry:
     entrada_id: int
     paciente_id: int
-    especialidad: Especialidad
-    prioridad: PrioridadListaEspera
+    especialidad: Specialty
+    prioridad: WaitingListPriority
     creada_en: datetime
-    estado: EstadoListaEspera = EstadoListaEspera.ACTIVA
+    estado: WaitingListState = WaitingListState.ACTIVE
 
     @property
     def sort_key(self) -> tuple[int, datetime, int]:
@@ -46,13 +46,13 @@ class WaitingListEntry:
 
 def in_queue_order(entries: list[WaitingListEntry]) -> list[WaitingListEntry]:
     """Queue order for the active entries. Non-active entries are dropped."""
-    active = [e for e in entries if e.estado is EstadoListaEspera.ACTIVA]
+    active = [e for e in entries if e.estado is WaitingListState.ACTIVE]
     return sorted(active, key=lambda e: e.sort_key)
 
 
 def candidates_for_slot(
     entries: list[WaitingListEntry],
-    especialidad: Especialidad,
+    especialidad: Specialty,
     *,
     excluir_pacientes: frozenset[int] = frozenset(),
 ) -> list[WaitingListEntry]:
@@ -70,7 +70,7 @@ def candidates_for_slot(
 
 def next_in_queue(
     entries: list[WaitingListEntry],
-    especialidad: Especialidad,
+    especialidad: Specialty,
     *,
     excluir_pacientes: frozenset[int] = frozenset(),
 ) -> WaitingListEntry:
@@ -85,7 +85,7 @@ def next_in_queue(
             f"No patients are on the waiting list for {especialidad}.",
             sugerencia=(
                 "The slot stays free in the agenda. You can offer it directly with "
-                "consultar_disponibilidad and agendar_cita."
+                "check_availability and book_appointment."
             ),
             detalles={"especialidad": str(especialidad)},
         )
@@ -95,7 +95,7 @@ def next_in_queue(
 def position_in_queue(
     entries: list[WaitingListEntry],
     paciente_id: int,
-    especialidad: Especialidad,
+    especialidad: Specialty,
 ) -> int | None:
     """1-based position of a patient in the queue, or ``None`` if not enrolled."""
     for indice, entry in enumerate(candidates_for_slot(entries, especialidad), start=1):

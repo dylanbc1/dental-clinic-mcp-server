@@ -20,15 +20,15 @@ from backend.domain.services import AvailableSlot
 from backend.domain.states import reachable_states
 from backend.domain.time import to_clinic_time
 from backend.enums import (
-    ConceptoCargo,
-    Especialidad,
-    EstadoCargo,
-    EstadoCartera,
-    EstadoCita,
-    EstadoListaEspera,
-    PrioridadListaEspera,
+    AppointmentState,
+    CarteraState,
+    ChargeConcept,
+    ChargeState,
+    DocumentType,
     Regimen,
-    TipoDocumento,
+    Specialty,
+    WaitingListPriority,
+    WaitingListState,
 )
 from backend.models import Appointment, Charge, Clinic, Patient, Professional, WaitingList
 
@@ -47,7 +47,7 @@ class Model(BaseModel):
 
 class PatientSummary(Model):
     id: int
-    tipo_documento: TipoDocumento
+    tipo_documento: DocumentType
     documento: str
     nombre: str
     telefono: str
@@ -64,7 +64,7 @@ class ProfessionalSummary(Model):
     id: int
     nombre: str
     registro: str
-    especialidad: Especialidad
+    especialidad: Specialty
     activo: bool
 
 
@@ -90,7 +90,7 @@ class FreeSlot(Model):
     slot_id: int
     profesional_id: int
     profesional: str
-    especialidad: Especialidad
+    especialidad: Specialty
     inicio_utc: datetime
     #: Same instant in clinic local time. Both are returned on purpose: the
     #: model reasons in local time, the system stores UTC.
@@ -111,8 +111,8 @@ class FreeSlot(Model):
 
 
 class HistoryItem(Model):
-    estado_anterior: EstadoCita | None
-    estado_nuevo: EstadoCita
+    estado_anterior: AppointmentState | None
+    estado_nuevo: AppointmentState
     usuario: str
     motivo: str | None
     momento: datetime
@@ -120,12 +120,12 @@ class HistoryItem(Model):
 
 class AppointmentDetail(Model):
     id: int
-    estado: EstadoCita
+    estado: AppointmentState
     paciente_id: int
     paciente: str
     profesional_id: int
     profesional: str
-    especialidad: Especialidad
+    especialidad: Specialty
     slot_id: int
     inicio_local: str
     fin_local: str
@@ -139,7 +139,7 @@ class AppointmentDetail(Model):
     #: What this appointment can legally become next. Returned so the model can
     #: pick the right tool, and so a write tool can refuse to propose a
     #: transition that would fail on confirmation.
-    transiciones_validas: list[EstadoCita] = Field(default_factory=list)
+    transiciones_validas: list[AppointmentState] = Field(default_factory=list)
     historial: list[HistoryItem] = Field(default_factory=list)
 
     @classmethod
@@ -174,7 +174,7 @@ class AfiliacionResponse(Model):
     regimen_efectivo: Regimen
     cubierto: bool
     requiere_copago: bool
-    concepto_cargo: ConceptoCargo
+    concepto_cargo: ChargeConcept
     mensaje: str
     sugerencia: str | None = None
     bloquea_agendamiento: bool
@@ -197,10 +197,10 @@ class AfiliacionResponse(Model):
 
 class ChargeSummary(Model):
     id: int
-    concepto: ConceptoCargo
+    concepto: ChargeConcept
     monto: Decimal
     descripcion: str | None
-    estado: EstadoCargo
+    estado: ChargeState
     vencimiento: date
     cita_id: int | None
 
@@ -211,7 +211,7 @@ class ChargeSummary(Model):
 
 class CarteraResponse(Model):
     paciente_id: int
-    estado: EstadoCartera
+    estado: CarteraState
     total_pendiente: Decimal
     total_vencido: Decimal
     dias_mora_maximo: int
@@ -241,9 +241,9 @@ class WaitingEntrySummary(Model):
     id: int
     paciente_id: int
     paciente: str
-    especialidad: Especialidad
-    prioridad: PrioridadListaEspera
-    estado: EstadoListaEspera
+    especialidad: Specialty
+    prioridad: WaitingListPriority
+    estado: WaitingListState
     creada_en: datetime
     notas: str | None = None
 
@@ -282,7 +282,7 @@ class CarteraPolicies(Model):
 class BookRequest(BaseModel):
     paciente_id: int = Field(gt=0)
     slot_id: int = Field(gt=0)
-    especialidad_esperada: Especialidad | None = None
+    especialidad_esperada: Specialty | None = None
     idempotency_key: str | None = Field(default=None, max_length=80)
 
 
@@ -296,14 +296,14 @@ class RescheduleRequest(BaseModel):
 
 
 class AttendanceRequest(BaseModel):
-    estado: EstadoCita
+    estado: AppointmentState
 
     @model_validator(mode="after")
     def _attendance_states_only(self) -> AttendanceRequest:
-        permitidos = {EstadoCita.EN_ESPERA, EstadoCita.ATENDIDA, EstadoCita.NO_ASISTIO}
+        permitidos = {AppointmentState.WAITING, AppointmentState.ATTENDED, AppointmentState.NO_SHOW}
         if self.estado not in permitidos:
             raise ValueError(
-                "registrar_asistencia solo acepta: " + ", ".join(sorted(str(e) for e in permitidos))
+                "record_attendance solo acepta: " + ", ".join(sorted(str(e) for e in permitidos))
             )
         return self
 
@@ -318,8 +318,8 @@ class OfferSlotRequest(BaseModel):
 
 class JoinWaitingListRequest(BaseModel):
     paciente_id: int = Field(gt=0)
-    especialidad: Especialidad
-    prioridad: PrioridadListaEspera = PrioridadListaEspera.ANTIGUEDAD
+    especialidad: Specialty
+    prioridad: WaitingListPriority = WaitingListPriority.SENIORITY
     notas: str | None = Field(default=None, max_length=300)
 
 
@@ -339,8 +339,8 @@ class BookResponse(Model):
 
 class TransitionResponse(Model):
     cita: AppointmentDetail
-    estado_anterior: EstadoCita
-    estado_nuevo: EstadoCita
+    estado_anterior: AppointmentState
+    estado_nuevo: AppointmentState
     libero_cupo: bool
     genero_cargo: bool
     cargo: ChargeSummary | None = None
@@ -353,8 +353,8 @@ class SlotOfferResponse(Model):
     paciente_id: int
     paciente: str
     telefono: str
-    especialidad: Especialidad
-    prioridad: PrioridadListaEspera
+    especialidad: Specialty
+    prioridad: WaitingListPriority
     posicion_original: int
     slot_id: int
     inicio_local: str

@@ -42,7 +42,7 @@ seen this server authenticate on its own.
 TOKEN=$(uv run python scripts/get_token.py --scope "read")
 npx -y @modelcontextprotocol/inspector --cli http://localhost:8080/mcp \
   --transport http --header "Authorization: Bearer $TOKEN" \
-  --method tools/call --tool-name cancelar_cita \
+  --method tools/call --tool-name cancel_appointment \
   --tool-arg cita_id=1 --tool-arg motivo="prueba de scope"
 ```
 
@@ -51,15 +51,15 @@ model not to retry with the same token.
 
 ### 3 · A `write` token cannot touch clinical data (layer 2)
 
-Same call against `registrar_motivo_consulta` with `--scope "read write"`. Also
+Same call against `record_visit_reason` with `--scope "read write"`. Also
 refused: the scopes do not nest.
 
 ### 4 · A write tool changes nothing on its own (layer 3)
 
 ```bash
 make consola
-› consultar_disponibilidad {"limite": 3}
-› agendar_cita {"paciente_id": 20, "slot_id": SLOT_ID}
+› check_availability {"limite": 3}
+› book_appointment {"paciente_id": 20, "slot_id": SLOT_ID}
 ```
 
 The console prints the question the server sent back instead of a result: the
@@ -80,7 +80,7 @@ no field for it, which is precisely why a model cannot approve on your behalf.
 
 ### 6 · Errors tell you what to do (layer 4)
 
-Call `agendar_cita` on the slot you just took. The error names the three closest
+Call `book_appointment` on the slot you just took. The error names the three closest
 free slots, with times and professionals. That is the difference between an
 agent that recovers on its own turn and one that loops.
 
@@ -97,7 +97,7 @@ the call happened, not the patient's data.
 
 ### 8 · Clinical access needs consent, not just permission
 
-With `--scope "read write clinical"`, propose `registrar_motivo_consulta` on an
+With `--scope "read write clinical"`, propose `record_visit_reason` on an
 appointment belonging to a patient without recorded consent, and confirm it. It
 is refused, every gate open except the patient's own authorisation, which is
 the one that must still stop it.

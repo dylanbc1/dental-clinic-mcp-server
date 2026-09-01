@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend import database
 from backend.database import get_engine, get_session, get_sessionmaker, session_scope
-from backend.enums import Regimen, TipoDocumento
+from backend.enums import DocumentType, Regimen
 from backend.models import Patient
 
 pytestmark = pytest.mark.integration
@@ -28,7 +28,7 @@ def test_scope(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _paciente(documento: str) -> Patient:
     return Patient(
-        tipo_documento=TipoDocumento.CC,
+        tipo_documento=DocumentType.CC,
         documento=documento,
         nombre="Persona de prueba",
         telefono="+57 3001234567",
