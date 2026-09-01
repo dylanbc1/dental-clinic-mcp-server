@@ -50,6 +50,9 @@ smoke: ## End-to-end check against the running stack
 diagrams: ## Re-render every mermaid block to a committed image
 	uv run python scripts/render_diagrams.py
 
+race: ## Ten agents fight for one slot, over the whole stack
+	@uv run python scripts/race.py
+
 probe: ## Block E: the five assumptions the manual checks do not cover
 	uv run python scripts/probe.py
 
@@ -98,5 +101,5 @@ audit: ## Dependency and static security audit
 
 check: lint test audit ## Everything CI runs
 
-.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke probe diagrams consola inspector \
+.PHONY: help install up down reset logs keycloak keycloak-verify migrate seed token smoke probe race diagrams consola inspector \
 	inspector-cli lint fmt test test-fast test-unit test-security test-contract audit check
